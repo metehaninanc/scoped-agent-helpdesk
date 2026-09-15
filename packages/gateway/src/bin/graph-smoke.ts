@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 
 import { loadGatewayEnv } from "../env.js";
 import { CertificateCredential, TokenError } from "../graph/certificate-credential.js";
+import { GraphClient } from "../graph/client.js";
 
 const GRAPH = "https://graph.microsoft.com";
 
@@ -54,6 +55,16 @@ async function main(): Promise<void> {
     throw new Error(`Graph error ${body.error?.code ?? response.status}: ${body.error?.message ?? "no body"}`);
   }
   for (const u of body.value) console.log(`  ${u.id}  ${u.userPrincipalName}  (${u.displayName})`);
+
+  // Second read, through the real client this time: the exact call list_user_groups will make.
+  const first = body.value[0];
+  if (first !== undefined) {
+    const client = new GraphClient({ credential });
+    const groups = await client.listUserGroups(first.userPrincipalName);
+    console.log("");
+    console.log(`GraphClient.listUserGroups(${first.userPrincipalName}) -> ${groups.length} group(s)`);
+    for (const g of groups) console.log(`  ${g.id}  ${g.displayName}`);
+  }
 }
 
 main().catch((error: unknown) => {

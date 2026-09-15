@@ -39,7 +39,7 @@ pnpm typecheck
 | Component            | State                                             |
 | -------------------- | ------------------------------------------------- |
 | 1. Policy engine     | done, tests first: `packages/gateway/src/policy`  |
-| 2. Gateway           | not started                                       |
+| 2. Gateway           | Graph client + credential done; MCP tools next    |
 | 3. Audit log         | done, tests first: `packages/gateway/src/audit`   |
 | 4. Approval store    | not started                                       |
 | 5. Identity agent    | not started                                       |
@@ -95,6 +95,28 @@ pnpm typecheck
   publishing the head hash somewhere the attacker cannot reach), and that is out of scope for
   Sprint 1.
 - Demo: `pnpm verify-audit [path]` prints the log and the verdict, exit code 1 on a break.
+
+### Graph client notes
+
+- `packages/gateway/src/graph/certificate-credential.ts` is the client-credentials flow with a
+  certificate (`private_key_jwt`), hand-rolled on `node:crypto` and `fetch`. No auth library:
+  this is the only package that holds credentials and the flow is short enough to read in
+  full. `getToken(scope)` returns `{ token, expiresAt }`, the same shape as `TokenCredential`,
+  so `@azure/identity` could replace it in one line if that ever becomes worth the tree.
+- `.env` (gitignored, repo root) needs `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`,
+  `AZURE_CERT_THUMBPRINT` (SHA-1, hex) and `AZURE_CERT_PATH` (the PEM private key, outside the
+  repo). Real environment variables override the file. `packages/gateway/src/env.ts` is the
+  only reader of the certificate path.
+- `pnpm graph-smoke` proves the credential with one read call, prints the `roles` claim (so
+  you can see exactly which application permissions the token carries), and then runs the
+  real client's `listUserGroups` on the first user. No writes.
+- `GraphClient` exposes exactly two operations: `listUserGroups` (`memberOf` cast to
+  `microsoft.graph.group`, so directory roles and administrative units are excluded, with
+  paging) and `addUserToGroup` (resolves the user's object id, then `POST /members/$ref`;
+  "already a member" is reported as success with `alreadyMember: true`). Inputs are
+  re-validated with the policy engine's own schemas before they touch a URL.
+- No retry on 429/503 yet. The dev tenant does not throttle at this volume; add Retry-After
+  handling when the gateway is under real load.
 
 ## Sprint 2 items noted during Sprint 1
 
