@@ -200,8 +200,11 @@ The hash chain is two lines of code and it upgrades the log from a table into ev
 index, id and what is wrong with it), or null when the chain is intact. That function is a demo
 on its own.
 
-The chain detects modification and deletion anywhere but the tail. It does not detect truncation
-of the tail; that is what anchoring is for.
+The chain detects modification and deletion anywhere but the tail. To cover the tail, keep a
+head marker (last id, last hash) outside the audit table, updated in the same transaction as
+every append, and have `verifyChain()` report `tail_truncated` when tail and marker disagree.
+That raises the bar; it does not close the gap, since whoever can rewrite the table can rewrite
+the marker. External anchoring is the real fix, and it is not Sprint 1.
 
 Do not put ledger anchoring in Sprint 1. The chain is the part that carries the argument.
 

@@ -4,6 +4,7 @@ export { AUDIT_SCHEMA, ensureAuditSchema } from "./schema.js";
 export {
   AUDIT_DECISIONS,
   type AuditDecision,
+  type AuditHead,
   type AuditInput,
   type AuditRecord,
   type AuditRow,

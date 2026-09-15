@@ -14,7 +14,18 @@ data/              SQLite, gitignored
 
 ## Prerequisites
 
-- Node 22+
+- **Node 22.13 or newer.** The audit log uses the built-in `node:sqlite` module, which was
+  unflagged in Node 22.13.0 ([nodejs/node#55890](https://github.com/nodejs/node/pull/55890)).
+  No flag is needed from 22.13 on. On 22.5 to 22.12 it exists only behind
+  `--experimental-sqlite`; before 22.5 it does not exist. `openDatabase()` checks this at
+  startup and fails with a clear message rather than a cryptic import error.
+  - It still prints `ExperimentalWarning: SQLite is an experimental feature` on 22.x. Run
+    with `--no-warnings=ExperimentalWarning` (the scripts here do) or accept the noise.
+  - The API is marked Stability 1.1 (active development), so pin the Node major on the VPS
+    and re-run the tests after a Node upgrade. Nothing here is native code; there is no
+    build step and no `build-essential` requirement on Linux.
+  - Distro packages are often older than 22.13. On a Linux VPS use the NodeSource 22.x repo,
+    `nvm`, or the official tarball, and check with `node -p "process.versions.node"`.
 - pnpm 12 (`npm install -g pnpm`; corepack cannot write to Program Files on this machine)
 
 ```
@@ -70,10 +81,19 @@ pnpm typecheck
   stored column including the id and the previous hash, computed over the exact JSON strings
   on disk so verification never depends on serialisation order.
 - `verifyChain()` returns the first broken record (`{ index, id, reason }`) or `null`. It
-  detects any modification and any deletion except truncation of the tail with nothing after
-  it. That last case needs an external anchor, deliberately not Sprint 1. Because ids come
-  from `AUTOINCREMENT`, a deleted tail becomes visible as an `id_gap` the moment anything is
+  detects any modification and any deletion in the body of the chain. Because ids come from
+  `AUTOINCREMENT`, a deleted tail becomes visible as an `id_gap` the moment anything is
   appended after it.
+- **Tail truncation and the head marker.** The chain alone cannot see a deleted tail with
+  nothing after it, or a tail rewritten with its hash recomputed, because no successor points
+  at it. So the log keeps a head marker (`audit_head`: last id and last hash) in a separate
+  table, updated in the same transaction as every append, and `verifyChain()` reports
+  `tail_truncated` when the chain tail and the marker disagree, including when the marker
+  itself has been removed. **This raises the bar rather than closing the gap.** An attacker
+  with write access to the database file can rewrite the marker along with the tail, and
+  then nothing inside the file can tell. The real fix is external anchoring (periodically
+  publishing the head hash somewhere the attacker cannot reach), and that is out of scope for
+  Sprint 1.
 - Demo: `pnpm verify-audit [path]` prints the log and the verdict, exit code 1 on a break.
 
 ## Sprint 2 items noted during Sprint 1

@@ -243,11 +243,66 @@ describe("AuditLog", () => {
       expect(log.verifyChain()).toEqual({ index: 2, id: 4, reason: "id_gap" });
     });
 
-    it("does NOT detect a deleted tail with nothing after it; that is what anchoring is for", () => {
+    it("detects a deleted tail with nothing after it, via the head marker", () => {
       for (let i = 0; i < 3; i++) log.append(decision({ requestId: `req-${i}` }));
       disarmTriggers(log);
       log.db.exec("DELETE FROM audit WHERE id = 3");
 
+      // The chain itself is intact up to record 2; only the marker knows record 3 existed.
+      expect(log.verifyChain()).toEqual({ index: 2, id: 3, reason: "tail_truncated" });
+    });
+
+    it("detects a wiped table via the head marker", () => {
+      for (let i = 0; i < 3; i++) log.append(decision({ requestId: `req-${i}` }));
+      disarmTriggers(log);
+      log.db.exec("DELETE FROM audit");
+
+      expect(log.verifyChain()).toEqual({ index: 0, id: 3, reason: "tail_truncated" });
+    });
+
+    it("detects a tail rewritten with a recomputed hash, which no successor can catch", () => {
+      for (let i = 0; i < 3; i++) log.append(decision({ requestId: `req-${i}` }));
+      disarmTriggers(log);
+      const row = { ...log.rows()[2]!, actor: "mallory@contoso.com" };
+      log.db.prepare("UPDATE audit SET actor = ?, hash = ? WHERE id = 3").run(row.actor, computeHash(row));
+
+      expect(log.verifyChain()).toEqual({ index: 2, id: 3, reason: "tail_truncated" });
+    });
+
+    it("detects a removed head marker when records exist", () => {
+      for (let i = 0; i < 3; i++) log.append(decision({ requestId: `req-${i}` }));
+      log.db.exec("DELETE FROM audit_head");
+
+      expect(log.verifyChain()).toEqual({ index: 2, id: 3, reason: "tail_truncated" });
+    });
+
+    it("does NOT detect a tail deletion when the marker is rewritten to match; that is what anchoring is for", () => {
+      for (let i = 0; i < 3; i++) log.append(decision({ requestId: `req-${i}` }));
+      disarmTriggers(log);
+      const survivor = log.rows()[1]!;
+      log.db.exec("DELETE FROM audit WHERE id = 3");
+      log.db.prepare("UPDATE audit_head SET lastId = ?, lastHash = ?").run(survivor.id, survivor.hash);
+
+      expect(log.verifyChain()).toBeNull();
+    });
+  });
+
+  describe("head marker", () => {
+    it("is absent on an empty log and tracks the tail after every append", () => {
+      expect(log.head()).toBeNull();
+
+      const first = log.append(decision());
+      expect(log.head()).toEqual({ lastId: 1, lastHash: first.hash });
+
+      const second = log.append(decision());
+      expect(log.head()).toEqual({ lastId: 2, lastHash: second.hash });
+    });
+
+    it("is not moved by a rejected append", () => {
+      const first = log.append(decision());
+      expect(() => log.append(decision({ decision: "maybe" as AuditInput["decision"] }))).toThrow();
+
+      expect(log.head()).toEqual({ lastId: 1, lastHash: first.hash });
       expect(log.verifyChain()).toBeNull();
     });
   });

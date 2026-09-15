@@ -9,7 +9,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { openDatabase } from "../db.js";
 import { GENESIS_HASH, computeHash } from "./hash.js";
 import { ensureAuditSchema } from "./schema.js";
-import type { AuditInput, AuditRecord, AuditRow, ChainBreak } from "./types.js";
+import type { AuditHead, AuditInput, AuditRecord, AuditRow, ChainBreak } from "./types.js";
 
 export interface AuditLogOptions {
   /** Clock, injectable for tests. Defaults to the system clock. */
@@ -21,6 +21,17 @@ const SELECT_ROWS = "SELECT * FROM audit";
 const INSERT_ROW = `
 INSERT INTO audit (id, timestamp, requestId, actor, agent, tool, parameters, decision, rules, result, prevHash, hash)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+const UPSERT_HEAD = `
+INSERT INTO audit_head (id, lastId, lastHash) VALUES (1, ?, ?)
+ON CONFLICT (id) DO UPDATE SET lastId = excluded.lastId, lastHash = excluded.lastHash`;
+
+function readHead(db: DatabaseSync): AuditHead | null {
+  const row = db.prepare("SELECT lastId, lastHash FROM audit_head WHERE id = 1").get() as
+    | { lastId: number; lastHash: string }
+    | undefined;
+  return row ? { lastId: row.lastId, lastHash: row.lastHash } : null;
+}
 
 function toRecord(row: AuditRow): AuditRecord {
   return {
@@ -93,6 +104,7 @@ export class AuditLog {
           row.prevHash,
           hash,
         );
+      this.db.prepare(UPSERT_HEAD).run(row.id, hash);
       this.db.exec("COMMIT");
       return toRecord({ ...row, hash });
     } catch (error) {
@@ -119,6 +131,11 @@ export class AuditLog {
     return this.db.prepare(`${SELECT_ROWS} ORDER BY id`).all() as unknown as AuditRow[];
   }
 
+  /** The head marker, or null if nothing has ever been appended. */
+  head(): AuditHead | null {
+    return readHead(this.db);
+  }
+
   verifyChain(): ChainBreak | null {
     return verifyChain(this.db);
   }
@@ -131,10 +148,11 @@ export class AuditLog {
 /**
  * Walk the whole log and return the first record that breaks the chain, or null if it is
  * intact. Checks, per record and in this order: its own hash, its link to the predecessor,
- * and that no id was skipped.
+ * and that no id was skipped. Then compares the tail against the head marker.
  *
- * Detects any modification, and any deletion except of the tail with nothing after it.
- * Tail truncation needs an external anchor, which is deliberately not Sprint 1.
+ * Detects any modification and any deletion, including of the tail, as long as the head
+ * marker was not rewritten to match. Against an attacker who rewrites the marker too, only
+ * an external anchor helps, and that is deliberately not Sprint 1.
  */
 export function verifyChain(db: DatabaseSync): ChainBreak | null {
   const rows = db.prepare(`${SELECT_ROWS} ORDER BY id`).all() as unknown as AuditRow[];
@@ -151,5 +169,18 @@ export function verifyChain(db: DatabaseSync): ChainBreak | null {
     expectedPrevHash = hash;
     expectedId = row.id + 1;
   }
-  return null;
+
+  const head = readHead(db);
+  const tail = rows.at(-1);
+
+  if (tail === undefined) {
+    return head === null ? null : { index: 0, id: head.lastId, reason: "tail_truncated" };
+  }
+  if (head === null || head.lastId <= tail.id) {
+    // Marker missing, or it names the current tail (or earlier) but with a different hash.
+    if (head !== null && head.lastId === tail.id && head.lastHash === tail.hash) return null;
+    return { index: rows.length - 1, id: tail.id, reason: "tail_truncated" };
+  }
+  // Marker is ahead of the tail: records were removed from the end.
+  return { index: rows.length, id: head.lastId, reason: "tail_truncated" };
 }

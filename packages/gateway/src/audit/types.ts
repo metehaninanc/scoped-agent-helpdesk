@@ -65,13 +65,19 @@ export interface AuditRow {
   hash: string;
 }
 
-export type ChainBreakReason = "hash_mismatch" | "prev_hash_mismatch" | "id_gap";
+export type ChainBreakReason = "hash_mismatch" | "prev_hash_mismatch" | "id_gap" | "tail_truncated";
 
 /** The first record at which the chain fails, and why. */
 export interface ChainBreak {
-  /** 0-based position in id order. */
+  /** 0-based position in id order. For a truncated tail, the position the record should be at. */
   index: number;
-  /** The record's id. */
+  /** The record's id. For a truncated tail, the id the marker says should be there. */
   id: number;
   reason: ChainBreakReason;
+}
+
+/** The head marker: what the last record should be. */
+export interface AuditHead {
+  lastId: number;
+  lastHash: string;
 }

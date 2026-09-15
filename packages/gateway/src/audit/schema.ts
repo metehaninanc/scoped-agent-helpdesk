@@ -29,6 +29,16 @@ CREATE TABLE IF NOT EXISTS audit (
 
 CREATE INDEX IF NOT EXISTS audit_requestId ON audit (requestId);
 
+-- Head marker: the id and hash of the last record, kept outside the audit table and updated
+-- in the same transaction as every append. verifyChain() compares the chain tail against it,
+-- so deleting the tail (which the chain alone cannot see) becomes visible. This raises the
+-- bar; an attacker who rewrites the marker too is not caught. External anchoring is the fix.
+CREATE TABLE IF NOT EXISTS audit_head (
+  id          INTEGER PRIMARY KEY CHECK (id = 1),
+  lastId      INTEGER NOT NULL,
+  lastHash    TEXT    NOT NULL
+);
+
 CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit
 BEGIN
   SELECT RAISE(ABORT, 'audit log is append only');
