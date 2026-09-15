@@ -1,0 +1,16 @@
+{
+  "name": "@helpdesk/gateway",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Identity gateway: MCP server, policy engine, Graph client, audit log. The only package that holds credentials.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  }
+}
