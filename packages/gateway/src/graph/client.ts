@@ -86,6 +86,23 @@ export class GraphClient {
     return groups;
   }
 
+  /**
+   * GET /groups/{id}?$select=id,displayName. Null when the group does not exist. Used once at
+   * startup to check the managed group allowlist against the tenant; never inside decide().
+   */
+  async getGroup(groupId: string): Promise<GroupSummary | null> {
+    const group = groupIdSchema.parse(groupId);
+    try {
+      const found: { id: string; displayName?: string | null } = await this.request(
+        `${this.baseUrl}/groups/${encodeURIComponent(group)}?$select=id,displayName`,
+      );
+      return { id: found.id, displayName: found.displayName ?? "" };
+    } catch (error) {
+      if (error instanceof GraphError && error.status === 404) return null;
+      throw error;
+    }
+  }
+
   /** GET /users/{upn}?$select=id */
   async getUserId(userPrincipalName: string): Promise<string> {
     const upn = upnSchema.parse(userPrincipalName);

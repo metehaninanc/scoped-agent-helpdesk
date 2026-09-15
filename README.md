@@ -54,11 +54,19 @@ pnpm typecheck
   reason rather than the first one.
 - Break glass applies to reads as well as writes: `list_user_groups` on a break glass account
   is denied.
-- `config.ts` still holds placeholder break glass UPNs and an empty managed group list. Until
-  the Azure setup in SPRINT1.md is done and those are filled in, every `add_user_to_group` is
-  denied by `deny.group_not_managed`, which is the correct default. The config is
-  shape-checked when the module loads: a break glass entry that is not a UPN, or a group entry
-  that is not a GUID, throws at startup rather than silently denying everything.
+- **Policy config lives in `config.ts`, in version control, and nowhere else.** The break
+  glass list and the managed group allowlist are security policy, not environment
+  configuration. In git, a change to either is reviewable and attributable: who widened the
+  allowlist, when, and in which commit. In `.env` it would leave no trace, which is the wrong
+  property for a control this project is built to defend. There is no environment override.
+  - The config is shape-checked when the module loads: a break glass entry that is not a
+    UPN, or a group entry that is not a GUID, throws at startup rather than silently denying
+    everything.
+  - Display names sit next to ids so the file reads well in review. The engine ignores them.
+    At startup the gateway checks each configured group against Graph once
+    (`startup/verify-managed-groups.ts`) and logs a warning if a group has been deleted or
+    renamed. The allowlist is not changed by that check; fix it in a commit. The check never
+    runs inside `decide()`.
 - **The directory role id list is a labelling aid, not a security boundary.** The managed
   group allowlist is what actually stops the call: anything not on it is denied, full stop. The
   role table in `directory-roles.ts` exists so that a request targeting a known role is denied
@@ -103,7 +111,7 @@ pnpm typecheck
   this is the only package that holds credentials and the flow is short enough to read in
   full. `getToken(scope)` returns `{ token, expiresAt }`, the same shape as `TokenCredential`,
   so `@azure/identity` could replace it in one line if that ever becomes worth the tree.
-- `.env` (gitignored, repo root) needs `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`,
+- `.env` (gitignored, repo root; see `.env.example`) needs `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`,
   `AZURE_CERT_THUMBPRINT` (SHA-1, hex) and `AZURE_CERT_PATH` (the PEM private key, outside the
   repo). Real environment variables override the file. `packages/gateway/src/env.ts` is the
   only reader of the certificate path.

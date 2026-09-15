@@ -124,6 +124,35 @@ describe("GraphClient", () => {
     });
   });
 
+  describe("getGroup()", () => {
+    const url = `GET ${BASE}/groups/${MARKETING}?$select=id,displayName`;
+
+    it("returns id and displayName for an existing group", async () => {
+      const { client } = fakeGraph({ [url]: () => json(200, { id: MARKETING, displayName: "Marketing" }) });
+      expect(await client.getGroup(MARKETING)).toEqual({ id: MARKETING, displayName: "Marketing" });
+    });
+
+    it("returns null, not an error, when the group does not exist", async () => {
+      const { client } = fakeGraph({
+        [url]: () => graphError(404, "Request_ResourceNotFound", "Resource does not exist."),
+      });
+      expect(await client.getGroup(MARKETING)).toBeNull();
+    });
+
+    it("still throws on anything other than 404", async () => {
+      const { client } = fakeGraph({
+        [url]: () => graphError(403, "Authorization_RequestDenied", "Insufficient privileges."),
+      });
+      await expect(client.getGroup(MARKETING)).rejects.toMatchObject({ status: 403 });
+    });
+
+    it("refuses a group id that is not a GUID before touching the network", async () => {
+      const { client, fetch } = fakeGraph({});
+      await expect(client.getGroup("Marketing")).rejects.toThrow(/group object id/i);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+
   describe("getUserId()", () => {
     it("resolves a UPN to the user's object id", async () => {
       const { client } = fakeGraph({
