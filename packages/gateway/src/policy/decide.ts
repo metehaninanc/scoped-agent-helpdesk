@@ -28,7 +28,9 @@ interface PolicyRule {
 
 const lower = (s: string): string => s.toLowerCase();
 
-const targetUser = (request: ValidatedToolRequest): string => lower(request.params.userPrincipalName);
+/** Undefined for tools that name no user, so user rules do not apply to them. */
+const targetUser = (request: ValidatedToolRequest): string | undefined =>
+  "userPrincipalName" in request.params ? lower(request.params.userPrincipalName) : undefined;
 
 /** Only add_user_to_group has a target group. Undefined means "no group rule applies". */
 const targetGroup = (request: ValidatedToolRequest): string | undefined =>
@@ -51,7 +53,10 @@ const denyRules: readonly PolicyRule[] = [
   },
   {
     id: Rule.DenyBreakGlassUser,
-    matches: (request, _context, config) => includesIgnoringCase(config.breakGlassUsers, targetUser(request)),
+    matches: (request, _context, config) => {
+      const user = targetUser(request);
+      return user !== undefined && includesIgnoringCase(config.breakGlassUsers, user);
+    },
   },
   {
     id: Rule.DenyGroupNotManaged,
@@ -75,6 +80,11 @@ const autonomousRules: readonly PolicyRule[] = [
   {
     id: Rule.AutonomousListUserGroups,
     matches: (request) => request.tool === "list_user_groups",
+  },
+  {
+    // Reads the allowlist from config; no Graph call, no target. Audited like everything else.
+    id: Rule.AutonomousListManagedGroups,
+    matches: (request) => request.tool === "list_managed_groups",
   },
 ];
 

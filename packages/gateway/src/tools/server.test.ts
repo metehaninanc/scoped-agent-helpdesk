@@ -56,17 +56,28 @@ describe("gateway MCP server", () => {
     audit.close();
   });
 
-  it("identifies itself and advertises exactly the two tools with closed schemas", async () => {
+  it("identifies itself and advertises exactly the three tools with closed schemas and no ids", async () => {
     expect(client.getServerVersion()?.name).toBe(GATEWAY_NAME);
 
     const { tools } = await client.listTools();
 
-    expect(tools.map((t) => t.name)).toEqual(["list_user_groups", "add_user_to_group"]);
+    expect(tools.map((t) => t.name)).toEqual(["list_user_groups", "list_managed_groups", "add_user_to_group"]);
     for (const tool of tools) {
       expect(tool.description).toBeTruthy();
       expect(tool.inputSchema.additionalProperties).toBe(false);
+      expect(tool.description).not.toContain(MARKETING);
     }
-    expect(tools[1]?.description).toContain(`- Marketing: ${MARKETING}`);
+  });
+
+  it("serves the allowlist through list_managed_groups and audits the lookup", async () => {
+    const result = await client.callTool({ name: "list_managed_groups", arguments: {} });
+
+    expect(result.isError).toBeFalsy();
+    expect(textOf(result)).toEqual({ status: "ok", groups: [{ id: MARKETING, displayName: "Marketing" }] });
+    expect(audit.list().map((r) => [r.tool, r.decision])).toEqual([
+      ["list_managed_groups", "autonomous"],
+      ["list_managed_groups", "autonomous"],
+    ]);
   });
 
   it("runs an autonomous call end to end and audits it twice", async () => {

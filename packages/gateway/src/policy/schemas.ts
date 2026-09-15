@@ -26,6 +26,7 @@ export const groupId = z.guid("must be an Entra group object id");
 
 export const toolParamSchemas = {
   list_user_groups: z.strictObject({ userPrincipalName }),
+  list_managed_groups: z.strictObject({}),
   add_user_to_group: z.strictObject({ userPrincipalName, groupId }),
 } as const;
 

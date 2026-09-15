@@ -17,7 +17,7 @@ export const GATEWAY_VERSION = "0.1.0";
 export function createGatewayServer(session: SessionContext, deps: GatewayDeps): Server {
   const server = new Server({ name: GATEWAY_NAME, version: GATEWAY_VERSION }, { capabilities: { tools: {} } });
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: toolDefinitions(deps.config) }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: toolDefinitions() }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
     try {

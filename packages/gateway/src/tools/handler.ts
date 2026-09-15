@@ -79,8 +79,10 @@ export async function handleToolCall(
   const decide = deps.decide ?? defaultDecide;
   const now = deps.now ?? (() => new Date());
 
-  // 1. Validate. The typed request is only used on the paths that act.
-  const request: ToolRequest = { tool, params: args };
+  // 1. Validate. The typed request is only used on the paths that act. MCP clients may omit
+  // `arguments` entirely for a tool that takes none; that is the empty parameter set.
+  const params: unknown = args === undefined ? {} : args;
+  const request: ToolRequest = { tool, params };
   const parsed = parseToolRequest(request);
 
   // 2. Decide. decide() re-validates and denies anything malformed by name.
@@ -94,7 +96,7 @@ export async function handleToolCall(
     actor: session.actor,
     agent: session.agent,
     tool,
-    parameters: args,
+    parameters: params,
   };
   deps.audit.append({ ...base, decision: decision.outcome, rules });
 
@@ -121,7 +123,7 @@ export async function handleToolCall(
   // autonomous
   let output: ToolOutput;
   try {
-    output = await execute(parsed.request, deps.graph);
+    output = await execute(parsed.request, deps);
   } catch (error) {
     output = describeError(error);
   }
@@ -129,14 +131,18 @@ export async function handleToolCall(
   return reply(output, output.status === "error");
 }
 
-async function execute(request: ValidatedToolRequest, graph: GatewayDeps["graph"]): Promise<ToolOutput> {
+async function execute(request: ValidatedToolRequest, deps: GatewayDeps): Promise<ToolOutput> {
   switch (request.tool) {
     case "list_user_groups":
-      return { status: "ok", groups: await graph.listUserGroups(request.params.userPrincipalName) };
+      return { status: "ok", groups: await deps.graph.listUserGroups(request.params.userPrincipalName) };
+    case "list_managed_groups":
+      // The allowlist, from config. No Graph call. Audited like any other tool call, so the
+      // log shows when the agent asked what it could see.
+      return { status: "ok", groups: deps.config.managedGroups.map((g) => ({ id: g.id, displayName: g.displayName })) };
     case "add_user_to_group":
       // Not reachable in Sprint 1: add_user_to_group always needs approval. Kept so the
       // branch is honest if the policy ever changes.
-      await graph.addUserToGroup(request.params.userPrincipalName, request.params.groupId);
+      await deps.graph.addUserToGroup(request.params.userPrincipalName, request.params.groupId);
       return { status: "executed" };
   }
 }

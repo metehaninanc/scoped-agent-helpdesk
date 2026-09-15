@@ -163,6 +163,39 @@ describe("handleToolCall()", () => {
 
   // -------------------------------------------------------------------------
 
+  describe("autonomous: list_managed_groups", () => {
+    it("returns the allowlist from config, calls no Graph, and is audited twice like any tool", async () => {
+      const result = await handleToolCall("list_managed_groups", {}, session, deps);
+
+      expect(result.isError).toBeFalsy();
+      expect(payload(result)).toEqual({ status: "ok", groups: [{ id: MARKETING, displayName: "Marketing" }] });
+      expect(graph.listUserGroups).not.toHaveBeenCalled();
+      expect(graph.addUserToGroup).not.toHaveBeenCalled();
+
+      const records = audit.list();
+      expect(records).toHaveLength(2);
+      expect(records[0]).toMatchObject({ tool: "list_managed_groups", decision: "autonomous", parameters: {}, result: null });
+      expect(records[1]).toMatchObject({
+        tool: "list_managed_groups",
+        decision: "autonomous",
+        result: { status: "ok", groups: [{ id: MARKETING, displayName: "Marketing" }] },
+      });
+    });
+
+    it("treats a missing arguments object as the empty parameter set", async () => {
+      const result = await handleToolCall("list_managed_groups", undefined, session, deps);
+      expect(payload(result)).toMatchObject({ status: "ok" });
+    });
+
+    it("denies and audits a call that smuggles parameters in", async () => {
+      const result = await handleToolCall("list_managed_groups", { groupId: MARKETING }, session, deps);
+      expect(payload(result)).toMatchObject({ status: "denied", rules: [Rule.DenyMalformedParameters] });
+      expect(audit.list()).toHaveLength(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+
   describe("approval: add_user_to_group", () => {
     it("creates an approval record, calls nothing, and returns pending_approval", async () => {
       const result = await handleToolCall(

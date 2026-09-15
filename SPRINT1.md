@@ -115,6 +115,7 @@ Rules for Sprint 1, evaluated in this order. First match wins.
 
 **Autonomous:**
 - `list_user_groups` when the target is any user in the tenant.
+- `list_managed_groups`, always. It reads the allowlist from config and touches nothing.
 
 Everything not matched by a rule is denied. The default is refusal, not permission.
 
@@ -128,14 +129,24 @@ Tests to write before the implementation:
 
 ## Component 2: gateway (MCP server)
 
-Exposes exactly two tools. Every result is a JSON object with a `status` discriminator, so the
-agent reads one shape for every outcome.
+Exposes exactly three tools: two reads and one write. Every result is a JSON object with a
+`status` discriminator, so the agent reads one shape for every outcome.
 
 ### `list_user_groups`
 Input: `{ userPrincipalName: string }`
 Output: `{ status: "ok", groups: [{ id, displayName }] }`
 Graph: `GET /users/{upn}/memberOf/microsoft.graph.group` (groups only; roles and administrative
 units are not groups)
+
+### `list_managed_groups`
+Input: none
+Output: `{ status: "ok", groups: [{ id, displayName }] }`, straight from the policy config
+Graph: none
+
+The allowlist is protected data and must not be embedded in a tool description: that would put
+protected resources into the model's context on every turn, and it does not scale past a handful
+of groups. A tool call, by contrast, goes through the same call order as everything else and
+lands in the audit log, so "the agent asked what it could see" is itself evidence.
 
 ### `add_user_to_group`
 Input: `{ userPrincipalName: string, groupId: string }`
@@ -172,9 +183,9 @@ Tool descriptions matter. They go into the model prompt, so write them as behavi
 documentation. Keep them in one file (`tools/descriptions.ts`) and pin the load-bearing phrases
 with tests, so a rewrite is deliberate. `add_user_to_group` must describe `pending_approval` as
 its normal, successful result, and tell the agent to report it plainly, give the requester the
-approval id, and stop: no retry, no other tool, no claim that the change was made. Its
-description also lists the managed groups by name and id, generated from the policy config, so
-the agent can turn "the Marketing group" into a group id without a lookup tool.
+approval id, and stop: no retry, no other tool, no claim that the change was made. It must tell
+the agent to call `list_managed_groups` to turn a group name into an id, and never to guess one.
+Descriptions are static text: they take no configuration and contain no ids.
 
 ---
 

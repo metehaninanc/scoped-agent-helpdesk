@@ -57,6 +57,17 @@ describe("decide()", () => {
     it("lets list_user_groups run for any user in the tenant", () => {
       expect(decide(listGroups(ALICE), context, config)).toEqual({ outcome: "autonomous" });
     });
+
+    it("lets list_managed_groups run; it has no target and touches nothing", () => {
+      expect(decide({ tool: "list_managed_groups", params: {} }, context, config)).toEqual({ outcome: "autonomous" });
+    });
+
+    it("denies list_managed_groups if it is handed parameters it does not take", () => {
+      expect(decide({ tool: "list_managed_groups", params: { userPrincipalName: ALICE } }, context, config)).toEqual({
+        outcome: "denied",
+        rules: [Rule.DenyMalformedParameters],
+      });
+    });
   });
 
   describe("approval", () => {

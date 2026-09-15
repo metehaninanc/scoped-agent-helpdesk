@@ -128,11 +128,16 @@ pnpm typecheck
 
 ### Gateway notes
 
+- Three tools: `list_user_groups`, `list_managed_groups`, `add_user_to_group`.
 - `packages/gateway/src/tools/descriptions.ts` is the whole prompt surface: tool names,
   descriptions and parameter descriptions, in one file. `descriptions.test.ts` pins the
   load-bearing phrases (pending is success, stop and report, do not route around a denial), so
-  a rewrite has to touch the test in the same commit. The `add_user_to_group` description
-  lists the managed groups by name and id, generated from `config.ts`.
+  a rewrite has to touch the test in the same commit.
+- **The allowlist is not in the prompt.** Descriptions are static text with no ids in them
+  (a test enforces this). The agent resolves a group name by calling `list_managed_groups`,
+  which goes through the full call order and is audited, so the log also shows when the agent
+  asked what it could see. Embedding the list in a description would put protected resources
+  into the model's context and would not scale past a handful of groups.
 - `tools/handler.ts` is the call order from SPRINT1.md: validate, `decide()`, commit the audit
   record, then branch. The tests prove the ordering by having the fake Graph inspect the audit
   log at the moment it is called. Malformed input and unknown tools are audited as denials with

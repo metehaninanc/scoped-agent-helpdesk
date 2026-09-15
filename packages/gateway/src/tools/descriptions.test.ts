@@ -1,21 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { PolicyConfig } from "../policy/types.js";
 import { TOOL_NAMES, toolDefinitions, toolDescription, toolInputSchema } from "./descriptions.js";
 
-const config: PolicyConfig = {
-  breakGlassUsers: ["breakglass1@contoso.com"],
-  managedGroups: [
-    { id: "20a26e53-1cbd-48e3-8cc4-8d86cece7a6a", displayName: "Marketing" },
-    { id: "88981a1a-1f6b-438c-9475-26b7c619dce0", displayName: "Finance" },
-  ],
-  directoryRoleIds: [],
-};
-
 describe("tool definitions", () => {
-  it("exposes exactly the two Sprint 1 tools", () => {
-    expect(TOOL_NAMES).toEqual(["list_user_groups", "add_user_to_group"]);
-    expect(toolDefinitions(config).map((t) => t.name)).toEqual(["list_user_groups", "add_user_to_group"]);
+  it("exposes exactly the three Sprint 1 tools, reads before the write", () => {
+    expect(TOOL_NAMES).toEqual(["list_user_groups", "list_managed_groups", "add_user_to_group"]);
+    expect(toolDefinitions().map((t) => t.name)).toEqual(TOOL_NAMES);
   });
 
   it("advertises a minimal, closed input schema with a description per parameter", () => {
@@ -23,21 +13,40 @@ describe("tool definitions", () => {
       type: "object",
       properties: {
         userPrincipalName: { type: "string", description: expect.stringContaining("alice@contoso.com") },
-        groupId: { type: "string", description: expect.stringContaining("managed groups") },
+        groupId: { type: "string", description: expect.stringContaining("list_managed_groups") },
       },
       required: ["userPrincipalName", "groupId"],
       additionalProperties: false,
     });
     expect(toolInputSchema("list_user_groups").required).toEqual(["userPrincipalName"]);
+    expect(toolInputSchema("list_managed_groups")).toEqual({
+      type: "object",
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    });
     // No regex leaks into the prompt: the gateway validates, the model just needs the shape.
     expect(JSON.stringify(toolInputSchema("list_user_groups"))).not.toContain("pattern");
+  });
+
+  it("puts no protected resource into the prompt: descriptions are static text with no ids in them", () => {
+    // The allowlist is looked up through list_managed_groups, and that lookup is audited.
+    // A description that embedded it would make protected resources part of the model's
+    // context and would not scale past a handful of groups.
+    const guid = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+    for (const tool of toolDefinitions()) {
+      expect(tool.description, tool.name).not.toMatch(guid);
+      expect(JSON.stringify(tool.inputSchema), tool.name).not.toMatch(guid);
+    }
+    // And there is no way to feed it one: descriptions take no configuration.
+    expect(toolDescription.length).toBe(1);
   });
 });
 
 // These pin the behavioural phrases. Changing the wording is allowed; changing it without
 // noticing is not. Update the test in the same commit as the description.
 describe("add_user_to_group description", () => {
-  const text = toolDescription("add_user_to_group", config);
+  const text = toolDescription("add_user_to_group");
 
   it("presents pending_approval as the normal, successful result", () => {
     expect(text).toContain("pending_approval");
@@ -61,19 +70,29 @@ describe("add_user_to_group description", () => {
     expect(text).toContain("Do not retry with different parameters");
   });
 
-  it("lists the managed groups by name and id so the agent can resolve a group name", () => {
-    expect(text).toContain("- Marketing: 20a26e53-1cbd-48e3-8cc4-8d86cece7a6a");
-    expect(text).toContain("- Finance: 88981a1a-1f6b-438c-9475-26b7c619dce0");
-    expect(text).toContain("the only valid values for groupId");
+  it("sends the agent to list_managed_groups to resolve a group name", () => {
+    expect(text).toContain("call list_managed_groups");
+    expect(text).toContain("Do not guess a group id");
+  });
+});
+
+describe("list_managed_groups description", () => {
+  const text = toolDescription("list_managed_groups");
+
+  it("says what it returns, that it takes nothing, and that it changes nothing", () => {
+    expect(text).toContain("Takes no parameters");
+    expect(text).toContain("changes nothing");
+    expect(text).toContain("{ id, displayName }");
   });
 
-  it("says so when no groups are managed", () => {
-    expect(toolDescription("add_user_to_group", { ...config, managedGroups: [] })).toContain("none configured");
+  it("frames it as the way to resolve a name for add_user_to_group", () => {
+    expect(text).toContain("add_user_to_group");
+    expect(text).toContain("the only groups add_user_to_group can target");
   });
 });
 
 describe("list_user_groups description", () => {
-  const text = toolDescription("list_user_groups", config);
+  const text = toolDescription("list_user_groups");
 
   it("states that it runs without approval and changes nothing", () => {
     expect(text).toContain("Runs without approval and changes nothing.");
