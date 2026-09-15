@@ -9,7 +9,8 @@
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm -r --if-present typecheck",
     "build": "pnpm -r --if-present build",
-    "verify-audit": "pnpm --filter @helpdesk/gateway build && node --no-warnings=ExperimentalWarning packages/gateway/dist/bin/verify-audit.js"
+    "verify-audit": "pnpm --filter @helpdesk/gateway build && node --no-warnings=ExperimentalWarning packages/gateway/dist/bin/verify-audit.js",
+    "graph-smoke": "pnpm --filter @helpdesk/gateway build && node --no-warnings=ExperimentalWarning packages/gateway/dist/bin/graph-smoke.js"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
