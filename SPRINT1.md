@@ -128,34 +128,53 @@ Tests to write before the implementation:
 
 ## Component 2: gateway (MCP server)
 
-Exposes exactly two tools.
+Exposes exactly two tools. Every result is a JSON object with a `status` discriminator, so the
+agent reads one shape for every outcome.
 
 ### `list_user_groups`
 Input: `{ userPrincipalName: string }`
-Output: array of `{ id, displayName }`
-Graph: `GET /users/{upn}/memberOf`
+Output: `{ status: "ok", groups: [{ id, displayName }] }`
+Graph: `GET /users/{upn}/memberOf/microsoft.graph.group` (groups only; roles and administrative
+units are not groups)
 
 ### `add_user_to_group`
 Input: `{ userPrincipalName: string, groupId: string }`
 Output: either `{ status: "executed" }` or `{ status: "pending_approval", approvalId: string }`
 Graph: `POST /groups/{id}/members/$ref`
 
+Both tools can also return `{ status: "denied", rules, message }` (policy refused; nothing was
+called) and `{ status: "error", code, message }` (Graph or the gateway failed; the agent reports
+it as given). Denied is a normal result, not a protocol error: a refusal is an answer.
+
+**Identity binding.** One gateway process per agent session. The requesting user's UPN, the
+agent name and the session `requestId` are passed as process arguments when the agent runtime
+spawns the gateway (`--actor`, `--agent`, `--request-id`). They are never tool parameters:
+nothing the model sends can change who the gateway is acting for. HTTP transport with per agent
+OAuth replaces this in Sprint 2.
+
 Call order inside every tool handler, without exception:
 
-1. Validate input shape. Reject early on anything unexpected.
-2. Call `decide()`.
-3. Write an audit record for the decision, whatever it is.
+1. Validate input shape.
+2. Call `decide()`. Malformed input and unknown tool names are not rejected before this step;
+   `decide()` denies them by name, so they are audited like everything else, raw input included.
+3. Commit an audit record for the decision, whatever it is. Synchronous, transactional.
 4. Branch:
-   - autonomous, call Graph, write a second audit record with the result
+   - autonomous, call Graph, write a second audit record with the result (success or error)
    - approval, create an approval record, generate the rationale, return pending
-   - denied, return a refusal that names the rule, call nothing
+   - denied, return a refusal that names the rules, call nothing
 
-Step 3 happens before step 4. The audit record for a denied call must exist even if the process
-crashes immediately afterward.
+Step 3 completes before step 4 starts. The audit record for a decision must be on disk before
+any Graph call, so a crash mid-execution still leaves evidence of what was decided. If the audit
+write itself fails, the handler does nothing else and the agent is told the gateway is
+unavailable.
 
 Tool descriptions matter. They go into the model prompt, so write them as behaviour, not as
-documentation. State plainly that `add_user_to_group` may return a pending status and that the
-agent must report that honestly rather than retrying.
+documentation. Keep them in one file (`tools/descriptions.ts`) and pin the load-bearing phrases
+with tests, so a rewrite is deliberate. `add_user_to_group` must describe `pending_approval` as
+its normal, successful result, and tell the agent to report it plainly, give the requester the
+approval id, and stop: no retry, no other tool, no claim that the change was made. Its
+description also lists the managed groups by name and id, generated from the policy config, so
+the agent can turn "the Marketing group" into a group id without a lookup tool.
 
 ---
 

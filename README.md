@@ -39,9 +39,9 @@ pnpm typecheck
 | Component            | State                                             |
 | -------------------- | ------------------------------------------------- |
 | 1. Policy engine     | done, tests first: `packages/gateway/src/policy`  |
-| 2. Gateway           | Graph client + credential done; MCP tools next    |
+| 2. Gateway           | done, tests first: `packages/gateway/src/tools`   |
 | 3. Audit log         | done, tests first: `packages/gateway/src/audit`   |
-| 4. Approval store    | not started                                       |
+| 4. Approval store    | create/read done; rationale + decision flow next  |
 | 5. Identity agent    | not started                                       |
 | 6. Web               | not started                                       |
 
@@ -125,6 +125,27 @@ pnpm typecheck
   re-validated with the policy engine's own schemas before they touch a URL.
 - No retry on 429/503 yet. The dev tenant does not throttle at this volume; add Retry-After
   handling when the gateway is under real load.
+
+### Gateway notes
+
+- `packages/gateway/src/tools/descriptions.ts` is the whole prompt surface: tool names,
+  descriptions and parameter descriptions, in one file. `descriptions.test.ts` pins the
+  load-bearing phrases (pending is success, stop and report, do not route around a denial), so
+  a rewrite has to touch the test in the same commit. The `add_user_to_group` description
+  lists the managed groups by name and id, generated from `config.ts`.
+- `tools/handler.ts` is the call order from SPRINT1.md: validate, `decide()`, commit the audit
+  record, then branch. The tests prove the ordering by having the fake Graph inspect the audit
+  log at the moment it is called. Malformed input and unknown tools are audited as denials with
+  the raw input as evidence, not rejected at the protocol layer.
+- Built on the SDK's low-level `Server`, not `McpServer.registerTool`, because the latter
+  validates arguments before the handler runs and a rejected call would never be audited.
+- Every result is `{ status: ... }`. `denied` and `pending_approval` are normal results, not
+  errors; only a Graph or gateway failure sets `isError`.
+- One gateway process per agent session, identity bound at spawn:
+  `node packages/gateway/dist/bin/gateway.js --actor <upn> --request-id <id> [--agent <name>] [--db <path>]`.
+  stdout is the MCP channel; all logging goes to stderr. Startup runs the managed-group check
+  against Graph and warns on a mismatch.
+- Manual run from the repo root: `pnpm gateway -- --actor alice@contoso.com --request-id test-1`.
 
 ## Sprint 2 items noted during Sprint 1
 

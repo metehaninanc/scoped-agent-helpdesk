@@ -20,6 +20,8 @@ export const gatewayEnvSchema = z.object({
   AZURE_CERT_PATH: z.string().min(1),
   /** SHA-1 thumbprint, 40 hex characters, as the portal shows it. */
   AZURE_CERT_THUMBPRINT: z.string().regex(/^[0-9a-f]{40}$/i, "must be a 40-character hex SHA-1 thumbprint"),
+  /** Optional. SQLite file for the audit log and approvals. Default: data/helpdesk.db. */
+  HELPDESK_DB_PATH: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
 });
 
 export type GatewayEnv = z.infer<typeof gatewayEnvSchema>;
