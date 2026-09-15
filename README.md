@@ -29,7 +29,7 @@ pnpm typecheck
 | -------------------- | ------------------------------------------------- |
 | 1. Policy engine     | done, tests first: `packages/gateway/src/policy`  |
 | 2. Gateway           | not started                                       |
-| 3. Audit log         | not started                                       |
+| 3. Audit log         | done, tests first: `packages/gateway/src/audit`   |
 | 4. Approval store    | not started                                       |
 | 5. Identity agent    | not started                                       |
 | 6. Web               | not started                                       |
@@ -58,6 +58,23 @@ pnpm typecheck
 - `decide()` never reads the clock or any source of randomness. Time arrives only through
   `RequestContext.timestamp`. The purity tests enforce this both at runtime (a trapped `Date`)
   and statically (a grep of the policy sources).
+
+### Audit log notes
+
+- `node:sqlite` (built into Node 22, no native build step). `openDatabase()` in
+  `packages/gateway/src/db.ts` is the one connection opener; approvals will share the file.
+- `AuditLog.append()` is synchronous and transactional. When it returns, the record is
+  committed. The gateway's "audit first, then act" ordering depends on that.
+- Append only is enforced twice: `BEFORE UPDATE` / `BEFORE DELETE` triggers stop an honest bug,
+  and the sha256 hash chain catches anyone who drops the triggers. Each hash covers every
+  stored column including the id and the previous hash, computed over the exact JSON strings
+  on disk so verification never depends on serialisation order.
+- `verifyChain()` returns the first broken record (`{ index, id, reason }`) or `null`. It
+  detects any modification and any deletion except truncation of the tail with nothing after
+  it. That last case needs an external anchor, deliberately not Sprint 1. Because ids come
+  from `AUTOINCREMENT`, a deleted tail becomes visible as an `id_gap` the moment anything is
+  appended after it.
+- Demo: `pnpm verify-audit [path]` prints the log and the verdict, exit code 1 on a break.
 
 ## Sprint 2 items noted during Sprint 1
 

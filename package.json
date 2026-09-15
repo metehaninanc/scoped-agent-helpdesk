@@ -8,7 +8,8 @@
   "scripts": {
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm -r --if-present typecheck",
-    "build": "pnpm -r --if-present build"
+    "build": "pnpm -r --if-present build",
+    "verify-audit": "pnpm --filter @helpdesk/gateway build && node --no-warnings packages/gateway/dist/bin/verify-audit.js"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
