@@ -1,6 +1,6 @@
 # Sprint 1 — The Spine
 
-One request path, working end to end. Two tools, one policy engine, one audit log, one agent.
+One request path, working end to end. Three tools, one policy engine, one audit log, one agent.
 Everything else waits.
 
 This document is the build contract. Read it before writing code, and re-read it when a decision
@@ -153,7 +153,7 @@ Input: `{ userPrincipalName: string, groupId: string }`
 Output: either `{ status: "executed" }` or `{ status: "pending_approval", approvalId: string }`
 Graph: `POST /groups/{id}/members/$ref`
 
-Both tools can also return `{ status: "denied", rules, message }` (policy refused; nothing was
+All three tools can also return `{ status: "denied", rules, message }` (policy refused; nothing was
 called) and `{ status: "error", code, message }` (Graph or the gateway failed; the agent reports
 it as given). Denied is a normal result, not a protocol error: a refusal is an answer.
 
@@ -205,6 +205,13 @@ Because the table is append only, what happened afterwards is a further record u
 - each Graph call: one more record with the same `tool` and `decision`, and `result` filled in
 - session end without any tool call: `decision = no_tool_called`, `tool` null, `result` holds
   the agent's reply
+- rationale generated for an approval: `decision = rationale`. Supporting information, never a
+  decision: `rules` is empty, `parameters` is exactly the facts the model was given, `result`
+  is the text it returned, verbatim (or the error, if it failed)
+- an approver's verdict: `decision = approved | rejected`, `actor` is the approver. For an
+  approval, one more `approved` record with `result` filled in marks the Graph execution
+- a requester trying to decide their own request: `decision = denied`, rule
+  `deny.self_approval`, written before the attempt is refused
 
 This closes a gap in the definition of done: items 4 and 5 must produce an audit trail even when
 the model declines on its own without touching a tool. A refusal the gateway never saw is still
@@ -218,7 +225,7 @@ actor          upn of the requesting user
 agent          which agent made the call
 tool           tool name, null on request and no_tool_called records
 parameters     json, the validated input (the request text on request records)
-decision       request | autonomous | approval | denied | no_tool_called
+decision       request | autonomous | approval | denied | no_tool_called | rationale | approved | rejected
 rules          json array, which rules fired, empty when no policy decision was made
 result         json, null until execution
 prevHash       sha256 of the previous record
@@ -269,7 +276,32 @@ justification, and that would hollow out the whole control.
 Ask it for three short sections: what is being requested, what changes if approved, what is
 worth checking before approving. Store the output verbatim.
 
-Store it as supporting information, never as a decision. The human decides.
+Store it as supporting information, never as a decision. The human decides. The audit log marks
+it the same way: a `rationale` record whose `parameters` are exactly the facts sent and whose
+`result` is exactly the text received. If the model call fails, the approval record is still
+created, the rationale stays null, and the `rationale` audit record carries the error. A missing
+rationale never blocks an approval; a human can decide without it.
+
+The generator is one Messages API call with a frozen system prompt and the rendered facts as
+the only user turn. No tools, no `tool_choice`, no conversation history. The facts are built
+inside the gateway from the validated request and the session identity, so there is no path by
+which the model's conversation could reach the generator. `ANTHROPIC_API_KEY` lives in `.env`
+and is used for nothing else in Sprint 1.
+
+**Approve / reject.** Same principle as the tool handler: evidence first, then state, then
+action.
+
+1. Validate: the approver is a UPN, the decision is `approved` or `rejected`, the note is
+   non-empty after trimming. Nothing is written for a malformed request.
+2. Refuse a requester deciding their own request (UPNs compared case-insensitively). This
+   refusal IS written, as a `denied` audit record with rule `deny.self_approval`: someone
+   trying to approve their own request is exactly what the log exists to show.
+3. Audit the verdict (`approved` or `rejected`, actor = the approver).
+4. Record the verdict on the approval. The store's UPDATE is conditional on `status = pending`,
+   so a record is decided at most once even under concurrent approvers.
+5. Approved only: call Graph, then audit the result under the same requestId. A Graph failure
+   leaves the approval approved and the failure in the log; the human's decision stands, the
+   execution did not, and both are visible.
 
 ---
 

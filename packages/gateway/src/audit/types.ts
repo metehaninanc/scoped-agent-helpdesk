@@ -1,11 +1,28 @@
 /**
  * Audit log records. See SPRINT1.md, "Component 3: audit log".
  *
- * `decision` doubles as the record kind. Policy decisions come from decide(); `request` and
- * `no_tool_called` bracket an agent session so a request the model declined on its own,
- * without touching a tool, still leaves a trail.
+ * `decision` doubles as the record kind:
+ *
+ *   request, no_tool_called     bracket an agent session, so a request the model declined on
+ *                               its own, without touching a tool, still leaves a trail
+ *   autonomous, approval, denied  policy decisions from decide(); a second record with the
+ *                               same kind and a non-null result marks execution
+ *   rationale                   supporting information generated for approvers. Never a
+ *                               decision. parameters = exactly the facts the model was given,
+ *                               result = the text it returned, verbatim
+ *   approved, rejected          a human approver's verdict; actor is the approver. A second
+ *                               approved record with a non-null result marks execution
  */
-export const AUDIT_DECISIONS = ["request", "autonomous", "approval", "denied", "no_tool_called"] as const;
+export const AUDIT_DECISIONS = [
+  "request",
+  "autonomous",
+  "approval",
+  "denied",
+  "no_tool_called",
+  "rationale",
+  "approved",
+  "rejected",
+] as const;
 export type AuditDecision = (typeof AUDIT_DECISIONS)[number];
 
 /** What a caller supplies. Everything else (id, timestamp, hashes) is the log's business. */

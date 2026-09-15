@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { RationaleGenerator } from "../approvals/rationale.js";
 import { ApprovalStore } from "../approvals/store.js";
 import { AuditLog } from "../audit/audit-log.js";
 import { openDatabase } from "../db.js";
@@ -235,6 +236,87 @@ describe("handleToolCall()", () => {
       });
     });
 
+    it("leaves the rationale empty and writes no rationale record when no generator is configured", async () => {
+      const result = await handleToolCall("add_user_to_group", { userPrincipalName: ALICE, groupId: MARKETING }, session, deps);
+
+      expect(approvals.get(payload(result).approvalId as string)?.rationale).toBeNull();
+      expect(audit.list().map((r) => r.decision)).toEqual(["approval"]);
+    });
+
+    it("generates the rationale from the raw facts only, stores it verbatim, and audits it as supporting information", async () => {
+      const generate = vi.fn<RationaleGenerator["generate"]>(async () => ({
+        text: "What is being requested\n...verbatim, with  odd spacing ",
+        model: "claude-opus-5",
+        usage: { inputTokens: 210, outputTokens: 55 },
+      }));
+
+      const result = await handleToolCall(
+        "add_user_to_group",
+        { userPrincipalName: ALICE, groupId: MARKETING.toUpperCase() },
+        session,
+        { ...deps, rationale: { generate } },
+      );
+      const approvalId = payload(result).approvalId as string;
+
+      // Exactly these facts. No conversation, no wording, no extra keys.
+      expect(generate).toHaveBeenCalledTimes(1);
+      const facts = generate.mock.calls[0]![0];
+      expect(facts).toEqual({
+        tool: "add_user_to_group",
+        params: { userPrincipalName: ALICE, groupId: MARKETING.toUpperCase() },
+        rules: [Rule.ApprovalAddUserToGroup],
+        targetUser: ALICE,
+        targetGroup: { id: MARKETING, displayName: "Marketing" },
+        requestingUser: session.actor,
+      });
+
+      expect(approvals.get(approvalId)?.rationale).toBe("What is being requested\n...verbatim, with  odd spacing ");
+
+      const records = audit.list();
+      expect(records.map((r) => r.decision)).toEqual(["approval", "rationale"]);
+      expect(records[1]).toMatchObject({
+        requestId: "req-1",
+        actor: session.actor,
+        agent: "identity-agent",
+        tool: "add_user_to_group",
+        parameters: facts,
+        rules: [],
+        result: {
+          approvalId,
+          model: "claude-opus-5",
+          rationale: "What is being requested\n...verbatim, with  odd spacing ",
+          usage: { inputTokens: 210, outputTokens: 55 },
+        },
+      });
+    });
+
+    it("still returns pending_approval, with the approval intact, when the rationale call fails", async () => {
+      const generate = vi.fn<RationaleGenerator["generate"]>(async () => {
+        throw new Error("Rationale request failed (429): rate limited");
+      });
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+      try {
+        const result = await handleToolCall(
+          "add_user_to_group",
+          { userPrincipalName: ALICE, groupId: MARKETING },
+          session,
+          { ...deps, rationale: { generate } },
+        );
+
+        expect(result.isError).toBeFalsy();
+        const approvalId = payload(result).approvalId as string;
+        expect(approvals.get(approvalId)).toMatchObject({ status: "pending", rationale: null });
+
+        const records = audit.list();
+        expect(records.map((r) => r.decision)).toEqual(["approval", "rationale"]);
+        expect(records[1]?.result).toEqual({ approvalId, error: "Rationale request failed (429): rate limited" });
+        expect(stderr).toHaveBeenCalled();
+      } finally {
+        stderr.mockRestore();
+      }
+    });
+
     it("writes the audit record before creating the approval record", async () => {
       let recordsWhenCreated = -1;
       const spying: GatewayDeps = {
@@ -244,6 +326,7 @@ describe("handleToolCall()", () => {
             recordsWhenCreated = audit.list().length;
             return approvals.create(input);
           },
+          setRationale: (id, text) => approvals.setRationale(id, text),
         },
       };
 

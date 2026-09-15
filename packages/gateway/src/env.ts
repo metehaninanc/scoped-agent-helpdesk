@@ -12,6 +12,8 @@ import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 
 const guid = z.guid();
+/** `.env` lines like `X=` arrive as empty strings; treat those as unset. */
+const optionalString = z.preprocess((v) => (v === "" ? undefined : v), z.string().optional());
 
 export const gatewayEnvSchema = z.object({
   AZURE_TENANT_ID: guid,
@@ -21,7 +23,14 @@ export const gatewayEnvSchema = z.object({
   /** SHA-1 thumbprint, 40 hex characters, as the portal shows it. */
   AZURE_CERT_THUMBPRINT: z.string().regex(/^[0-9a-f]{40}$/i, "must be a 40-character hex SHA-1 thumbprint"),
   /** Optional. SQLite file for the audit log and approvals. Default: data/helpdesk.db. */
-  HELPDESK_DB_PATH: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
+  HELPDESK_DB_PATH: optionalString,
+  /**
+   * Optional. Used for one thing: the approval rationale, one model call per approval record.
+   * Without it the gateway still runs; approvals simply carry no rationale, and it says so.
+   */
+  ANTHROPIC_API_KEY: optionalString,
+  /** Optional. Model for the rationale call. Default: claude-opus-5. */
+  HELPDESK_RATIONALE_MODEL: optionalString,
 });
 
 export type GatewayEnv = z.infer<typeof gatewayEnvSchema>;

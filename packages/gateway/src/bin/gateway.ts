@@ -15,6 +15,7 @@ import { parseArgs } from "node:util";
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
+import { createRationaleGenerator, type RationaleGenerator } from "../approvals/rationale.js";
 import { ApprovalStore } from "../approvals/store.js";
 import { AuditLog } from "../audit/audit-log.js";
 import { openDatabase } from "../db.js";
@@ -69,9 +70,19 @@ async function main(): Promise<void> {
     log.warn(formatFinding(finding));
   }
 
+  let rationale: RationaleGenerator | undefined;
+  if (env.ANTHROPIC_API_KEY === undefined) {
+    log.warn("ANTHROPIC_API_KEY is not set: approvals will be created without a rationale");
+  } else {
+    rationale = createRationaleGenerator({
+      apiKey: env.ANTHROPIC_API_KEY,
+      ...(env.HELPDESK_RATIONALE_MODEL === undefined ? {} : { model: env.HELPDESK_RATIONALE_MODEL }),
+    });
+  }
+
   const server = createGatewayServer(
     { actor: session.actor, agent: session.agent, requestId: session.requestId },
-    { audit, approvals, graph, config: policyConfig },
+    { audit, approvals, graph, config: policyConfig, ...(rationale === undefined ? {} : { rationale }) },
   );
 
   const shutdown = (why: string): void => {
@@ -87,7 +98,7 @@ async function main(): Promise<void> {
   await server.connect(transport);
 
   log.info(
-    `ready: actor=${session.actor} agent=${session.agent} requestId=${session.requestId} db=${dbPath} managedGroups=${policyConfig.managedGroups.length}`,
+    `ready: actor=${session.actor} agent=${session.agent} requestId=${session.requestId} db=${dbPath} managedGroups=${policyConfig.managedGroups.length} rationale=${rationale === undefined ? "off" : (env.HELPDESK_RATIONALE_MODEL ?? "claude-opus-5")}`,
   );
 }
 

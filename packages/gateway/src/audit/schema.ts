@@ -10,6 +10,11 @@ const decisionList = AUDIT_DECISIONS.map((d) => `'${d}'`).join(", ");
  *
  * AUTOINCREMENT matters: SQLite then never reuses an id, so deleting the tail and appending
  * again leaves a visible gap instead of a seamless replacement.
+ *
+ * The set of event kinds is enforced by a BEFORE INSERT trigger rather than a CHECK
+ * constraint, and the trigger is recreated every time the schema runs. A CHECK constraint on
+ * an append-only table could only be widened by rebuilding the table; a trigger can be
+ * replaced without touching a row.
  */
 export const AUDIT_SCHEMA = `
 CREATE TABLE IF NOT EXISTS audit (
@@ -20,7 +25,7 @@ CREATE TABLE IF NOT EXISTS audit (
   agent       TEXT    NOT NULL,
   tool        TEXT,
   parameters  TEXT    NOT NULL,
-  decision    TEXT    NOT NULL CHECK (decision IN (${decisionList})),
+  decision    TEXT    NOT NULL,
   rules       TEXT    NOT NULL,
   result      TEXT,
   prevHash    TEXT    NOT NULL,
@@ -38,6 +43,13 @@ CREATE TABLE IF NOT EXISTS audit_head (
   lastId      INTEGER NOT NULL,
   lastHash    TEXT    NOT NULL
 );
+
+DROP TRIGGER IF EXISTS audit_decision_enum;
+CREATE TRIGGER audit_decision_enum BEFORE INSERT ON audit
+WHEN NEW.decision NOT IN (${decisionList})
+BEGIN
+  SELECT RAISE(ABORT, 'audit.decision is not a known event kind');
+END;
 
 CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit
 BEGIN

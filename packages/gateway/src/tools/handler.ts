@@ -6,7 +6,7 @@
  *   2. call decide()
  *   3. commit an audit record for the decision, whatever it is
  *   4. branch: autonomous -> Graph, then a second audit record with the result
- *              approval   -> create the approval record, return pending
+ *              approval   -> create the approval record, generate the rationale, return pending
  *              denied     -> return a refusal naming the rules, call nothing
  *
  * Step 3 is synchronous and transactional (AuditLog.append), so by the time step 4 starts the
@@ -17,9 +17,11 @@
  * it by name, and the raw input is recorded as evidence. An agent that sends garbage is a
  * signal worth keeping.
  */
+import type { RationaleFacts, RationaleGenerator } from "../approvals/rationale.js";
 import type { ApprovalCreateInput, ApprovalRecord } from "../approvals/store.js";
 import type { AuditInput, AuditRecord } from "../audit/types.js";
 import { GraphError, type AddMemberResult, type GroupSummary } from "../graph/client.js";
+import { log } from "../log.js";
 import { decide as defaultDecide } from "../policy/decide.js";
 import { parseToolRequest, type ValidatedToolRequest } from "../policy/schemas.js";
 import type { Decision, PolicyConfig, RequestContext, RuleId, ToolRequest } from "../policy/types.js";
@@ -33,7 +35,9 @@ export interface SessionContext {
 
 export interface GatewayDeps {
   audit: { append(input: AuditInput): AuditRecord };
-  approvals: { create(input: ApprovalCreateInput): ApprovalRecord };
+  approvals: { create(input: ApprovalCreateInput): ApprovalRecord; setRationale(id: string, rationale: string): void };
+  /** Optional: without it, approvals carry no rationale and the log says nothing about one. */
+  rationale?: RationaleGenerator;
   graph: {
     listUserGroups(userPrincipalName: string): Promise<GroupSummary[]>;
     addUserToGroup(userPrincipalName: string, groupId: string): Promise<AddMemberResult>;
@@ -117,6 +121,7 @@ export async function handleToolCall(
       params: parsed.request.params,
       rules,
     });
+    if (deps.rationale) await attachRationale(deps, session, base, parsed.request, rules, approval.id);
     return reply({ status: "pending_approval", approvalId: approval.id });
   }
 
@@ -129,6 +134,55 @@ export async function handleToolCall(
   }
   deps.audit.append({ ...base, decision: decision.outcome, rules, result: output });
   return reply(output, output.status === "error");
+}
+
+/**
+ * One model call over the raw facts, stored verbatim, audited as `rationale`: never a
+ * decision. The facts are built here, from the validated request and the session, so nothing
+ * from the model's conversation can reach the generator. A failure is logged and audited and
+ * the approval proceeds without a rationale; the human decides either way.
+ */
+async function attachRationale(
+  deps: GatewayDeps,
+  session: SessionContext,
+  base: Omit<AuditInput, "decision" | "rules" | "result">,
+  request: ValidatedToolRequest,
+  rules: RuleId[],
+  approvalId: string,
+): Promise<void> {
+  const facts = rationaleFacts(request, rules, session, deps.config);
+  try {
+    const generated = await deps.rationale!.generate(facts);
+    deps.approvals.setRationale(approvalId, generated.text);
+    deps.audit.append({
+      ...base,
+      decision: "rationale",
+      rules: [],
+      parameters: facts,
+      result: { approvalId, model: generated.model, rationale: generated.text, usage: generated.usage },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log.warn(`rationale for approval ${approvalId} not generated: ${message}`);
+    deps.audit.append({ ...base, decision: "rationale", rules: [], parameters: facts, result: { approvalId, error: message } });
+  }
+}
+
+function rationaleFacts(
+  request: ValidatedToolRequest,
+  rules: RuleId[],
+  session: SessionContext,
+  config: PolicyConfig,
+): RationaleFacts {
+  const params = request.params as Record<string, unknown>;
+  const targetUser = typeof params.userPrincipalName === "string" ? params.userPrincipalName : null;
+  let targetGroup: RationaleFacts["targetGroup"] = null;
+  if (typeof params.groupId === "string") {
+    const wanted = params.groupId.toLowerCase();
+    const managed = config.managedGroups.find((g) => g.id.toLowerCase() === wanted);
+    targetGroup = managed ? { id: managed.id, displayName: managed.displayName } : { id: params.groupId, displayName: null };
+  }
+  return { tool: request.tool, params, rules, targetUser, targetGroup, requestingUser: session.actor };
 }
 
 async function execute(request: ValidatedToolRequest, deps: GatewayDeps): Promise<ToolOutput> {

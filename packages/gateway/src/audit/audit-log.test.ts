@@ -120,7 +120,29 @@ describe("AuditLog", () => {
     });
 
     it("rejects a decision value outside the schema", () => {
-      expect(() => log.append(decision({ decision: "maybe" as AuditInput["decision"] }))).toThrow();
+      expect(() => log.append(decision({ decision: "maybe" as AuditInput["decision"] }))).toThrow(/decision/);
+    });
+
+    it.each(["request", "autonomous", "approval", "denied", "no_tool_called", "rationale", "approved", "rejected"] as const)(
+      "accepts the %s event kind",
+      (kind) => {
+        expect(() => log.append(decision({ decision: kind, tool: null }))).not.toThrow();
+      },
+    );
+
+    it("extends the accepted event kinds on an existing database without rebuilding the table", () => {
+      // Simulate a database created by an older build that knew fewer kinds: replace the
+      // enum trigger with a narrower one, then run the schema again.
+      log.db.exec(`
+        DROP TRIGGER audit_decision_enum;
+        CREATE TRIGGER audit_decision_enum BEFORE INSERT ON audit
+        WHEN NEW.decision NOT IN ('request', 'autonomous')
+        BEGIN SELECT RAISE(ABORT, 'audit.decision is not a known event kind'); END;`);
+      expect(() => log.append(decision({ decision: "rejected" }))).toThrow(/decision/);
+
+      const reopened = new AuditLog(log.db, { now: fixedClock() });
+      expect(() => reopened.append(decision({ decision: "rejected" }))).not.toThrow();
+      expect(reopened.verifyChain()).toBeNull();
     });
 
     it("leaves the chain intact after a rejected append", () => {

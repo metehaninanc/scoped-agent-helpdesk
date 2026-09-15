@@ -67,4 +67,68 @@ describe("ApprovalStore", () => {
     const b = store.create(input());
     expect(a.id).not.toBe(b.id);
   });
+
+  describe("setRationale()", () => {
+    it("attaches generated text to a pending record, verbatim", () => {
+      const record = store.create(input());
+      const text = "What is being requested\n  odd   spacing kept\n\n";
+
+      store.setRationale(record.id, text);
+
+      expect(store.get(record.id)?.rationale).toBe(text);
+    });
+
+    it("throws for an unknown id", () => {
+      expect(() => store.setRationale("00000000-0000-4000-8000-000000000000", "x")).toThrow(/not found/);
+    });
+  });
+
+  describe("recordVerdict()", () => {
+    it("moves a pending record to approved with the approver, time and note", () => {
+      const record = store.create(input());
+
+      const updated = store.recordVerdict(record.id, {
+        status: "approved",
+        decidedBy: "approver@contoso.com",
+        decisionNote: "Confirmed with the team lead.",
+      });
+
+      expect(updated).toMatchObject({
+        id: record.id,
+        status: "approved",
+        decidedBy: "approver@contoso.com",
+        decisionNote: "Confirmed with the team lead.",
+      });
+      // The clock ticks one second per call: created on one tick, decided on the next.
+      expect(Date.parse(updated.decidedAt!) - Date.parse(record.createdAt)).toBe(1000);
+      expect(store.get(record.id)).toEqual(updated);
+      expect(store.listPending()).toEqual([]);
+    });
+
+    it("moves a pending record to rejected", () => {
+      const record = store.create(input());
+      store.recordVerdict(record.id, { status: "rejected", decidedBy: "approver@contoso.com", decisionNote: "No." });
+      expect(store.get(record.id)?.status).toBe("rejected");
+    });
+
+    it("refuses to decide a record twice", () => {
+      const record = store.create(input());
+      store.recordVerdict(record.id, { status: "approved", decidedBy: "approver@contoso.com", decisionNote: "ok" });
+
+      expect(() =>
+        store.recordVerdict(record.id, { status: "rejected", decidedBy: "other@contoso.com", decisionNote: "no" }),
+      ).toThrow(/not pending/);
+      expect(store.get(record.id)?.decidedBy).toBe("approver@contoso.com");
+    });
+
+    it("throws for an unknown id", () => {
+      expect(() =>
+        store.recordVerdict("00000000-0000-4000-8000-000000000000", {
+          status: "approved",
+          decidedBy: "approver@contoso.com",
+          decisionNote: "ok",
+        }),
+      ).toThrow(/not pending/);
+    });
+  });
 });

@@ -1,9 +1,9 @@
 /**
  * Approval records. See SPRINT1.md, "Component 4: approval store and rationale".
  *
- * This file holds the parts the gateway needs to return `pending_approval`: creating and
- * reading records. The approver's decision path (approve / reject with a required note,
- * requester may not approve their own request) and the rationale generator are Component 4.
+ * Plain persistence. The rules of the approval flow (a required note, requester may not
+ * approve their own request, audit before action) live in workflow.ts; this file only makes
+ * sure a record is decided at most once.
  */
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
@@ -40,6 +40,12 @@ export interface ApprovalRecord {
 
 export interface ApprovalStoreOptions {
   now?: () => Date;
+}
+
+export interface ApprovalVerdict {
+  status: "approved" | "rejected";
+  decidedBy: string;
+  decisionNote: string;
 }
 
 export const APPROVALS_SCHEMA = `
@@ -129,6 +135,28 @@ export class ApprovalStore {
   get(id: string): ApprovalRecord | null {
     const row = this.db.prepare("SELECT * FROM approvals WHERE id = ?").get(id) as unknown as Row | undefined;
     return row ? toRecord(row) : null;
+  }
+
+  /** Attach the generated rationale, verbatim. Supporting information only. */
+  setRationale(id: string, rationale: string): void {
+    const { changes } = this.db.prepare("UPDATE approvals SET rationale = ? WHERE id = ?").run(rationale, id);
+    if (changes !== 1) throw new Error(`approval ${id} not found`);
+  }
+
+  /**
+   * Persist a human verdict. The WHERE clause is what makes "decided at most once" hold even
+   * if two approvers act at the same instant: only one UPDATE can see status = 'pending'.
+   */
+  recordVerdict(id: string, verdict: ApprovalVerdict): ApprovalRecord {
+    const { changes } = this.db
+      .prepare(
+        "UPDATE approvals SET status = ?, decidedBy = ?, decidedAt = ?, decisionNote = ? WHERE id = ? AND status = 'pending'",
+      )
+      .run(verdict.status, verdict.decidedBy, this.now().toISOString(), verdict.decisionNote, id);
+    if (changes !== 1) throw new Error(`approval ${id} is not pending`);
+    const record = this.get(id);
+    if (record === null) throw new Error(`approval ${id} not found`);
+    return record;
   }
 
   listPending(): ApprovalRecord[] {

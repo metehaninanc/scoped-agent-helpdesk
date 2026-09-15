@@ -5,6 +5,8 @@
  */
 export type { AuditDecision, AuditInput, AuditRecord, ChainBreak } from "./audit/types.js";
 export type { ApprovalRecord, ApprovalStatus } from "./approvals/store.js";
+export type { ApprovalDecisionInput, ApprovalErrorCode, ApprovalOutcome, ExecutionOutcome } from "./approvals/workflow.js";
+export type { RationaleFacts, RationaleResult } from "./approvals/rationale.js";
 export type { Decision, PolicyConfig, RequestContext, RuleId, ToolRequest } from "./policy/types.js";
 export type { ToolName, ToolParams } from "./policy/schemas.js";
 export type { SessionContext, ToolOutput } from "./tools/handler.js";

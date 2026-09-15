@@ -41,7 +41,7 @@ pnpm typecheck
 | 1. Policy engine     | done, tests first: `packages/gateway/src/policy`  |
 | 2. Gateway           | done, tests first: `packages/gateway/src/tools`   |
 | 3. Audit log         | done, tests first: `packages/gateway/src/audit`   |
-| 4. Approval store    | create/read done; rationale + decision flow next  |
+| 4. Approval store    | done, tests first: `packages/gateway/src/approvals` |
 | 5. Identity agent    | not started                                       |
 | 6. Web               | not started                                       |
 
@@ -151,6 +151,29 @@ pnpm typecheck
   stdout is the MCP channel; all logging goes to stderr. Startup runs the managed-group check
   against Graph and warns on a mismatch.
 - Manual run from the repo root: `pnpm gateway -- --actor alice@contoso.com --request-id test-1`.
+
+### Approval store and rationale notes
+
+- `approvals/rationale.ts` is one Messages API call (`@anthropic-ai/sdk`, default model
+  `claude-opus-5`, override with `HELPDESK_RATIONALE_MODEL`): a frozen system prompt asking for
+  the three sections and forbidding a recommendation, plus `renderFacts()` as the only user
+  turn. No tools, no loop, no history. The tests assert the wire body: the request has exactly
+  `model`, `max_tokens`, `system`, `messages`, `output_config`, and the messages array is the
+  rendered facts alone. The facts are built in the tool handler from the validated request and
+  the session identity, never from anything the model said.
+- The result is stored verbatim on the approval and audited as a `rationale` record
+  (`parameters` = the facts sent, `result` = the text returned, `rules` = []). A failed call is
+  audited the same way with the error; the approval proceeds without a rationale.
+- Without `ANTHROPIC_API_KEY` the gateway logs a warning at startup and approvals carry no
+  rationale. It is used for nothing else.
+- `approvals/workflow.ts` is the approve/reject path: validate, refuse self-approval (audited as
+  `denied` / `deny.self_approval`), audit the verdict, record it (decided at most once), then
+  for an approval call Graph and audit the result. The decision note is required on both
+  approve and reject and is stored trimmed. The web layer (Component 6) calls this; it holds
+  no rules of its own.
+- Refusal fallbacks (`fallbacks: "default"`) are deliberately not enabled on the rationale call.
+  A refusal degrades to "no rationale", which the approver sees, and the audit record then
+  names one fixed model rather than whichever fallback answered.
 
 ## Sprint 2 items noted during Sprint 1
 
