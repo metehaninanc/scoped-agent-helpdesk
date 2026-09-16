@@ -1,295 +1,463 @@
 # scoped-agent-helpdesk
 
-An identity helpdesk where an AI agent can *ask* for changes but never *make* them without
-policy and, where required, a human. The build contract is [SPRINT1.md](SPRINT1.md).
+## What this is
 
-## Layout
+This is a small identity helpdesk: a web form where someone can ask a question about group
+membership or ask for a group membership change, an AI agent that answers the question or
+requests the change, and a human approver who reviews and decides on any change before it
+happens. The build contract is [SPRINT1.md](SPRINT1.md); this file explains the design and
+records what has been verified against a real Microsoft Entra tenant.
+
+The problem it addresses is a specific one. Once an AI agent has a tool that can change a
+production identity system, the interesting question is not whether the agent is well
+intentioned. It is what happens when the agent is wrong, or has been talked into something by
+a user, or hallucinates a plausible sounding request. A system built on "the agent decides, and
+we hope it decides well" has no floor. This project is an attempt to put a floor under an agent
+with real access to Microsoft Graph: a policy engine that the agent cannot argue with, an audit
+log that the agent cannot edit, and a human in the loop for anything that changes state.
+
+The claim this project makes is narrow and testable, not "the system is secure." It is: every
+action the agent can request falls into exactly one of three classes, decided by code the model
+never touches, and every one of those decisions, including refusals, is recorded before
+anything happens as a result of it. The rest of this document explains why that claim is worth
+making this way, then records the evidence for it.
+
+## Action classes
+
+Every request the agent makes ends up in exactly one of three classes. The policy engine
+(`packages/gateway/src/policy/decide.ts`) decides which one; nothing else in the system gets a
+vote.
+
+**Autonomous.** Reads that carry no risk of changing anything: which groups is this user in,
+what groups exist for the agent to talk about. These run immediately, with no approval and no
+special scrutiny beyond the fact that they are still validated and still logged.
+
+**Approval gated.** Anything that changes state: adding a user to a group. In Sprint 1 this
+class has exactly one member, and it has no exceptions. There is no allowlist of "safe" groups
+that skip review. Every group addition creates an approval record and waits for a human. The
+agent is told, in its own tool description, that a pending result is the normal, successful
+outcome of asking for a change, not a failure to work around.
+
+**Never automated.** Anything the policy explicitly refuses regardless of who is asking or why:
+targeting a directory role instead of a security group, targeting an account on the break glass
+list, targeting a group that is not on the managed allowlist. These are refused before Microsoft
+Graph is ever called. There is no path, no rephrasing, no amount of user insistence in the
+request text that reaches a different outcome, because the refusal happens in code that never
+reads the request text at all, only the validated tool name and parameters.
+
+The definition of done for Sprint 1 is, in effect, one example from each class plus proof that
+all three, including the refusal, appear in the same audit trail. That run is recorded near the
+end of this document.
+
+## Why enforcement is deterministic code, and the model is the exception path
+
+The policy engine is a pure function. No network access, no model call, no randomness, no
+system clock inside its own logic (time is passed in, not read). Given the same tool request
+and the same configuration, it returns the same decision every time, and that decision can be
+read straight out of the source code without running anything.
+
+This is a deliberate rejection of the more common design, where a model is asked to judge
+whether a request is safe and the judgment is trusted. A model's judgment is a distribution, not
+a guarantee. It can be shifted by phrasing, by a long enough conversation, by a request that
+looks unusually similar to ones it has seen approved before. None of that is a flaw you can fix
+by writing a better prompt, because the underlying mechanism, a model producing a plausible
+continuation, does not change. Deterministic code has a different failure mode: if a rule is
+wrong, it is wrong the same way every time, in a way a reviewer can find by reading the rule.
+That is a much better property for a control to have.
+
+The model's job is narrower than "decide if this is safe." It is: understand what the user is
+asking for in natural language, choose which of the three tools to call and with what
+parameters, and report the result honestly, including a refusal or a pending approval. The
+policy engine's decision is not a suggestion the model can override or reinterpret; it is the
+tool call's actual result. A denied response tells the agent plainly that nothing happened and
+names the rule, and the agent's system prompt tells it not to retry, not to look for another
+route, and not to claim a change was made when it was not. The one place a model's judgment
+does carry real weight, understanding an ambiguous request and asking a clarifying question
+instead of guessing, is exactly where judgment is appropriate: before a tool is ever called, on
+a request that has not yet touched policy or Graph.
+
+## Identity is a spawn argument, never a tool parameter
+
+The identity of the person on whose behalf a request is being made (the actor) is set once, when
+the agent process and the gateway process for that session are started, as a command line
+argument: `--actor alice@contoso.com`. It is never a field the model fills in, never something
+read from the request text, and there is no tool parameter named anything like `userId` or
+`onBehalfOf` that a prompt could persuade the model to set.
+
+This matters because a tool parameter is something the conversation can influence. If identity
+were a parameter, a sufficiently creative prompt could potentially get the model to pass a
+different identity than the one actually asking, and the policy engine and audit log would
+faithfully record the wrong actor. By binding identity at the process boundary instead, outside
+anything the model's context window ever contains, there is no text the model could produce that
+changes who the system believes is asking. The web form's identity field is a plain text input
+in Sprint 1 (Entra login replaces it in Sprint 2), but it is still read once, at the start of the
+request, and passed down through every layer as a parameter rather than being re-derived from
+anything downstream.
+
+## Nothing is rejected before it is audited
+
+The call order inside every tool handler is fixed and the same for every tool: validate the
+input shape, call the policy engine, commit an audit record for whatever the decision was, and
+only then act on it. The audit write happens before the branch into "call Graph," "create an
+approval," or "return a refusal," not after.
+
+The reason for that specific order is what happens when something goes wrong partway through. If
+the audit record were written after the action, a crash between the decision and the write would
+mean an action happened (or a refusal was decided) with no evidence of it. Writing the record
+first means the worst case is a crash that leaves a decision recorded with no result yet filled
+in, which is still evidence of what was decided and when. The same principle applies at the
+approval step: the human's verdict is written to the audit log, then recorded on the approval
+itself, and only then is Microsoft Graph called. A crash after approval but before the Graph
+call leaves an approved, unexecuted record rather than an unrecorded action.
+
+The same ordering rule is why malformed input is not rejected at the protocol layer. A tool call
+with garbage parameters still goes through the policy engine, which denies it by name, and the
+denial, with the original malformed input attached, is what gets audited. Rejecting it earlier
+would be more convenient, but it would also mean an agent sending nonsense leaves no trace,
+which is exactly the kind of event the log exists to catch.
+
+## The hash chain
+
+Every audit record includes a sha256 hash of itself and the hash of the record before it. This
+turns the append only table from something that is merely inconvenient to edit into something
+where editing is detectable. Changing any field in any past record changes that record's hash,
+which no longer matches what the next record says its predecessor's hash should be. Deleting a
+record in the middle of the chain breaks the same link. `verifyChain()` walks the whole table
+and returns the first place this breaks, or confirms the chain is intact.
+
+This alone has one gap: it cannot see a record deleted or rewritten at the very end of the
+chain, because there is no later record whose stored link would disagree. To close most of that
+gap, the log also keeps a small marker outside the main table recording the id and hash of the
+last record written, updated in the same transaction as every append. Comparing that marker
+against the actual last record catches a deleted or rewritten tail. But this raises the bar
+rather than closing the gap completely: anyone with write access to the database file can
+rewrite the marker to match a rewritten tail, and at that point nothing inside the file can
+prove anything is wrong. Closing that last gap needs the marker's hash published somewhere
+outside the file, on a schedule, so a rewritten file can be compared against an earlier, external
+record of what it used to say. That is called anchoring, and it is explicitly out of scope for
+Sprint 1. The chain, on its own, is still worth having: it turns "we would probably notice" into
+"here is the specific record that does not check out," which is a different order of evidence.
+
+## The rationale generator never sees the agent's conversation
+
+When a request needs approval, a short explanation is generated for the human reviewer: what is
+being requested, what changes if it is approved, and what is worth checking before approving.
+This text is written by a single, isolated call to a model. It has no tools, no memory of
+previous calls, and no loop. Its only input is a fixed set of facts assembled by the gateway
+after the policy decision has already been made: the tool name, the validated parameters, which
+rule required approval, the target user, the target group, and who is asking. It never receives
+the agent's conversation, the user's original wording, or anything the agent said in the course
+of handling the request.
+
+The reason for the isolation is that an agent's conversation is exactly the thing that might have
+been manipulated. If a user has talked the agent into believing a request is more legitimate
+than it is, and the rationale generator read that same conversation, it would likely produce a
+rationale that reflects the same manipulation, dressed up as an independent-sounding
+justification. A human reviewer reading a confident, well-written rationale is more likely to
+trust it, which would turn the control meant to help the reviewer into a tool for defeating
+their judgment. Rebuilding the rationale from raw, already-validated facts, with no path back to
+the conversation, means whatever it says can be checked against the same facts the reviewer can
+see directly above it. The generated text is stored exactly as returned and is always labeled as
+generated. It is supporting information. It is never treated as a decision, and the interface
+never lets it stand in for one: a missing or failed rationale still allows the human to decide,
+and the approval screen says explicitly when no rationale was generated rather than showing
+nothing.
+
+## Why policy configuration lives in git, not in `.env`
+
+The break glass list (accounts no request may ever target) and the managed group allowlist (the
+only groups `add_user_to_group` may touch) are both hardcoded in
+`packages/gateway/src/policy/config.ts` and committed to version control. This was a deliberate
+choice against the more common pattern of putting this kind of configuration in environment
+variables.
+
+An environment variable can be changed by editing a file on a server, with no review, no
+record of who changed it or when, and no diff to look at afterward. For most configuration that
+is a reasonable tradeoff for convenience. For a break glass list or a group allowlist it is the
+wrong tradeoff, because these are the specific values that decide whether the whole system's
+main safety property holds. Putting them in git means a change to either one is a commit: it has
+an author, a timestamp, a diff, and, in a normal workflow, a reviewer. Someone widening the
+allowlist to include a group it should not include leaves the same kind of evidence a code change
+would. The configuration is still validated automatically at startup (a malformed UPN or group id
+in the file fails loudly rather than silently matching nothing), but the values themselves are
+reviewable in exactly the way a `.env` file is not.
+
+## Scope
+
+### What Sprint 1 deliberately does not include
+
+Microsoft Graph access uses a certificate credential (no client secrets). The gateway is
+reachable only over stdio, on the same host as the agent that spawns it; there is no HTTP
+transport and no OAuth on the gateway itself. The web app's identity field is a plain text
+input; Entra login is not wired up. There is one agent, with no separate triage process and no
+second agent type. There is no ledger anchoring for the audit chain (see above) and no prompt
+injection test suite. None of this is an oversight; each is a named line SPRINT1.md draws on
+purpose, so that Sprint 1 stays small enough to actually finish and be evaluated as a whole.
+
+### Two known gaps carried forward
+
+**The web app holds Microsoft Graph credentials directly.** When an approver approves a request,
+something has to actually call Graph, and Sprint 1 has no HTTP transport on the gateway for the
+web app to call into instead. So `packages/web/src/bin/web.ts` builds its own certificate
+credential and Graph client and calls Graph itself. This is the same trust boundary as the
+gateway process (a human only interface, never reachable by the model), not a new one, but it is
+still a second process on disk with access to the private key. Sprint 2's HTTP transport should
+let the web app reach the gateway instead of duplicating its credential handling.
+
+**There is no `remove_user_from_group` tool.** `add_user_to_group` is the only write Sprint 1
+built. Every live demonstration in this document that changed real tenant state was reverted
+by hand, with a one-off Graph call made outside this codebase, not through anything the agent or
+the web app can do. A remove path, with its own policy rule (most obviously: also gated on
+approval, not autonomous), is a natural Sprint 2 addition if undoing a change needs to be
+something the system supports rather than a manual escape hatch.
+
+### What Sprint 2 is expected to add
+
+HTTP transport and OAuth on the gateway, so each agent can run under its own service principal
+instead of sharing the gateway's; Entra login on the web app, replacing the plain identity
+field; a second agent and the triage logic to route between them (the seam for this already
+exists as a placeholder function); ledger anchoring, to close the tail truncation gap the hash
+chain leaves open; and a prompt injection test suite.
+
+## Repo layout
 
 ```
-packages/audit     the audit record format and its hash chain — shared, standalone
-packages/gateway   MCP server, policy engine, Graph client, audit log (the only package with credentials)
-packages/agent     Agent SDK wrapper, one file per agent
-packages/web       request form, approval screen                           (not started)
+packages/audit     the audit record format and its hash chain, shared, standalone
+packages/gateway   MCP server, policy engine, Graph client, audit log (the only package with
+                    credentials, other than the web app; see "Scope" above)
+packages/agent     the identity agent, one file, on the Claude Agent SDK
+packages/web       request form and approval screen, server rendered
 data/              SQLite, gitignored
 ```
 
-## Prerequisites
+`packages/gateway/src/index.ts` documents two different rules for two different consumers. The
+agent package may import only type definitions from the gateway package; it reaches the
+gateway's actual behaviour over a spawned MCP connection it does not otherwise trust. The web
+app, a human only interface, imports the gateway's runtime code directly, for the reason given
+under "Scope" above.
 
-- **Node 22.13 or newer.** The audit log uses the built-in `node:sqlite` module, which was
-  unflagged in Node 22.13.0 ([nodejs/node#55890](https://github.com/nodejs/node/pull/55890)).
-  No flag is needed from 22.13 on. On 22.5 to 22.12 it exists only behind
-  `--experimental-sqlite`; before 22.5 it does not exist. `openDatabase()` checks this at
-  startup and fails with a clear message rather than a cryptic import error.
-  - It still prints `ExperimentalWarning: SQLite is an experimental feature` on 22.x. Run
-    with `--no-warnings=ExperimentalWarning` (the scripts here do) or accept the noise.
-  - The API is marked Stability 1.1 (active development), so pin the Node major on the VPS
-    and re-run the tests after a Node upgrade. Nothing here is native code; there is no
-    build step and no `build-essential` requirement on Linux.
-  - Distro packages are often older than 22.13. On a Linux VPS use the NodeSource 22.x repo,
-    `nvm`, or the official tarball, and check with `node -p "process.versions.node"`.
-- pnpm 12 (`npm install -g pnpm`; corepack cannot write to Program Files on this machine)
-- To run `pnpm agent` for real, `ANTHROPIC_API_KEY` must resolve to something: either a real
-  environment variable, an `ant auth login` profile, or the same `.env` the gateway reads (the
-  agent package loads it too, at its own startup — see "Identity agent notes"). Same variable
-  name, but conceptually a separate credential from the gateway's: the agent's own model turns
-  run through the Agent SDK's own Claude Code subprocess, which authenticates independently of
-  the gateway process the agent spawns alongside it.
+## Running it
+
+**Node 22.13 or newer is required.** The audit log uses the built in `node:sqlite` module,
+which was unflagged in Node 22.13.0
+([nodejs/node#55890](https://github.com/nodejs/node/pull/55890)); before that it either does not
+exist or needs `--experimental-sqlite`. `openDatabase()` checks the running Node version at
+startup and fails with a clear message rather than a cryptic import error. It still prints an
+`ExperimentalWarning` on 22.x; the scripts in this repo run with `--no-warnings=ExperimentalWarning`
+to suppress it. Nothing here is native code, so there is no build step and no `build-essential`
+requirement on Linux; a Linux VPS should still use the NodeSource 22.x repository, `nvm`, or the
+official tarball rather than a distro package, which is often older.
+
+pnpm 12 manages the workspace (`npm install -g pnpm`; corepack could not write to Program Files
+on the machine this was built on, hence the plain global install).
 
 ```
 pnpm install
 pnpm test
 pnpm typecheck
+pnpm build
+```
+
+Copy `.env.example` to `.env` and fill it in. `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`,
+`AZURE_CERT_THUMBPRINT`, and `AZURE_CERT_PATH` (the PEM private key, kept outside the repo) are
+required for any Graph access. `ANTHROPIC_API_KEY` is optional; without it, approvals are still
+created, just without a generated rationale, and the gateway says so at startup. Real
+environment variables always take precedence over `.env`. The identity agent's own model turns
+also need `ANTHROPIC_API_KEY` to resolve, but through a separate mechanism: the Agent SDK's own
+Claude Code subprocess, which can authenticate from the same `.env` (the agent package loads it
+independently at its own startup), a real environment variable, or an `ant auth login` profile.
+
+Each package can be run directly once built:
+
+```
+pnpm gateway -- --actor alice@contoso.com --request-id test-1
+pnpm agent -- --actor alice@contoso.com --request "which groups is alice@contoso.com in"
+pnpm web
+pnpm verify-audit [path/to/helpdesk.db]
 ```
 
 ## Status
 
-| Component            | State                                             |
-| -------------------- | ------------------------------------------------- |
-| 1. Policy engine     | done, tests first: `packages/gateway/src/policy`  |
-| 2. Gateway           | done, tests first: `packages/gateway/src/tools`   |
-| 3. Audit log         | done, tests first: `packages/audit`               |
-| 4. Approval store    | done, tests first: `packages/gateway/src/approvals` |
-| 5. Identity agent    | done, tests first: `packages/agent`               |
-| 6. Web               | done, tests first: `packages/web`                 |
+| Component            | State                                                |
+| --------------------- | ---------------------------------------------------- |
+| 1. Policy engine      | done, tests first: `packages/gateway/src/policy`      |
+| 2. Gateway            | done, tests first: `packages/gateway/src/tools`       |
+| 3. Audit log          | done, tests first: `packages/audit`                   |
+| 4. Approval store     | done, tests first: `packages/gateway/src/approvals`   |
+| 5. Identity agent     | done, tests first: `packages/agent`                   |
+| 6. Web                | done, tests first: `packages/web`                     |
+
+283 tests across four packages, all passing; `pnpm typecheck` and `pnpm build` clean, at the
+commit this document was written against.
 
 ### Policy engine notes
 
-- `decide(request, context, config?)` is pure and never throws. Anything it cannot evaluate is
-  denied and named (`deny.unknown_tool`, `deny.malformed_parameters`, `deny.policy_error`).
-- "First match wins" is applied per tier (deny > approval > autonomous > default deny). The
-  Decision lists every rule in the winning tier that fired, so the audit log gets the whole
-  reason rather than the first one.
-- Break glass applies to reads as well as writes: `list_user_groups` on a break glass account
-  is denied.
-- **Policy config lives in `config.ts`, in version control, and nowhere else.** The break
-  glass list and the managed group allowlist are security policy, not environment
-  configuration. In git, a change to either is reviewable and attributable: who widened the
-  allowlist, when, and in which commit. In `.env` it would leave no trace, which is the wrong
-  property for a control this project is built to defend. There is no environment override.
-  - The config is shape-checked when the module loads: a break glass entry that is not a
-    UPN, or a group entry that is not a GUID, throws at startup rather than silently denying
-    everything.
-  - Display names sit next to ids so the file reads well in review. The engine ignores them.
-    At startup the gateway checks each configured group against Graph once
-    (`startup/verify-managed-groups.ts`) and logs a warning if a group has been deleted or
-    renamed. The allowlist is not changed by that check; fix it in a commit. The check never
-    runs inside `decide()`.
-- **The directory role id list is a labelling aid, not a security boundary.** The managed
-  group allowlist is what actually stops the call: anything not on it is denied, full stop. The
-  role table in `directory-roles.ts` exists so that a request targeting a known role is denied
-  under the specific name `deny.directory_role_target` instead of the generic
-  `deny.group_not_managed`. An unlisted role id is still denied, just with the less specific
-  rule name. Reconcile the table against `GET /directoryRoleTemplates` once the tenant exists;
-  nothing about safety depends on it being complete.
-- `decide()` never reads the clock or any source of randomness. Time arrives only through
-  `RequestContext.timestamp`. The purity tests enforce this both at runtime (a trapped `Date`)
-  and statically (a grep of the policy sources).
+`decide(request, context, config)` is pure and never throws; anything it cannot evaluate is
+denied and named (`deny.unknown_tool`, `deny.malformed_parameters`, `deny.policy_error`). Rule
+tiers are checked in order (deny, then approval, then autonomous, then a default deny), and the
+result lists every rule in the winning tier that matched, not just the first, so the audit log
+carries the whole reason. Break glass applies to reads as well as writes: `list_user_groups` on a
+break glass account is denied, not just `add_user_to_group`. The directory role id table
+(`directory-roles.ts`) is a labelling aid, not the actual boundary: the managed group allowlist
+is what stops a call, and an id missing from the role table is still denied by the allowlist
+rule, just under a less specific name. The config file's shape is checked when it loads: a
+malformed UPN or group id throws at startup rather than silently denying every request.
 
 ### Audit core notes
 
-`packages/audit` (`@helpdesk/audit-core`) is a standalone workspace package: the append-only
-record format and its sha256 hash chain, used by both the gateway and the identity agent.
-
-- **What it deliberately does not carry: no identity, no policy, no credentials.** It does not
-  know what a UPN or a group id is, does not decide, and never sees an app registration or a
-  certificate. It also takes no position on how or where the database file is opened — a
-  caller passes in an already-open `DatabaseSync`; there is no `AuditLog.open(path)`
-  convenience. Only the record format and the hash chain live here. That boundary is the point:
-  it is small enough to hold in your head, and safe for the agent package to depend on directly
-  even though SPRINT1.md forbids it from importing gateway *runtime* code — this package is not
-  gateway code, it is the shared package both writers depend on.
-- **Why it exists at all: two writers, not a hypothetical third.** The gateway writes policy
-  decisions and results; the identity agent writes `request` and `no_tool_called` (Component 5)
-  because only it ever sees the model's final reply text. An earlier version of this project had
-  the agent hand-maintain its own byte-identical copy of the schema and hash algorithm to avoid
-  a gateway-runtime import — workable, but two copies of a hash algorithm are exactly the kind
-  of thing that drifts silently. With a second real writer already in hand, the justification
-  for a shared package was present, not speculative, so the duplication was removed rather than
-  managed.
-- `node:sqlite` (built into Node 22, no native build step). Each caller opens its own
-  connection — `packages/gateway/src/db.ts` for the gateway (approvals share the same file),
-  `packages/agent/src/db.ts` for the agent (a few lines, no identity/policy/credential content,
-  not worth sharing the way the record format was).
-- `AuditLog.append()` is synchronous and transactional. When it returns, the record is
-  committed — every caller's "audit first, then act" ordering depends on that.
-- Append only is enforced twice: `BEFORE UPDATE` / `BEFORE DELETE` triggers stop an honest bug,
-  and the sha256 hash chain catches anyone who drops the triggers. Each hash covers every
-  stored column including the id and the previous hash, computed over the exact JSON strings
-  on disk so verification never depends on serialisation order.
-- `verifyChain()` returns the first broken record (`{ index, id, reason }`) or `null`. It
-  detects any modification and any deletion in the body of the chain. Because ids come from
-  `AUTOINCREMENT`, a deleted tail becomes visible as an `id_gap` the moment anything is
-  appended after it.
-- **Tail truncation and the head marker.** The chain alone cannot see a deleted tail with
-  nothing after it, or a tail rewritten with its hash recomputed, because no successor points
-  at it. So the log keeps a head marker (`audit_head`: last id and last hash) in a separate
-  table, updated in the same transaction as every append, and `verifyChain()` reports
-  `tail_truncated` when the chain tail and the marker disagree, including when the marker
-  itself has been removed. **This raises the bar rather than closing the gap.** An attacker
-  with write access to the database file can rewrite the marker along with the tail, and
-  then nothing inside the file can tell. The real fix is external anchoring (periodically
-  publishing the head hash somewhere the attacker cannot reach), and that is out of scope for
-  Sprint 1.
-- Demo: `pnpm verify-audit [path]` (in the gateway package) prints the log and the verdict,
-  exit code 1 on a break.
+`packages/audit` (`@helpdesk/audit-core`) is a standalone workspace package holding only the
+append only record format and its hash chain, used by both the gateway and the identity agent.
+It deliberately carries no identity, no policy, no credentials, and no opinion on how or where
+the underlying database file is opened; a caller passes in an already open connection. This
+exists because there are two real writers (the gateway, and the identity agent, which writes its
+own `request` and `no_tool_called` records because it is the only process that ever sees the
+model's final reply text) and an earlier version of this project had the agent hand maintain its
+own copy of the schema and hash algorithm rather than import gateway code. Two copies of a hash
+algorithm is exactly the kind of thing that drifts silently, so once a second real writer
+existed, the duplication was removed rather than managed. `AuditLog.append()` is synchronous and
+transactional; every caller's audit-before-action ordering depends on that. Append only is
+enforced twice, by database triggers and by the hash chain, so that removing the triggers alone
+is not enough to edit history undetected. `pnpm verify-audit [path]` (built from the gateway
+package) prints the log and the verification result, with a nonzero exit code on a broken chain.
 
 ### Graph client notes
 
-- `packages/gateway/src/graph/certificate-credential.ts` is the client-credentials flow with a
-  certificate (`private_key_jwt`), hand-rolled on `node:crypto` and `fetch`. No auth library:
-  this is the only package that holds credentials and the flow is short enough to read in
-  full. `getToken(scope)` returns `{ token, expiresAt }`, the same shape as `TokenCredential`,
-  so `@azure/identity` could replace it in one line if that ever becomes worth the tree.
-- `.env` (gitignored, repo root; see `.env.example`) needs `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`,
-  `AZURE_CERT_THUMBPRINT` (SHA-1, hex) and `AZURE_CERT_PATH` (the PEM private key, outside the
-  repo). Real environment variables override the file. `packages/gateway/src/env.ts` is the
-  only reader of the certificate path.
-- `pnpm graph-smoke` proves the credential with one read call, prints the `roles` claim (so
-  you can see exactly which application permissions the token carries), and then runs the
-  real client's `listUserGroups` on the first user. No writes.
-- `GraphClient` exposes exactly two operations: `listUserGroups` (`memberOf` cast to
-  `microsoft.graph.group`, so directory roles and administrative units are excluded, with
-  paging) and `addUserToGroup` (resolves the user's object id, then `POST /members/$ref`;
-  "already a member" is reported as success with `alreadyMember: true`). Inputs are
-  re-validated with the policy engine's own schemas before they touch a URL.
-- No retry on 429/503 yet. The dev tenant does not throttle at this volume; add Retry-After
-  handling when the gateway is under real load.
+The certificate credential flow (`private_key_jwt`) is hand rolled on `node:crypto` and `fetch`
+rather than pulling in an auth library, since this is the only package meant to hold credentials
+and the flow is short enough to read end to end. `GraphClient` exposes exactly two operations:
+`listUserGroups` (group memberships only, directory roles and administrative units excluded, with
+paging) and `addUserToGroup` (already being a member is reported as success). Inputs are
+re-validated with the same schemas the policy engine uses before they are used to build a URL.
+There is no retry on throttling yet; the tenant this was built against does not throttle at this
+volume.
 
 ### Gateway notes
 
-- Three tools: `list_user_groups`, `list_managed_groups`, `add_user_to_group`.
-- `packages/gateway/src/tools/descriptions.ts` is the whole prompt surface: tool names,
-  descriptions and parameter descriptions, in one file. `descriptions.test.ts` pins the
-  load-bearing phrases (pending is success, stop and report, do not route around a denial), so
-  a rewrite has to touch the test in the same commit.
-- **The allowlist is not in the prompt.** Descriptions are static text with no ids in them
-  (a test enforces this). The agent resolves a group name by calling `list_managed_groups`,
-  which goes through the full call order and is audited, so the log also shows when the agent
-  asked what it could see. Embedding the list in a description would put protected resources
-  into the model's context and would not scale past a handful of groups.
-- `tools/handler.ts` is the call order from SPRINT1.md: validate, `decide()`, commit the audit
-  record, then branch. The tests prove the ordering by having the fake Graph inspect the audit
-  log at the moment it is called. Malformed input and unknown tools are audited as denials with
-  the raw input as evidence, not rejected at the protocol layer.
-- Built on the SDK's low-level `Server`, not `McpServer.registerTool`, because the latter
-  validates arguments before the handler runs and a rejected call would never be audited.
-- Every result is `{ status: ... }`. `denied` and `pending_approval` are normal results, not
-  errors; only a Graph or gateway failure sets `isError`.
-- One gateway process per agent session, identity bound at spawn:
-  `node packages/gateway/dist/bin/gateway.js --actor <upn> --request-id <id> [--agent <name>] [--db <path>]`.
-  stdout is the MCP channel; all logging goes to stderr. Startup runs the managed-group check
-  against Graph and warns on a mismatch.
-- Manual run from the repo root: `pnpm gateway -- --actor alice@contoso.com --request-id test-1`.
+Three tools are exposed: `list_user_groups`, `list_managed_groups`, `add_user_to_group`. Tool
+descriptions live in one file (`tools/descriptions.ts`), reviewed as prompt surface with tests
+that pin the phrases that matter, most importantly that a pending approval is described as
+success, not as something to retry around. The managed group allowlist is not embedded in any
+description; the agent calls `list_managed_groups` to resolve a group name, and that call is
+itself audited, so even "the agent asked what groups exist" is on the record. The MCP server is
+built on the SDK's low level `Server` rather than the higher level tool registration helper,
+because the latter validates arguments before a handler runs, and a call rejected there would
+never reach the audit log. One gateway process runs per agent session, with identity bound at
+spawn as described above.
 
 ### Approval store and rationale notes
 
-- `approvals/rationale.ts` is one Messages API call (`@anthropic-ai/sdk`, default model
-  `claude-opus-5`, override with `HELPDESK_RATIONALE_MODEL`): a frozen system prompt asking for
-  the three sections and forbidding a recommendation, plus `renderFacts()` as the only user
-  turn. No tools, no loop, no history. The tests assert the wire body: the request has exactly
-  `model`, `max_tokens`, `system`, `messages`, `output_config`, and the messages array is the
-  rendered facts alone. The facts are built in the tool handler from the validated request and
-  the session identity, never from anything the model said.
-- The result is stored verbatim on the approval and audited as a `rationale` record
-  (`parameters` = the facts sent, `result` = the text returned, `rules` = []). A failed call is
-  audited the same way with the error; the approval proceeds without a rationale.
-- Without `ANTHROPIC_API_KEY` the gateway logs a warning at startup and approvals carry no
-  rationale. It is used for nothing else.
-- `approvals/workflow.ts` is the approve/reject path: validate, refuse self-approval (audited as
-  `denied` / `deny.self_approval`), audit the verdict, record it (decided at most once), then
-  for an approval call Graph and audit the result. The decision note is required on both
-  approve and reject and is stored trimmed. The web layer (Component 6) calls this; it holds
-  no rules of its own.
-- Refusal fallbacks (`fallbacks: "default"`) are deliberately not enabled on the rationale call.
-  A refusal degrades to "no rationale", which the approver sees, and the audit record then
-  names one fixed model rather than whichever fallback answered.
+The rationale generator is a single Messages API call, with a frozen system prompt asking for
+the three sections described above and forbidding a recommendation either way. The approve and
+reject path validates the approver's identity and the decision note, refuses and audits an
+attempt where the approver and the original requester are the same person, records the human's
+verdict, and only for an approval calls Graph and audits the result. All of this lives in the
+gateway package; the web app calls into it and adds no rules of its own.
 
 ### Identity agent notes
 
-- One file, `packages/agent/src/identity-agent.ts`: `runIdentityAgent()` plus a small CLI
-  wrapper. Runs on `@anthropic-ai/claude-agent-sdk` with `tools: []` (every built-in tool off)
-  and `allowedTools` naming exactly the three MCP tool names
-  (`mcp__identity-gateway__list_user_groups` etc.) with `permissionMode: "dontAsk"`, so nothing
-  runs unless it is on that list and nothing waits on a permission prompt no one is there to
-  answer. `tools: []` is the point of using the Agent SDK here rather than Claude Code
-  directly: it is an addition problem (nothing runs unless named) instead of a subtraction
-  problem (turn off Bash, file write, web access, and keep turning off whatever ships next).
-- The actor identity, the agent name and the session's `requestId` are spawn-time parameters,
-  threaded straight into the gateway subprocess's `--actor`/`--agent`/`--request-id` args. No
-  tool parameter, prompt content, or code path here reads an actor from anywhere else — a
-  model cannot set who the gateway acts for.
-- The gateway subprocess is a sibling package binary, `dist/bin/gateway.js`, located by
-  resolving `@helpdesk/gateway`'s `package.json` (`createRequire(...).resolve(...)`) rather
-  than by importing it — so the actual code never crosses the package boundary.
-- **The package boundary, and how it is kept without duplicating the chain.** SPRINT1.md: "the
-  agent package must not import anything from the gateway package other than type
-  definitions." The gateway is spawned per session and only exposes its three MCP tools, none
-  of which write a `request` or `no_tool_called` audit record — and only this process ever sees
-  the model's final reply text, which `no_tool_called` needs to store. `session-audit.ts`
-  writes those two record kinds using the real `AuditLog` from `@helpdesk/audit-core` (see
-  "Audit core notes" above) — a normal dependency on a shared, credential-free package, not an
-  import of gateway code. An earlier version of this file hand-duplicated the schema and hash
-  algorithm to avoid exactly that gateway import, before the shared package existed; that
-  duplication is gone now that there is somewhere else for the logic to live.
-- `packages/agent/src/db.ts` is this package's own tiny "open a sqlite file" helper (mkdir,
-  pragmas) — not shared with the gateway's equivalent, and not worth sharing: it carries no
-  identity, policy or credential logic of its own, unlike the record format and chain.
-- `toolWasCalled` is tracked by scanning each `assistant` message for a `tool_use` content
-  block; the reply text comes from the final `result` message. A tool call that the gateway
-  denies still counts as a tool call — `no_tool_called` means the model never tried, not that
-  it didn't get what it wanted.
-- `persistSession: false`: this is a backend service, not an interactive CLI session, so
-  nothing is written to `~/.claude/projects/`. `env` is left unset so the Agent SDK's own
-  subprocess inherits `process.env`, which is what lets it find `ANTHROPIC_API_KEY` (or an
-  `ant auth login` profile) the normal way — this key is separate from the one the gateway
-  reads from `.env` for rationale generation. `packages/agent/src/env.ts` loads `.env` once, at
-  the start of `runIdentityAgent()`, before that subprocess spawns (real environment variables
-  still win, same rule as the gateway's own env loader), so a live run does not depend on the
-  shell already having the key exported — only on it being in `.env` or the real environment
-  by the time the agent runs.
+The agent is one file, `packages/agent/src/identity-agent.ts`, running on the Claude Agent SDK
+with every built in tool turned off and the allowed tool list naming exactly the three gateway
+tools, so that nothing runs unless it is explicitly named rather than everything running unless
+explicitly turned off. The gateway subprocess for a session is located by resolving the gateway
+package's own `package.json`, never imported directly. The agent writes its own `request` and
+`no_tool_called` audit records, using the shared audit package described above, since it is the
+only process positioned to see whether the model ever called a tool and what it said if it did
+not.
 
 ### Web app notes
 
-- Two server-rendered pages, plain `node:http`. No framework, no JSX, no build step — every
-  page is a template-literal function returning a string, tested without ever starting an HTTP
-  server. `packages/web/src/html.ts` is the one place HTML gets built; `escapeHtml()` runs on
-  every value that ever came from a user, an agent, or a model (identity fields, request text,
-  group ids, decision notes, the rationale) before it reaches a template.
-- The route handlers (`request-page.ts`, `approvals-page.ts`) are plain async functions —
-  `submitRequest(input, deps)`, `decideApproval(input, deps)` — independent of HTTP, unit
-  tested with fake deps. `server.ts` is the thin `node:http` routing/body-parsing layer on top,
-  covered by its own integration tests (a real server on an ephemeral port, real `fetch`
-  calls), the same two-layer pattern as the gateway's tool handler and MCP server.
-- **A null rationale renders as an explicit sentence** ("No rationale was generated for this
-  request."), never a blank section — the exact SPRINT1.md Component 6 requirement, and
-  tested directly.
-- Requester/approver separation and the required decision note are enforced by
-  `ApprovalWorkflow.decide()` (Component 4), not re-implemented here. The web layer's job is to
-  show the refusal honestly when one comes back (`ApprovalError` renders as `.error`, not a
-  generic 500) — proven live: a self-approval attempt through the actual web form was refused
-  with the same message the workflow produces.
-- Verified live end to end, against the real tenant, in one session: the request page ran a
-  real identity-agent turn (a tool call and a real answer, and separately a no-tool-call
-  clarifying question); the approval page listed a pending approval created via the gateway,
-  showed the missing-rationale message, refused a self-approval attempt, then approved with a
-  different identity and the group membership changed in the tenant — confirmed, then reverted.
-  The audit chain across the whole session (both paths) stayed intact throughout.
-- `WEB_PORT` (optional, default 3000) is read directly from the environment (or `.env`, loaded
-  the same way as the gateway's other variables); it is not part of `GatewayEnv` since it is a
-  web-app-only concern, not something the gateway or agent need to know.
+Two server rendered pages on plain `node:http`, no framework and no build step for the UI. Every
+value that ever came from a user, an agent, or a model is passed through an HTML escaping
+function before it reaches a page. Route handling logic is written as plain functions
+independent of HTTP and tested without starting a server; the HTTP layer itself is a thin
+routing and body parsing wrapper, tested separately against a real server on an ephemeral port.
+A missing rationale is rendered as an explicit sentence, never as a blank section.
 
-## Sprint 2 items noted during Sprint 1
+## Sprint 1 verification run
 
-- **The web app holds Graph credentials directly** (`packages/web/src/bin/web.ts`
-  instantiates its own `CertificateCredential`/`GraphClient` to execute an approval). SPRINT1.md
-  defers HTTP transport and OAuth on the gateway to Sprint 2; until the gateway is reachable
-  over HTTP, there is no way for the web app to ask the gateway to make the Graph call on its
-  behalf, so it makes it itself. It is a human-only interface (the approver's screen), not
-  model-reachable, so this is the same trust boundary as the gateway process, not a new one —
-  but it is still a second process with the private key on disk, and Sprint 2's HTTP transport
-  should let the web app go through the gateway instead.
-- `add_user_to_group` is Sprint 1's only write; there is no `remove_user_from_group`. Every live
-  demo in this README that changed real tenant state reverted with a direct, one-off Graph
-  `DELETE $ref` call, not through this codebase. A remove path (with its own policy rule) is a
-  Sprint 2 candidate if reverting a change needs to be a supported operation rather than a
-  manual escape hatch.
+This section records a live run of Sprint 1's definition of done against the real Entra tenant
+this project was built against, plus a separate confirmation that the rationale generator
+produces and stores real, three section text. Identifying details (tenant domain, object ids)
+are from a disposable test tenant created for this project.
+
+### A generated rationale, stored verbatim
+
+A request to add a user to the Finance group was created through the gateway, with the rationale
+generator enabled. The `rationale` audit record and the approval record's own `rationale` field
+were compared and are identical. The stored text, exactly as generated:
+
+```
+What is being requested
+
+helpdesk.operator@metehantestoutlook.onmicrosoft.com has submitted an add_user_to_group request
+to place marcoasensio@metehantestoutlook.onmicrosoft.com into the group "Finance" (ID
+88981a1a-1f6b-438c-9475-26b7c619dce0). The request is pending because the rule
+approval.add_user_to_group requires approval. Parameters submitted: userPrincipalName
+marcoasensio@metehantestoutlook.onmicrosoft.com, groupId 88981a1a-1f6b-438c-9475-26b7c619dce0.
+
+What changes if approved
+
+The target user becomes a member of the Finance group and gains whatever access, permissions,
+licences, or mail/distribution behaviour that group membership confers. No other attributes of
+the user or group are changed by this request.
+
+What is worth checking before approving
+
+Whether the group ID matches the intended "Finance" group, and what access that membership
+grants. Whether the requesting operator is authorised to request membership changes for this
+group and this user. Whether a ticket, owner approval, or justification exists, since none was
+supplied here. Whether the membership should be time-limited.
+```
+
+All three required sections are present, in order, and the text matches the system prompt's
+instructions: it draws only on the facts it was given and does not recommend a decision either
+way. The request was then approved by a different identity, Graph reported the membership change
+as executed, and the change was confirmed live against the tenant before being reverted.
+
+### The full definition of done, in one pass, through the web app
+
+All five definition of done items were exercised in a single session against one audit database,
+entirely through the running web app (the request form and the approval screen), with no direct
+gateway or Graph calls other than the confirmation and revert of tenant state afterward. The
+audit records below are `pnpm verify-audit`'s output against that database, unedited except for
+this note.
+
+```
+   1  2026-09-16T12:28:36.163Z  ae3847f2-...  helpdesk.operator@...  request        -
+   2  2026-09-16T12:28:39.544Z  ae3847f2-...  helpdesk.operator@...  autonomous     list_user_groups
+   3  2026-09-16T12:28:39.625Z  ae3847f2-...  helpdesk.operator@...  autonomous     list_user_groups => result
+   4  2026-09-16T12:28:50.920Z  86b187a0-...  helpdesk.operator@...  request        -
+   5  2026-09-16T12:28:53.899Z  86b187a0-...  helpdesk.operator@...  autonomous     list_managed_groups
+   6  2026-09-16T12:28:53.903Z  86b187a0-...  helpdesk.operator@...  autonomous     list_managed_groups => result
+   7  2026-09-16T12:28:55.459Z  86b187a0-...  helpdesk.operator@...  approval       add_user_to_group [approval.add_user_to_group]
+   8  2026-09-16T12:29:01.735Z  86b187a0-...  helpdesk.operator@...  rationale      add_user_to_group => result
+   9  2026-09-16T12:29:28.385Z  86b187a0-...  it.manager@...        approved       add_user_to_group [approval.add_user_to_group] => result
+  10  2026-09-16T12:29:29.130Z  86b187a0-...  it.manager@...        approved       add_user_to_group [approval.add_user_to_group] => result
+  11  2026-09-16T12:29:36.939Z  03062d1c-...  helpdesk.operator@...  request        -
+  12  2026-09-16T12:29:44.732Z  03062d1c-...  helpdesk.operator@...  no_tool_called - => result
+
+Chain intact: 12 record(s)
+```
+
+(UPNs and request ids are truncated above for width; the full values are ordinary test tenant
+addresses and generated UUIDs, nothing sensitive.)
+
+Reading the records against the five items:
+
+1. Records 1 to 3: "which groups is alexdesouza@... in", asked through the request page, answered
+   from a real `list_user_groups` call.
+2. Records 4 to 7: "add marcoasensio@... to the Finance group", asked through the request page.
+   The agent first called `list_managed_groups` to resolve the group name, then requested the
+   add; the system did not perform it, and recorded a pending approval.
+3. Records 7 to 10: opening the approval on the web app's approval screen showed the raw facts
+   and the generated rationale (record 8); approving it with a different identity
+   (`it.manager@...`, not the original requester) both audited the verdict and, on execution,
+   audited the result of the real Graph call. The group membership change was confirmed live
+   against the tenant, then reverted afterward using a one off Graph call outside this codebase
+   (see "Scope").
+4. Records 11 and 12: "assign alexdesouza@... the Global Administrator role", asked through the
+   request page. The agent recognised this as a directory role, not a security group, and
+   declined without calling any tool, hence `no_tool_called` rather than a policy denial; either
+   way, Graph was never called.
+5. All of the above, including the refusal, are in the one audit trail shown above, and
+   `verifyChain()` reports the chain intact across all twelve records.
