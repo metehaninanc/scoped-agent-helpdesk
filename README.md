@@ -7,7 +7,7 @@ policy and, where required, a human. The build contract is [SPRINT1.md](SPRINT1.
 
 ```
 packages/gateway   MCP server, policy engine, Graph client, audit log (the only package with credentials)
-packages/agent     Agent SDK wrapper, one file per agent                  (not started)
+packages/agent     Agent SDK wrapper, one file per agent
 packages/web       request form, approval screen                           (not started)
 data/              SQLite, gitignored
 ```
@@ -27,6 +27,11 @@ data/              SQLite, gitignored
   - Distro packages are often older than 22.13. On a Linux VPS use the NodeSource 22.x repo,
     `nvm`, or the official tarball, and check with `node -p "process.versions.node"`.
 - pnpm 12 (`npm install -g pnpm`; corepack cannot write to Program Files on this machine)
+- To run `pnpm agent` for real, `ANTHROPIC_API_KEY` must be set as a real environment variable
+  (or an `ant auth login` profile). This is a *different* place than the gateway's own
+  `.env`: the agent's own model turns run through the Agent SDK's own Claude Code subprocess,
+  which reads credentials from the environment it inherits, not from `.env` — `.env`'s
+  `ANTHROPIC_API_KEY` is read only by the gateway, only for the approval rationale.
 
 ```
 pnpm install
@@ -42,7 +47,7 @@ pnpm typecheck
 | 2. Gateway           | done, tests first: `packages/gateway/src/tools`   |
 | 3. Audit log         | done, tests first: `packages/gateway/src/audit`   |
 | 4. Approval store    | done, tests first: `packages/gateway/src/approvals` |
-| 5. Identity agent    | not started                                       |
+| 5. Identity agent    | done, tests first: `packages/agent`               |
 | 6. Web               | not started                                       |
 
 ### Policy engine notes
@@ -174,6 +179,48 @@ pnpm typecheck
 - Refusal fallbacks (`fallbacks: "default"`) are deliberately not enabled on the rationale call.
   A refusal degrades to "no rationale", which the approver sees, and the audit record then
   names one fixed model rather than whichever fallback answered.
+
+### Identity agent notes
+
+- One file, `packages/agent/src/identity-agent.ts`: `runIdentityAgent()` plus a small CLI
+  wrapper. Runs on `@anthropic-ai/claude-agent-sdk` with `tools: []` (every built-in tool off)
+  and `allowedTools` naming exactly the three MCP tool names
+  (`mcp__identity-gateway__list_user_groups` etc.) with `permissionMode: "dontAsk"`, so nothing
+  runs unless it is on that list and nothing waits on a permission prompt no one is there to
+  answer. `tools: []` is the point of using the Agent SDK here rather than Claude Code
+  directly: it is an addition problem (nothing runs unless named) instead of a subtraction
+  problem (turn off Bash, file write, web access, and keep turning off whatever ships next).
+- The actor identity, the agent name and the session's `requestId` are spawn-time parameters,
+  threaded straight into the gateway subprocess's `--actor`/`--agent`/`--request-id` args. No
+  tool parameter, prompt content, or code path here reads an actor from anywhere else — a
+  model cannot set who the gateway acts for.
+- The gateway subprocess is a sibling package binary, `dist/bin/gateway.js`, located by
+  resolving `@helpdesk/gateway`'s `package.json` (`createRequire(...).resolve(...)`) rather
+  than by importing it — so the actual code never crosses the package boundary.
+- **The package boundary and its cost.** SPRINT1.md: "the agent package must not import
+  anything from the gateway package other than type definitions." The gateway is spawned per
+  session and only exposes its three MCP tools, none of which write a `request` or
+  `no_tool_called` audit record — and only this process ever sees the model's final reply text,
+  which `no_tool_called` needs to store. So `session-audit.ts` is a second, independent
+  implementation of the append-one-row-with-a-hash-chain logic in
+  `packages/gateway/src/audit/{schema,hash,audit-log}.ts`: same schema, same hash algorithm,
+  same transaction shape, kept identical on purpose so a chain with records from both writers
+  still validates under the gateway's own `verifyChain()` — proven directly in
+  `session-audit.test.ts`, which is also the one place in this package that imports the real
+  `AuditLog` (exported from `@helpdesk/gateway` for exactly this test, never for production
+  code). This is a real, acknowledged duplication cost, not a free abstraction. If a second
+  writer of this table ever appears again, extracting a shared `@helpdesk/audit-core` package
+  removes it; not worth doing for one caller in Sprint 1.
+- `toolWasCalled` is tracked by scanning each `assistant` message for a `tool_use` content
+  block; the reply text comes from the final `result` message. A tool call that the gateway
+  denies still counts as a tool call — `no_tool_called` means the model never tried, not that
+  it didn't get what it wanted.
+- `persistSession: false`: this is a backend service, not an interactive CLI session, so
+  nothing is written to `~/.claude/projects/`. `env` is left unset so the Agent SDK's own
+  subprocess inherits `process.env`, which is what lets it find `ANTHROPIC_API_KEY` (or an
+  `ant auth login` profile) the normal way — this key is separate from the one the gateway
+  reads from `.env` for rationale generation, and must be set as a real environment variable
+  for the agent to run at all.
 
 ## Sprint 2 items noted during Sprint 1
 

@@ -11,7 +11,8 @@
     "build": "pnpm -r --if-present build",
     "verify-audit": "pnpm --filter @helpdesk/gateway build && node --no-warnings=ExperimentalWarning packages/gateway/dist/bin/verify-audit.js",
     "graph-smoke": "pnpm --filter @helpdesk/gateway build && node --no-warnings=ExperimentalWarning packages/gateway/dist/bin/graph-smoke.js",
-    "gateway": "pnpm --filter @helpdesk/gateway build && node --no-warnings=ExperimentalWarning packages/gateway/dist/bin/gateway.js"
+    "gateway": "pnpm --filter @helpdesk/gateway build && node --no-warnings=ExperimentalWarning packages/gateway/dist/bin/gateway.js",
+    "agent": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/identity-agent.js"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

@@ -338,6 +338,12 @@ in this project.
 2. the generated rationale, visually marked as generated
 3. approve and reject buttons, plus a required decision note field
 
+The rationale can be null — the model call failed, or no key is configured (see Component 4).
+When it is, block 2 must say so explicitly: something like "No rationale was generated for
+this request." A blank section reads as "nothing worth explaining here," which is the opposite
+of the truth and exactly the wrong failure mode for a control this project exists to defend.
+Never render an empty block and never fall back to silence.
+
 Server side, reject any approval decision where `decidedBy` equals `actor`. Separation of
 requester and approver is a real audit control and it costs one line.
 

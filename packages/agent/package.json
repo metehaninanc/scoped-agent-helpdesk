@@ -1,0 +1,17 @@
+{
+  "name": "@helpdesk/agent",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Identity agent: Agent SDK wrapper, one file, zero built-in tools. Must not import gateway runtime code, only its type definitions.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "pnpm --filter @helpdesk/gateway build && tsc -p tsconfig.json --noEmit",
+    "build": "pnpm --filter @helpdesk/gateway build && tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.273",
+    "@helpdesk/gateway": "workspace:*"
+  }
+}

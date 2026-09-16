@@ -4,6 +4,8 @@
   "private": true,
   "description": "Identity gateway: MCP server, policy engine, Graph client, audit log. The only package that holds credentials.",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
