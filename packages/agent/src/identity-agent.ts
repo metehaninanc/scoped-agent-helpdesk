@@ -26,6 +26,7 @@ import { parseArgs } from "node:util";
 
 import { query, type McpServerConfig, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
+import { ensureEnvLoaded } from "./env.js";
 import { SessionAudit } from "./session-audit.js";
 
 const GATEWAY_SERVER_NAME = "identity-gateway";
@@ -74,6 +75,10 @@ function gatewayEntryPoint(): string {
 }
 
 export async function runIdentityAgent(options: IdentityAgentOptions): Promise<IdentityAgentResult> {
+  // Load .env now, before runQuery spawns the SDK's own subprocess. options.env is left unset
+  // below, so that subprocess inherits process.env — this is what actually gets the key there.
+  ensureEnvLoaded();
+
   const requestId = options.requestId ?? randomUUID();
   const dbPath = options.dbPath ?? resolve("data/helpdesk.db");
   const runQuery = options.runQuery ?? query;

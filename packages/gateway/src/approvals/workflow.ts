@@ -15,7 +15,7 @@
  * A self-approval attempt is refused at step 1 but still audited, as a denial: someone trying
  * to approve their own request is exactly the kind of thing the log exists to show.
  */
-import type { AuditInput, AuditRecord } from "../audit/types.js";
+import type { AuditInput, AuditRecord } from "@helpdesk/audit-core";
 import { GraphError, type AddMemberResult } from "../graph/client.js";
 import { userPrincipalName } from "../policy/schemas.js";
 import type { ApprovalRecord, ApprovalStore } from "./store.js";

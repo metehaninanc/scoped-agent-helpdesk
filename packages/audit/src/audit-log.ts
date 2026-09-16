@@ -1,12 +1,16 @@
 /**
  * Append-only audit log with a sha256 hash chain. See SPRINT1.md, "Component 3: audit log".
  *
- * append() is synchronous and transactional: when it returns, the record is committed. The
- * gateway relies on that ordering (audit record first, then act), so do not make it async.
+ * append() is synchronous and transactional: when it returns, the record is committed. Every
+ * caller relies on that ordering (audit record first, then act), so do not make it async.
+ *
+ * This class owns the record format and the chain, nothing else. It takes a `DatabaseSync` a
+ * caller already opened; it has no opinion on where the file lives, how it is opened, or what
+ * pragmas are set. Opening the database is the caller's job, deliberately — see the package
+ * README for the boundary this keeps.
  */
 import type { DatabaseSync } from "node:sqlite";
 
-import { openDatabase } from "../db.js";
 import { GENESIS_HASH, computeHash } from "./hash.js";
 import { ensureAuditSchema } from "./schema.js";
 import type { AuditHead, AuditInput, AuditRecord, AuditRow, ChainBreak } from "./types.js";
@@ -50,10 +54,6 @@ export class AuditLog {
     this.db = db;
     this.now = options.now ?? (() => new Date());
     ensureAuditSchema(db);
-  }
-
-  static open(path: string, options: AuditLogOptions = {}): AuditLog {
-    return new AuditLog(openDatabase(path), options);
   }
 
   /** Commit one record. Returns it as stored, hash included. */

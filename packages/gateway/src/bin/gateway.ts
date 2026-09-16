@@ -17,7 +17,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { createRationaleGenerator, type RationaleGenerator } from "../approvals/rationale.js";
 import { ApprovalStore } from "../approvals/store.js";
-import { AuditLog } from "../audit/audit-log.js";
+import { AuditLog } from "@helpdesk/audit-core";
 import { openDatabase } from "../db.js";
 import { loadGatewayEnv } from "../env.js";
 import { CertificateCredential } from "../graph/certificate-credential.js";

@@ -55,6 +55,7 @@ development. Getting this right on day one avoids a painful migration later.
 ├── SPRINT1.md
 ├── README.md
 ├── packages/
+│   ├── audit/            the audit record format and its hash chain, shared, standalone
 │   ├── gateway/          MCP server, policy engine, Graph client, audit log
 │   ├── agent/            Agent SDK wrapper, one file per agent
 │   └── web/              request form, approval screen
@@ -63,7 +64,9 @@ development. Getting this right on day one avoids a painful migration later.
 ```
 
 The gateway is the only package that holds credentials. The agent package must not import
-anything from the gateway package other than type definitions.
+anything from the gateway package other than type definitions; it may depend normally on
+`packages/audit`, which is not gateway code — see Component 3 for what that package is and,
+just as deliberately, is not.
 
 ---
 
@@ -193,6 +196,21 @@ Descriptions are static text: they take no configuration and contain no ids.
 
 Append only. SQLite table, no updates, no deletes.
 
+The record format and the hash chain live in their own package, `packages/audit`
+(`@helpdesk/audit-core`), not inside the gateway. Two writers need it — the gateway itself, and
+the identity agent, which writes its own `request` and `no_tool_called` records because only it
+ever sees the model's final reply (Component 5) — and the justification for a shared package is
+"two writers exist today," not "a third might show up later." Keeping two byte-identical copies
+in sync by hand was worse than the package.
+
+That package carries the record format and the chain, and deliberately nothing else: no
+identity, no policy, no credentials, and no opinion on how or where the database file is
+opened — a caller passes it an already-open connection. That boundary is the point: it is safe
+for the agent package to depend on directly (SPRINT1.md still forbids the agent importing
+gateway *runtime* code; `@helpdesk/audit-core` is not gateway code, it is the shared package
+both writers depend on), and it is small enough that "what does this package know about the
+system" has an answer you can hold in your head.
+
 The log records every agent request, not only tool calls. Each agent session generates a
 `requestId` at the start and writes a request record immediately, before any tool is called.
 Because the table is append only, what happened afterwards is a further record under the same
@@ -313,11 +331,13 @@ One file. Expect fifty to eighty lines.
   that when a tool returns pending or denied it reports that plainly instead of finding another
   route
 - connects to the identity gateway over stdio
-- allowed tools list contains exactly the two gateway tools
+- allowed tools list contains exactly the three gateway tools
 - no built in tools enabled
 - takes the requesting user's identity as a parameter and passes it on every call
 - generates a `requestId` at session start, writes the `request` audit record before the first
-  model call, and writes the `no_tool_called` record if the session ends without a tool call
+  model call, and writes the `no_tool_called` record if the session ends without a tool call,
+  using `@helpdesk/audit-core` directly (Component 3) — not a second, hand-written copy of the
+  record format and chain
 
 Triage is not a separate process in Sprint 1. Keep the routing logic as a placeholder function
 so the seam exists, but do not build a second agent yet.

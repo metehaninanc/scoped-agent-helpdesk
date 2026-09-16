@@ -19,7 +19,7 @@
  */
 import type { RationaleFacts, RationaleGenerator } from "../approvals/rationale.js";
 import type { ApprovalCreateInput, ApprovalRecord } from "../approvals/store.js";
-import type { AuditInput, AuditRecord } from "../audit/types.js";
+import type { AuditInput, AuditRecord } from "@helpdesk/audit-core";
 import { GraphError, type AddMemberResult, type GroupSummary } from "../graph/client.js";
 import { log } from "../log.js";
 import { decide as defaultDecide } from "../policy/decide.js";

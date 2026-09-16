@@ -6,6 +6,7 @@ policy and, where required, a human. The build contract is [SPRINT1.md](SPRINT1.
 ## Layout
 
 ```
+packages/audit     the audit record format and its hash chain — shared, standalone
 packages/gateway   MCP server, policy engine, Graph client, audit log (the only package with credentials)
 packages/agent     Agent SDK wrapper, one file per agent
 packages/web       request form, approval screen                           (not started)
@@ -27,11 +28,12 @@ data/              SQLite, gitignored
   - Distro packages are often older than 22.13. On a Linux VPS use the NodeSource 22.x repo,
     `nvm`, or the official tarball, and check with `node -p "process.versions.node"`.
 - pnpm 12 (`npm install -g pnpm`; corepack cannot write to Program Files on this machine)
-- To run `pnpm agent` for real, `ANTHROPIC_API_KEY` must be set as a real environment variable
-  (or an `ant auth login` profile). This is a *different* place than the gateway's own
-  `.env`: the agent's own model turns run through the Agent SDK's own Claude Code subprocess,
-  which reads credentials from the environment it inherits, not from `.env` — `.env`'s
-  `ANTHROPIC_API_KEY` is read only by the gateway, only for the approval rationale.
+- To run `pnpm agent` for real, `ANTHROPIC_API_KEY` must resolve to something: either a real
+  environment variable, an `ant auth login` profile, or the same `.env` the gateway reads (the
+  agent package loads it too, at its own startup — see "Identity agent notes"). Same variable
+  name, but conceptually a separate credential from the gateway's: the agent's own model turns
+  run through the Agent SDK's own Claude Code subprocess, which authenticates independently of
+  the gateway process the agent spawns alongside it.
 
 ```
 pnpm install
@@ -45,7 +47,7 @@ pnpm typecheck
 | -------------------- | ------------------------------------------------- |
 | 1. Policy engine     | done, tests first: `packages/gateway/src/policy`  |
 | 2. Gateway           | done, tests first: `packages/gateway/src/tools`   |
-| 3. Audit log         | done, tests first: `packages/gateway/src/audit`   |
+| 3. Audit log         | done, tests first: `packages/audit`               |
 | 4. Approval store    | done, tests first: `packages/gateway/src/approvals` |
 | 5. Identity agent    | done, tests first: `packages/agent`               |
 | 6. Web               | not started                                       |
@@ -83,12 +85,33 @@ pnpm typecheck
   `RequestContext.timestamp`. The purity tests enforce this both at runtime (a trapped `Date`)
   and statically (a grep of the policy sources).
 
-### Audit log notes
+### Audit core notes
 
-- `node:sqlite` (built into Node 22, no native build step). `openDatabase()` in
-  `packages/gateway/src/db.ts` is the one connection opener; approvals will share the file.
+`packages/audit` (`@helpdesk/audit-core`) is a standalone workspace package: the append-only
+record format and its sha256 hash chain, used by both the gateway and the identity agent.
+
+- **What it deliberately does not carry: no identity, no policy, no credentials.** It does not
+  know what a UPN or a group id is, does not decide, and never sees an app registration or a
+  certificate. It also takes no position on how or where the database file is opened — a
+  caller passes in an already-open `DatabaseSync`; there is no `AuditLog.open(path)`
+  convenience. Only the record format and the hash chain live here. That boundary is the point:
+  it is small enough to hold in your head, and safe for the agent package to depend on directly
+  even though SPRINT1.md forbids it from importing gateway *runtime* code — this package is not
+  gateway code, it is the shared package both writers depend on.
+- **Why it exists at all: two writers, not a hypothetical third.** The gateway writes policy
+  decisions and results; the identity agent writes `request` and `no_tool_called` (Component 5)
+  because only it ever sees the model's final reply text. An earlier version of this project had
+  the agent hand-maintain its own byte-identical copy of the schema and hash algorithm to avoid
+  a gateway-runtime import — workable, but two copies of a hash algorithm are exactly the kind
+  of thing that drifts silently. With a second real writer already in hand, the justification
+  for a shared package was present, not speculative, so the duplication was removed rather than
+  managed.
+- `node:sqlite` (built into Node 22, no native build step). Each caller opens its own
+  connection — `packages/gateway/src/db.ts` for the gateway (approvals share the same file),
+  `packages/agent/src/db.ts` for the agent (a few lines, no identity/policy/credential content,
+  not worth sharing the way the record format was).
 - `AuditLog.append()` is synchronous and transactional. When it returns, the record is
-  committed. The gateway's "audit first, then act" ordering depends on that.
+  committed — every caller's "audit first, then act" ordering depends on that.
 - Append only is enforced twice: `BEFORE UPDATE` / `BEFORE DELETE` triggers stop an honest bug,
   and the sha256 hash chain catches anyone who drops the triggers. Each hash covers every
   stored column including the id and the previous hash, computed over the exact JSON strings
@@ -107,7 +130,8 @@ pnpm typecheck
   then nothing inside the file can tell. The real fix is external anchoring (periodically
   publishing the head hash somewhere the attacker cannot reach), and that is out of scope for
   Sprint 1.
-- Demo: `pnpm verify-audit [path]` prints the log and the verdict, exit code 1 on a break.
+- Demo: `pnpm verify-audit [path]` (in the gateway package) prints the log and the verdict,
+  exit code 1 on a break.
 
 ### Graph client notes
 
@@ -197,20 +221,19 @@ pnpm typecheck
 - The gateway subprocess is a sibling package binary, `dist/bin/gateway.js`, located by
   resolving `@helpdesk/gateway`'s `package.json` (`createRequire(...).resolve(...)`) rather
   than by importing it — so the actual code never crosses the package boundary.
-- **The package boundary and its cost.** SPRINT1.md: "the agent package must not import
-  anything from the gateway package other than type definitions." The gateway is spawned per
-  session and only exposes its three MCP tools, none of which write a `request` or
-  `no_tool_called` audit record — and only this process ever sees the model's final reply text,
-  which `no_tool_called` needs to store. So `session-audit.ts` is a second, independent
-  implementation of the append-one-row-with-a-hash-chain logic in
-  `packages/gateway/src/audit/{schema,hash,audit-log}.ts`: same schema, same hash algorithm,
-  same transaction shape, kept identical on purpose so a chain with records from both writers
-  still validates under the gateway's own `verifyChain()` — proven directly in
-  `session-audit.test.ts`, which is also the one place in this package that imports the real
-  `AuditLog` (exported from `@helpdesk/gateway` for exactly this test, never for production
-  code). This is a real, acknowledged duplication cost, not a free abstraction. If a second
-  writer of this table ever appears again, extracting a shared `@helpdesk/audit-core` package
-  removes it; not worth doing for one caller in Sprint 1.
+- **The package boundary, and how it is kept without duplicating the chain.** SPRINT1.md: "the
+  agent package must not import anything from the gateway package other than type
+  definitions." The gateway is spawned per session and only exposes its three MCP tools, none
+  of which write a `request` or `no_tool_called` audit record — and only this process ever sees
+  the model's final reply text, which `no_tool_called` needs to store. `session-audit.ts`
+  writes those two record kinds using the real `AuditLog` from `@helpdesk/audit-core` (see
+  "Audit core notes" above) — a normal dependency on a shared, credential-free package, not an
+  import of gateway code. An earlier version of this file hand-duplicated the schema and hash
+  algorithm to avoid exactly that gateway import, before the shared package existed; that
+  duplication is gone now that there is somewhere else for the logic to live.
+- `packages/agent/src/db.ts` is this package's own tiny "open a sqlite file" helper (mkdir,
+  pragmas) — not shared with the gateway's equivalent, and not worth sharing: it carries no
+  identity, policy or credential logic of its own, unlike the record format and chain.
 - `toolWasCalled` is tracked by scanning each `assistant` message for a `tool_use` content
   block; the reply text comes from the final `result` message. A tool call that the gateway
   denies still counts as a tool call — `no_tool_called` means the model never tried, not that
@@ -219,8 +242,11 @@ pnpm typecheck
   nothing is written to `~/.claude/projects/`. `env` is left unset so the Agent SDK's own
   subprocess inherits `process.env`, which is what lets it find `ANTHROPIC_API_KEY` (or an
   `ant auth login` profile) the normal way — this key is separate from the one the gateway
-  reads from `.env` for rationale generation, and must be set as a real environment variable
-  for the agent to run at all.
+  reads from `.env` for rationale generation. `packages/agent/src/env.ts` loads `.env` once, at
+  the start of `runIdentityAgent()`, before that subprocess spawns (real environment variables
+  still win, same rule as the gateway's own env loader), so a live run does not depend on the
+  shell already having the key exported — only on it being in `.env` or the real environment
+  by the time the agent runs.
 
 ## Sprint 2 items noted during Sprint 1
 

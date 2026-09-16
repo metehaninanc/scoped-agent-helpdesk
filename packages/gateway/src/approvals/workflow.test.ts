@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AuditLog } from "../audit/audit-log.js";
+import { AuditLog } from "@helpdesk/audit-core";
 import { openDatabase } from "../db.js";
 import { GraphError, type AddMemberResult } from "../graph/client.js";
 import { ApprovalStore, type ApprovalRecord } from "./store.js";

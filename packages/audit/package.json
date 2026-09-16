@@ -1,0 +1,15 @@
+{
+  "name": "@helpdesk/audit-core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The append-only audit record format and its sha256 hash chain. Nothing else: no identity, no policy, no credentials, no database connection management. See README, \"Audit core notes\", for what that boundary buys and what it costs.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.build.json"
+  }
+}

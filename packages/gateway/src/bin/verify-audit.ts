@@ -8,7 +8,9 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { AuditLog } from "../audit/index.js";
+import { AuditLog } from "@helpdesk/audit-core";
+
+import { openDatabase } from "../db.js";
 
 const path = resolve(process.argv[2] ?? "data/helpdesk.db");
 
@@ -17,7 +19,7 @@ if (!existsSync(path)) {
   process.exit(2);
 }
 
-const log = AuditLog.open(path);
+const log = new AuditLog(openDatabase(path));
 const records = log.list();
 const outcome = log.verifyChain();
 log.close();

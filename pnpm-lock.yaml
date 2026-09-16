@@ -181,15 +181,23 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.3.273
         version: 0.3.273(@anthropic-ai/sdk@0.125.0(zod@4.6.5))(@modelcontextprotocol/sdk@1.30.0(zod@4.6.5))(zod@4.6.5)
+      '@helpdesk/audit-core':
+        specifier: workspace:*
+        version: link:../audit
       '@helpdesk/gateway':
         specifier: workspace:*
         version: link:../gateway
+
+  packages/audit: {}
 
   packages/gateway:
     dependencies:
       '@anthropic-ai/sdk':
         specifier: ^0.125.0
         version: 0.125.0(zod@4.6.5)
+      '@helpdesk/audit-core':
+        specifier: workspace:*
+        version: link:../audit
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
         version: 1.30.0(zod@4.6.5)

@@ -1,10 +1,11 @@
+import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { openDatabase } from "../db.js";
 import { AuditLog, verifyChain } from "./audit-log.js";
 import { GENESIS_HASH, computeHash } from "./hash.js";
 import type { AuditInput } from "./types.js";
@@ -19,6 +20,19 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 function fixedClock(start = Date.UTC(2026, 8, 15, 12, 0, 0)) {
   let t = start;
   return () => new Date((t += 1000));
+}
+
+/**
+ * This package takes no position on how a database is opened — that is a caller concern (see
+ * the package README). Tests still need *some* way to get a DatabaseSync, so this is the
+ * minimum: create the parent directory, open the file, set the pragmas a real caller would.
+ */
+function openTestDb(path: string): DatabaseSync {
+  if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
+  const db = new DatabaseSync(path);
+  db.exec("PRAGMA journal_mode = WAL");
+  db.exec("PRAGMA busy_timeout = 5000");
+  return db;
 }
 
 const decision = (overrides: Partial<AuditInput> = {}): AuditInput => ({
@@ -53,7 +67,7 @@ describe("AuditLog", () => {
   let log: AuditLog;
 
   beforeEach(() => {
-    log = new AuditLog(openDatabase(":memory:"), { now: fixedClock() });
+    log = new AuditLog(openTestDb(":memory:"), { now: fixedClock() });
   });
 
   afterEach(() => {
@@ -344,12 +358,12 @@ describe("AuditLog on disk", () => {
   it("creates the database file and its parent directory, and survives reopen", () => {
     const path = join(dir, "nested", "helpdesk.db");
 
-    const first = AuditLog.open(path, { now: fixedClock() });
+    const first = new AuditLog(openTestDb(path), { now: fixedClock() });
     first.append(requestRecord("req-1"));
     first.append(decision());
     first.close();
 
-    const second = AuditLog.open(path);
+    const second = new AuditLog(openTestDb(path));
     expect(second.list().map((r) => r.id)).toEqual([1, 2]);
     expect(second.verifyChain()).toBeNull();
     const third = second.append(decision({ result: [] }));
@@ -360,8 +374,8 @@ describe("AuditLog on disk", () => {
 
   it("keeps one chain when two connections append to the same file", () => {
     const path = join(dir, "helpdesk.db");
-    const a = AuditLog.open(path, { now: fixedClock() });
-    const b = AuditLog.open(path, { now: fixedClock() });
+    const a = new AuditLog(openTestDb(path), { now: fixedClock() });
+    const b = new AuditLog(openTestDb(path), { now: fixedClock() });
 
     for (let i = 0; i < 4; i++) {
       a.append(decision({ requestId: `a-${i}` }));
