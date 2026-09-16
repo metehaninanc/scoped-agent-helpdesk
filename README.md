@@ -24,16 +24,14 @@ making this way, then records the evidence for it.
 
 ```mermaid
 flowchart TD
-    U["User request"] --> W["Web app<br/>request form and approval screen"]
-    W --> A["Identity agent<br/>Agent SDK, no built-in tools<br/>holds no credentials"]
-    A -->|"tool call"| G["Identity gateway<br/>MCP server<br/>policy engine and certificate"]
-
+    U["User request"] --> W["Web app: request form and approval screen"]
+    W --> A["Identity agent: Agent SDK, no built-in tools, holds no credentials"]
+    A -->|"tool call"| G["Identity gateway: MCP server, policy engine and certificate"]
     G -->|"autonomous"| MG["Microsoft Graph"]
-    G -->|"approval gated"| Q["Approval queue<br/>human decides, note required"]
+    G -->|"approval gated"| Q["Approval queue: human decides, note required"]
     Q -->|"approved"| MG
-    G -->|"denied"| D["Refusal returned<br/>Graph is never called"]
-
-    A --> L["Audit log<br/>append only, hash chained"]
+    G -->|"denied"| D["Refusal returned, Graph is never called"]
+    A --> L["Audit log: append only, hash chained"]
     G --> L
     Q --> L
 ```
