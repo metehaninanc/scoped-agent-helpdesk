@@ -50,7 +50,7 @@ pnpm typecheck
 | 3. Audit log         | done, tests first: `packages/audit`               |
 | 4. Approval store    | done, tests first: `packages/gateway/src/approvals` |
 | 5. Identity agent    | done, tests first: `packages/agent`               |
-| 6. Web               | not started                                       |
+| 6. Web               | done, tests first: `packages/web`                 |
 
 ### Policy engine notes
 
@@ -248,6 +248,48 @@ record format and its sha256 hash chain, used by both the gateway and the identi
   shell already having the key exported — only on it being in `.env` or the real environment
   by the time the agent runs.
 
+### Web app notes
+
+- Two server-rendered pages, plain `node:http`. No framework, no JSX, no build step — every
+  page is a template-literal function returning a string, tested without ever starting an HTTP
+  server. `packages/web/src/html.ts` is the one place HTML gets built; `escapeHtml()` runs on
+  every value that ever came from a user, an agent, or a model (identity fields, request text,
+  group ids, decision notes, the rationale) before it reaches a template.
+- The route handlers (`request-page.ts`, `approvals-page.ts`) are plain async functions —
+  `submitRequest(input, deps)`, `decideApproval(input, deps)` — independent of HTTP, unit
+  tested with fake deps. `server.ts` is the thin `node:http` routing/body-parsing layer on top,
+  covered by its own integration tests (a real server on an ephemeral port, real `fetch`
+  calls), the same two-layer pattern as the gateway's tool handler and MCP server.
+- **A null rationale renders as an explicit sentence** ("No rationale was generated for this
+  request."), never a blank section — the exact SPRINT1.md Component 6 requirement, and
+  tested directly.
+- Requester/approver separation and the required decision note are enforced by
+  `ApprovalWorkflow.decide()` (Component 4), not re-implemented here. The web layer's job is to
+  show the refusal honestly when one comes back (`ApprovalError` renders as `.error`, not a
+  generic 500) — proven live: a self-approval attempt through the actual web form was refused
+  with the same message the workflow produces.
+- Verified live end to end, against the real tenant, in one session: the request page ran a
+  real identity-agent turn (a tool call and a real answer, and separately a no-tool-call
+  clarifying question); the approval page listed a pending approval created via the gateway,
+  showed the missing-rationale message, refused a self-approval attempt, then approved with a
+  different identity and the group membership changed in the tenant — confirmed, then reverted.
+  The audit chain across the whole session (both paths) stayed intact throughout.
+- `WEB_PORT` (optional, default 3000) is read directly from the environment (or `.env`, loaded
+  the same way as the gateway's other variables); it is not part of `GatewayEnv` since it is a
+  web-app-only concern, not something the gateway or agent need to know.
+
 ## Sprint 2 items noted during Sprint 1
 
-_(none yet)_
+- **The web app holds Graph credentials directly** (`packages/web/src/bin/web.ts`
+  instantiates its own `CertificateCredential`/`GraphClient` to execute an approval). SPRINT1.md
+  defers HTTP transport and OAuth on the gateway to Sprint 2; until the gateway is reachable
+  over HTTP, there is no way for the web app to ask the gateway to make the Graph call on its
+  behalf, so it makes it itself. It is a human-only interface (the approver's screen), not
+  model-reachable, so this is the same trust boundary as the gateway process, not a new one —
+  but it is still a second process with the private key on disk, and Sprint 2's HTTP transport
+  should let the web app go through the gateway instead.
+- `add_user_to_group` is Sprint 1's only write; there is no `remove_user_from_group`. Every live
+  demo in this README that changed real tenant state reverted with a direct, one-off Graph
+  `DELETE $ref` call, not through this codebase. A remove path (with its own policy rule) is a
+  Sprint 2 candidate if reverting a change needs to be a supported operation rather than a
+  manual escape hatch.

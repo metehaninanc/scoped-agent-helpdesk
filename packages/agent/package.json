@@ -4,6 +4,8 @@
   "private": true,
   "description": "Identity agent: Agent SDK wrapper, one file, zero built-in tools. Must not import gateway runtime code, only its type definitions; its own audit writes go through the shared @helpdesk/audit-core package instead.",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "scripts": {
     "test": "pnpm --filter @helpdesk/audit-core build && vitest run",
     "test:watch": "pnpm --filter @helpdesk/audit-core build && vitest",

@@ -1,0 +1,18 @@
+{
+  "name": "@helpdesk/web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Request form and approval screen. Server rendered, no SPA framework, no build pipeline for the UI.",
+  "type": "module",
+  "scripts": {
+    "test": "pnpm --filter @helpdesk/audit-core build && vitest run",
+    "test:watch": "pnpm --filter @helpdesk/audit-core build && vitest",
+    "typecheck": "pnpm --filter @helpdesk/gateway build && pnpm --filter @helpdesk/agent build && tsc -p tsconfig.json --noEmit",
+    "build": "pnpm --filter @helpdesk/gateway build && pnpm --filter @helpdesk/agent build && tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@helpdesk/agent": "workspace:*",
+    "@helpdesk/audit-core": "workspace:*",
+    "@helpdesk/gateway": "workspace:*"
+  }
+}

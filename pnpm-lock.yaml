@@ -205,6 +205,18 @@ importers:
         specifier: ^4.6.5
         version: 4.6.5
 
+  packages/web:
+    dependencies:
+      '@helpdesk/agent':
+        specifier: workspace:*
+        version: link:../agent
+      '@helpdesk/audit-core':
+        specifier: workspace:*
+        version: link:../audit
+      '@helpdesk/gateway':
+        specifier: workspace:*
+        version: link:../gateway
+
 packages:
 
   '@anthropic-ai/claude-agent-sdk-darwin-arm64@0.3.273':
