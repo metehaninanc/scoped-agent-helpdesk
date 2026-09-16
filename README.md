@@ -22,6 +22,28 @@ never touches, and every one of those decisions, including refusals, is recorded
 anything happens as a result of it. The rest of this document explains why that claim is worth
 making this way, then records the evidence for it.
 
+```mermaid
+flowchart TD
+    U["User request"] --> W["Web app<br/>request form and approval screen"]
+    W --> A["Identity agent<br/>Agent SDK, no built-in tools<br/>holds no credentials"]
+    A -->|"tool call"| G["Identity gateway<br/>MCP server<br/>policy engine and certificate"]
+
+    G -->|"autonomous"| MG["Microsoft Graph"]
+    G -->|"approval gated"| Q["Approval queue<br/>human decides, note required"]
+    Q -->|"approved"| MG
+    G -->|"denied"| D["Refusal returned<br/>Graph is never called"]
+
+    A --> L["Audit log<br/>append only, hash chained"]
+    G --> L
+    Q --> L
+```
+
+The certificate sits in the gateway, never on the agent side. An agent that is talked into
+something still has no way to reach Graph on its own, and every decision reaches the audit log
+before anything executes. In Sprint 1 the approval executor holds its own Graph credential
+rather than calling back through the gateway, which is the one place this diagram simplifies.
+That is listed as a Sprint 2 item.
+
 ## Action classes
 
 Every request the agent makes ends up in exactly one of three classes. The policy engine
