@@ -14,12 +14,17 @@
  *     "Stage B: agents get a credential"), so nothing it can obtain reaches Graph. What the
  *     agent must still never import: GraphClient, the policy engine, a Graph credential, or
  *     anything else this package exposes.
- *   - The web app is a human-only interface (the approver's screen), not model-reachable, and
- *     Sprint 1 has no HTTP transport on the gateway for it to call into instead. So it imports
- *     the runtime pieces it genuinely needs directly: the Graph client and credential, the
- *     approval store and workflow, and the environment loader. SPRINT2.md, Stage B, Component 5
- *     removes this once HTTP transport exists (see "Scope" below): tracked there, not yet done
- *     as of this comment.
+ *   - The web app is a human-only interface (the approver's screen), not model-reachable. Through
+ *     Stage A it held a Graph credential directly, because Sprint 1 had no HTTP transport on the
+ *     gateway to call into instead. SPRINT2.md, Stage B, Component 5 removed that: the web app
+ *     now imports only ApprovalStore (to read pending approvals — a read needs no credential and
+ *     was never the gap), ApprovalError and the ApprovalDecisionInput/ApprovalOutcome/
+ *     ApprovalErrorCode types (to talk to the gateway's decision endpoint and interpret its
+ *     answer), openDatabase, loadGatewayEnv, and CertificateCredential — the same one narrow
+ *     exception the agent package gets, reused for the same reason: authenticating itself to the
+ *     gateway, never to Graph. GraphClient and ApprovalWorkflow now run only inside the gateway
+ *     process (see bin/gateway.ts and approvals/decision-listener.ts); the web app no longer
+ *     imports either.
  *
  * The audit record types are re-exported from @helpdesk/audit-core for convenience, so a
  * consumer of the gateway's types (the web app, rendering an approval) does not need to know

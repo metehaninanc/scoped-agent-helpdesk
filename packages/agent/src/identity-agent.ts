@@ -48,7 +48,10 @@ const GATEWAY_TOOLS = [
   "add_user_to_group",
   "remove_user_from_group",
 ] as const;
-const GATEWAY_URL = process.env.IDENTITY_GATEWAY_URL ?? "http://127.0.0.1:3001/mcp";
+/** IDENTITY_GATEWAY_URL is the gateway's origin (no path): the web app's decide-endpoint client
+ * shares the same env var and appends its own path, see packages/web/src/bin/web.ts. */
+const GATEWAY_BASE_URL = process.env.IDENTITY_GATEWAY_URL ?? "http://127.0.0.1:3001";
+const GATEWAY_URL = `${GATEWAY_BASE_URL}/mcp`;
 
 /**
  * This agent's own credential env, separate from the gateway's (SPRINT1.md: this package still

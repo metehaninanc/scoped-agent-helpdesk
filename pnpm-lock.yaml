@@ -228,12 +228,12 @@ importers:
       '@helpdesk/agent':
         specifier: workspace:*
         version: link:../agent
-      '@helpdesk/audit-core':
-        specifier: workspace:*
-        version: link:../audit
       '@helpdesk/identity-gateway':
         specifier: workspace:*
         version: link:../identity-gateway
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
 
 packages:
 

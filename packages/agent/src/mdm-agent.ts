@@ -44,7 +44,9 @@ import { SessionAudit } from "./session-audit.js";
 
 const GATEWAY_SERVER_NAME = "mdm-gateway";
 const GATEWAY_TOOLS = ["list_devices", "get_device"] as const;
-const GATEWAY_URL = process.env.MDM_GATEWAY_URL ?? "http://127.0.0.1:3002/mcp";
+/** MDM_GATEWAY_URL is the gateway's origin (no path), same convention as IDENTITY_GATEWAY_URL. */
+const GATEWAY_BASE_URL = process.env.MDM_GATEWAY_URL ?? "http://127.0.0.1:3002";
+const GATEWAY_URL = `${GATEWAY_BASE_URL}/mcp`;
 
 /** This agent's own credential env. Declared here, not shared with identity-agent.ts (see file header). */
 const agentCredentialEnvSchema = z.object({

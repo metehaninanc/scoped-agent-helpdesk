@@ -219,8 +219,10 @@ async function main(): Promise<void> {
     privateKeyPem: readFileSync(agentEnv.AZURE_MDM_AGENT_CERT_PATH),
   });
 
-  const mdmGatewayUrl = process.env.MDM_GATEWAY_URL ?? "http://127.0.0.1:3002/mcp";
-  const identityGatewayUrl = process.env.IDENTITY_GATEWAY_URL ?? "http://127.0.0.1:3001/mcp";
+  // Both env vars name an origin, not a path — see identity-agent.ts's and mdm-agent.ts's own
+  // comments on IDENTITY_GATEWAY_URL / MDM_GATEWAY_URL for why.
+  const mdmGatewayUrl = `${process.env.MDM_GATEWAY_URL ?? "http://127.0.0.1:3002"}/mcp`;
+  const identityGatewayUrl = `${process.env.IDENTITY_GATEWAY_URL ?? "http://127.0.0.1:3001"}/mcp`;
 
   const agentTokenChecks: AgentTokenCheck[] = [
     {

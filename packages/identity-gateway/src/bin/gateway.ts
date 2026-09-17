@@ -12,11 +12,16 @@
  * forward tokens", for why): this process keeps minting its own Graph token from its own
  * certificate, exactly as it always has.
  *
+ * As of Stage B, Component 5, this process is also where ApprovalWorkflow runs (see
+ * approvals/decision-listener.ts): the web app no longer holds a Graph credential at all, so
+ * executing an approved change has to happen somewhere that does, and this is the same
+ * certificate above, not a second one.
+ *
  * stdout is free again now that the protocol runs over HTTP; log.ts still writes to stderr only,
  * out of habit and because nothing depends on stdout being clean anymore.
  */
 import { readFileSync } from "node:fs";
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -26,7 +31,9 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { AuditLog } from "@helpdesk/audit-core";
 
 import { createRationaleGenerator, type RationaleGenerator } from "../approvals/rationale.js";
+import { createDecisionListener } from "../approvals/decision-listener.js";
 import { ApprovalStore } from "../approvals/store.js";
+import { ApprovalWorkflow } from "../approvals/workflow.js";
 import { TokenValidator } from "../auth/verify-token.js";
 import { openDatabase } from "../db.js";
 import { loadGatewayEnv } from "../env.js";
@@ -37,6 +44,8 @@ import { policyConfig } from "../policy/config.js";
 import { formatFinding, verifyManagedGroups } from "../startup/verify-managed-groups.js";
 import { createRequestListener } from "../tools/http-listener.js";
 import { createGatewayServer } from "../tools/server.js";
+
+const DECISION_PATH = "/approvals/decide";
 
 const DEFAULT_DB_PATH = "data/identity-helpdesk.db";
 const DEFAULT_PORT = 3001;
@@ -96,11 +105,15 @@ async function main(): Promise<void> {
   }
 
   const validator = new TokenValidator({ tenantId: env.AZURE_TENANT_ID, audience: env.IDENTITY_GATEWAY_AUDIENCE, requiredRole: REQUIRED_ROLE });
-  const listener = createRequestListener({ createTransport, validator, audit });
+  const mcpListener = createRequestListener({ createTransport, validator, audit });
+
+  const approvalWorkflow = new ApprovalWorkflow({ approvals, audit, graph });
+  const decisionListener = createDecisionListener({ workflow: approvalWorkflow, validator, audit, path: DECISION_PATH });
 
   const port = args.port ?? Number.parseInt(process.env.IDENTITY_GATEWAY_PORT ?? String(DEFAULT_PORT), 10);
-  const httpServer = createServer((req, res) => {
-    listener(req, res).catch((error: unknown) => {
+  const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
+    const handle = req.url === DECISION_PATH ? decisionListener : mcpListener;
+    handle(req, res).catch((error: unknown) => {
       log.error(`request ${req.url} aborted: ${error instanceof Error ? error.message : String(error)}`);
       if (!res.headersSent) res.writeHead(500).end();
     });
@@ -117,7 +130,7 @@ async function main(): Promise<void> {
 
   httpServer.listen(port, () => {
     log.info(
-      `ready: http://127.0.0.1:${port}/mcp audience=${env.IDENTITY_GATEWAY_AUDIENCE} db=${dbPath} managedGroups=${policyConfig.managedGroups.length} rationale=${rationale === undefined ? "off" : (env.HELPDESK_RATIONALE_MODEL ?? "claude-opus-5")}`,
+      `ready: http://127.0.0.1:${port}/mcp and ${DECISION_PATH} audience=${env.IDENTITY_GATEWAY_AUDIENCE} db=${dbPath} managedGroups=${policyConfig.managedGroups.length} rationale=${rationale === undefined ? "off" : (env.HELPDESK_RATIONALE_MODEL ?? "claude-opus-5")}`,
     );
   });
 }
