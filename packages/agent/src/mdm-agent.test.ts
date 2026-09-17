@@ -9,6 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runMdmAgent, type RunQuery } from "./mdm-agent.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const FAKE_TOKEN = "fake-mdm-gateway-token";
+const getAccessToken = async (): Promise<string> => FAKE_TOKEN;
 
 const assistantToolUse = (name: string): SDKMessage =>
   ({ type: "assistant", message: { content: [{ type: "tool_use", id: "t1", name, input: {} }] } }) as unknown as SDKMessage;
@@ -54,7 +56,7 @@ describe("runMdmAgent()", () => {
       return stream([resultSuccess("done")]);
     });
 
-    await runMdmAgent({ actor: "alice@contoso.com", requestText: "list the devices in the tenant", dbPath, runQuery });
+    await runMdmAgent({ actor: "alice@contoso.com", requestText: "list the devices in the tenant", dbPath, runQuery, getAccessToken });
 
     expect(recordsWhenQueried).toBe(1);
     expect(rows(dbPath)[0]).toMatchObject({ decision: "request", parameters: JSON.stringify("list the devices in the tenant") });
@@ -63,29 +65,28 @@ describe("runMdmAgent()", () => {
   it("passes the request text as the prompt and generates a requestId when none is given", async () => {
     const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 
-    const result = await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery });
+    const result = await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery, getAccessToken });
 
     expect(result.requestId).toMatch(UUID);
     expect(runQuery).toHaveBeenCalledTimes(1);
     expect(runQuery.mock.calls[0]![0].prompt).toBe("hello");
   });
 
-  it("honours an explicit requestId and threads it through to the gateway spawn args", async () => {
+  it("honours an explicit requestId and sends it to the gateway as a header, not a tool parameter", async () => {
     const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 
-    await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", requestId: "req-fixed", dbPath, runQuery });
+    await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", requestId: "req-fixed", dbPath, runQuery, getAccessToken });
 
-    const server = runQuery.mock.calls[0]![0].options.mcpServers!["mdm-gateway"] as { args: string[] };
-    expect(server.args).toEqual(
-      expect.arrayContaining(["--request-id", "req-fixed", "--actor", "alice@contoso.com", "--agent", "mdm-agent", "--db", dbPath]),
-    );
+    const server = runQuery.mock.calls[0]![0].options.mcpServers!["mdm-gateway"] as { headers: Record<string, string> };
+    expect(server.headers["x-request-id"]).toBe("req-fixed");
+    expect(server.headers["x-actor"]).toBe("alice@contoso.com");
     expect(rows(dbPath)[0]?.requestId).toBe("req-fixed");
   });
 
   it("disables every built-in tool and allows exactly the two mdm-gateway tools, unprompted", async () => {
     const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 
-    await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery });
+    await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery, getAccessToken });
 
     const { options } = runQuery.mock.calls[0]![0];
     expect(options.tools).toEqual([]);
@@ -96,7 +97,7 @@ describe("runMdmAgent()", () => {
   it("gives the model no other way to act: the system prompt names the narrow role and forbids retry or an alternative route", async () => {
     const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 
-    await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery });
+    await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery, getAccessToken });
 
     const prompt = String(runQuery.mock.calls[0]![0].options.systemPrompt);
     expect(prompt).toMatch(/only[\s\S]*tools you have been given/);
@@ -112,7 +113,7 @@ describe("runMdmAgent()", () => {
         stream([assistantText("Sure, let me help."), resultSuccess("I can only look up devices, not that.")]),
       );
 
-    const result = await runMdmAgent({ actor: "alice@contoso.com", requestText: "wipe alice's laptop", dbPath, runQuery });
+    const result = await runMdmAgent({ actor: "alice@contoso.com", requestText: "wipe alice's laptop", dbPath, runQuery, getAccessToken });
 
     expect(result.toolWasCalled).toBe(false);
     expect(result.reply).toBe("I can only look up devices, not that.");
@@ -126,20 +127,41 @@ describe("runMdmAgent()", () => {
       .fn<RunQuery>()
       .mockImplementation(() => stream([assistantToolUse("mcp__mdm-gateway__get_device"), resultSuccess("That request was denied by policy.")]));
 
-    const result = await runMdmAgent({ actor: "alice@contoso.com", requestText: "look up device x", dbPath, runQuery });
+    const result = await runMdmAgent({ actor: "alice@contoso.com", requestText: "look up device x", dbPath, runQuery, getAccessToken });
 
     expect(result.toolWasCalled).toBe(true);
     expect(rows(dbPath)).toHaveLength(1);
     expect(rows(dbPath)[0]?.decision).toBe("request");
   });
 
-  it("resolves the MDM gateway's built entry point via its package.json, not by importing it", async () => {
+  it("connects to the gateway over HTTP with a bearer token, never a spawned subprocess", async () => {
     const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 
-    await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery });
+    await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery, getAccessToken });
 
-    const server = runQuery.mock.calls[0]![0].options.mcpServers!["mdm-gateway"] as { command: string; args: string[] };
-    expect(server.command).toBe(process.execPath);
-    expect(server.args[0]).toMatch(/mdm-gateway[\\/]dist[\\/]bin[\\/]gateway\.js$/);
+    const server = runQuery.mock.calls[0]![0].options.mcpServers!["mdm-gateway"] as {
+      type: string;
+      url: string;
+      headers: Record<string, string>;
+    };
+    expect(server.type).toBe("http");
+    expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
+    expect(server.headers.authorization).toBe(`Bearer ${FAKE_TOKEN}`);
+  });
+
+  it("mints the token before the query starts, and never once the model is already running", async () => {
+    const order: string[] = [];
+    const trackedGetAccessToken = async (): Promise<string> => {
+      order.push("token");
+      return FAKE_TOKEN;
+    };
+    const runQuery = vi.fn<RunQuery>().mockImplementation(() => {
+      order.push("query");
+      return stream([resultSuccess("ok")]);
+    });
+
+    await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery, getAccessToken: trackedGetAccessToken });
+
+    expect(order).toEqual(["token", "query"]);
   });
 });

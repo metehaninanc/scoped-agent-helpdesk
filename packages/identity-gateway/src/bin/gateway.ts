@@ -1,55 +1,54 @@
 /**
- * The identity gateway, as an MCP server over stdio.
+ * The identity gateway, as an MCP server over HTTP (SPRINT2.md, Stage B, Component 2 and 3).
+ * Replaces Sprint 1's stdio transport: this is now a long-running server, started once, not one
+ * process per agent session. The call order inside every tool handler is unchanged (see
+ * tools/handler.ts): validate, decide, commit the audit record, then branch. What is new is
+ * everything in front of that: the transport, and the bearer token every request must carry
+ * (see tools/http-listener.ts, shared with the MDM gateway).
  *
- *   node dist/bin/gateway.js --actor <upn> --request-id <id> [--agent <name>] [--db <path>]
+ *   node dist/bin/gateway.js [--port <n>] [--db <path>]
  *
- * One process per agent session. The requesting user's identity and the session's requestId
- * are bound here, at spawn, from arguments the agent runtime supplies. They are never taken
- * from the model: nothing the model sends can change who the gateway is acting for.
+ * Never forwards the incoming bearer token to Graph (see the README, "Stage B: gateways do not
+ * forward tokens", for why): this process keeps minting its own Graph token from its own
+ * certificate, exactly as it always has.
  *
- * stdout is the protocol channel. Everything human-facing goes to stderr via log.ts.
+ * stdout is free again now that the protocol runs over HTTP; log.ts still writes to stderr only,
+ * out of habit and because nothing depends on stdout being clean anymore.
  */
 import { readFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+
+import { AuditLog } from "@helpdesk/audit-core";
 
 import { createRationaleGenerator, type RationaleGenerator } from "../approvals/rationale.js";
 import { ApprovalStore } from "../approvals/store.js";
-import { AuditLog } from "@helpdesk/audit-core";
+import { TokenValidator } from "../auth/verify-token.js";
 import { openDatabase } from "../db.js";
 import { loadGatewayEnv } from "../env.js";
 import { CertificateCredential } from "../graph/certificate-credential.js";
 import { GraphClient } from "../graph/client.js";
 import { log } from "../log.js";
 import { policyConfig } from "../policy/config.js";
-import { userPrincipalName } from "../policy/schemas.js";
 import { formatFinding, verifyManagedGroups } from "../startup/verify-managed-groups.js";
+import { createRequestListener } from "../tools/http-listener.js";
 import { createGatewayServer } from "../tools/server.js";
 
 const DEFAULT_DB_PATH = "data/identity-helpdesk.db";
+const DEFAULT_PORT = 3001;
+const REQUIRED_ROLE = "Gateway.Invoke";
 
-function parseSession(): { actor: string; agent: string; requestId: string; db: string | undefined } {
-  const { values } = parseArgs({
-    options: {
-      actor: { type: "string" },
-      "request-id": { type: "string" },
-      agent: { type: "string", default: "identity-agent" },
-      db: { type: "string" },
-    },
-    strict: true,
-  });
-
-  const actor = userPrincipalName.safeParse(values.actor);
-  if (!actor.success) throw new Error("--actor must be the requesting user's UPN");
-  if (!values["request-id"] || values["request-id"].trim() === "") throw new Error("--request-id is required");
-
-  return { actor: actor.data, agent: values.agent, requestId: values["request-id"], db: values.db };
+function parseCliArgs(): { db: string | undefined; port: number | undefined } {
+  const { values } = parseArgs({ options: { db: { type: "string" }, port: { type: "string" } }, strict: true });
+  return { db: values.db, port: values.port === undefined ? undefined : Number.parseInt(values.port, 10) };
 }
 
 async function main(): Promise<void> {
-  const session = parseSession();
+  const args = parseCliArgs();
   const env = loadGatewayEnv();
 
   const credential = new CertificateCredential({
@@ -60,7 +59,7 @@ async function main(): Promise<void> {
   });
   const graph = new GraphClient({ credential });
 
-  const dbPath = resolve(session.db ?? env.HELPDESK_DB_PATH ?? DEFAULT_DB_PATH);
+  const dbPath = resolve(args.db ?? env.HELPDESK_DB_PATH ?? DEFAULT_DB_PATH);
   const db = openDatabase(dbPath);
   const audit = new AuditLog(db);
   const approvals = new ApprovalStore(db);
@@ -80,26 +79,47 @@ async function main(): Promise<void> {
     });
   }
 
-  const server = createGatewayServer(
-    { actor: session.actor, agent: session.agent, requestId: session.requestId },
-    { audit, approvals, graph, config: policyConfig, ...(rationale === undefined ? {} : { rationale }) },
-  );
+  const gatewayDeps = { audit, approvals, graph, config: policyConfig, ...(rationale === undefined ? {} : { rationale }) };
+
+  // A stateless transport (no sessionIdGenerator — omitted entirely, not set to undefined, to
+  // sidestep an exactOptionalPropertyTypes/accessor-pair quirk in the SDK's own type
+  // declarations) throws if handleRequest runs on it twice, and a Server already connected to
+  // one transport refuses a second. So: a fresh Server and transport pair per request, built
+  // over the same shared deps. See tools/http-listener.ts's header comment for why.
+  async function createTransport(): Promise<StreamableHTTPServerTransport> {
+    const transport = new StreamableHTTPServerTransport();
+    // The cast works around an exactOptionalPropertyTypes/accessor-pair mismatch between this
+    // transport's own onclose setter type and the Transport interface Server.connect() expects
+    // — a type-declaration quirk in this SDK version, not a real shape mismatch.
+    await createGatewayServer(gatewayDeps).connect(transport as unknown as Transport);
+    return transport;
+  }
+
+  const validator = new TokenValidator({ tenantId: env.AZURE_TENANT_ID, audience: env.IDENTITY_GATEWAY_AUDIENCE, requiredRole: REQUIRED_ROLE });
+  const listener = createRequestListener({ createTransport, validator, audit });
+
+  const port = args.port ?? Number.parseInt(process.env.IDENTITY_GATEWAY_PORT ?? String(DEFAULT_PORT), 10);
+  const httpServer = createServer((req, res) => {
+    listener(req, res).catch((error: unknown) => {
+      log.error(`request ${req.url} aborted: ${error instanceof Error ? error.message : String(error)}`);
+      if (!res.headersSent) res.writeHead(500).end();
+    });
+  });
 
   const shutdown = (why: string): void => {
     log.info(`shutting down (${why})`);
+    httpServer.close();
     db.close();
     process.exit(0);
   };
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
 
-  const transport = new StdioServerTransport();
-  transport.onclose = () => shutdown("stdin closed");
-  await server.connect(transport);
-
-  log.info(
-    `ready: actor=${session.actor} agent=${session.agent} requestId=${session.requestId} db=${dbPath} managedGroups=${policyConfig.managedGroups.length} rationale=${rationale === undefined ? "off" : (env.HELPDESK_RATIONALE_MODEL ?? "claude-opus-5")}`,
-  );
+  httpServer.listen(port, () => {
+    log.info(
+      `ready: http://127.0.0.1:${port}/mcp audience=${env.IDENTITY_GATEWAY_AUDIENCE} db=${dbPath} managedGroups=${policyConfig.managedGroups.length} rationale=${rationale === undefined ? "off" : (env.HELPDESK_RATIONALE_MODEL ?? "claude-opus-5")}`,
+    );
+  });
 }
 
 main().catch((error: unknown) => {

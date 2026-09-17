@@ -1,5 +1,5 @@
 /**
- * The identity agent. SPRINT1.md, Component 5.
+ * The identity agent. SPRINT1.md, Component 5; SPRINT2.md, Stage B, Component 1.
  *
  * Runs on the Claude Agent SDK with every built-in tool disabled (`tools: []`) and exactly
  * the identity-gateway tools allowed. That is the whole point of using this SDK here
@@ -8,10 +8,19 @@
  * maintenance every release. `tools: []` plus a closed `allowedTools` list is the addition
  * problem instead — nothing runs unless it is named here.
  *
- * The actor identity is a spawn-time parameter of this process, passed straight through as a
- * command-line argument to the gateway subprocess. Nothing the model produces can set or
- * change it: there is no tool parameter, no prompt content, and no code path here that reads
- * an actor from anywhere but `options.actor`.
+ * The actor identity is a spawn-time parameter of this process, sent to the gateway as a
+ * request header this file sets before the model ever runs. Nothing the model produces can
+ * set or change it: there is no tool parameter, no prompt content, and no code path here that
+ * reads an actor from anywhere but `options.actor`.
+ *
+ * Stage B gives this process its own credential for the first time — a certificate scoped to
+ * this agent's own app registration, carrying the Gateway.Invoke role on the identity gateway's
+ * API and no Graph permission at all (see the README, "Stage B: agents get a credential", for
+ * why that is safe and why Sprint 1 avoided it). It authenticates this process to its own
+ * gateway over HTTP; it cannot be replayed against Graph, and Entra itself refuses it against
+ * the MDM gateway (see prove-isolation.ts's agent-token checks). CertificateCredential is the
+ * one runtime import this file takes from @helpdesk/identity-gateway — see that package's
+ * index.ts for why this specific class is the one narrow exception to SPRINT1.md's rule.
  *
  * This process, not the gateway, writes the `request` and `no_tool_called` audit records
  * (see session-audit.ts for why that file exists instead of importing the gateway's own
@@ -19,12 +28,15 @@
  * record if the whole session ends without the model calling a tool.
  */
 import { randomUUID } from "node:crypto";
-import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import { query, type McpServerConfig, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { z } from "zod";
+
+import { CertificateCredential } from "@helpdesk/identity-gateway";
 
 import { ensureEnvLoaded } from "./env.js";
 import { SessionAudit } from "./session-audit.js";
@@ -36,6 +48,37 @@ const GATEWAY_TOOLS = [
   "add_user_to_group",
   "remove_user_from_group",
 ] as const;
+const GATEWAY_URL = process.env.IDENTITY_GATEWAY_URL ?? "http://127.0.0.1:3001/mcp";
+
+/**
+ * This agent's own credential env, separate from the gateway's (SPRINT1.md: this package still
+ * never reads a Graph certificate path). Declared here rather than imported from a shared
+ * module, same reasoning as GATEWAY_TOOLS and SYSTEM_PROMPT above: the mdm-agent's equivalent
+ * schema lives in mdm-agent.ts, its own text, naming its own variables.
+ */
+const agentCredentialEnvSchema = z.object({
+  AZURE_TENANT_ID: z.guid(),
+  AZURE_IDENTITY_AGENT_CLIENT_ID: z.guid(),
+  AZURE_IDENTITY_AGENT_CERT_PATH: z.string().min(1),
+  AZURE_IDENTITY_AGENT_CERT_THUMBPRINT: z.string().regex(/^[0-9a-f]{40}$/i, "must be a 40-character hex SHA-1 thumbprint"),
+  IDENTITY_GATEWAY_AUDIENCE: z.string().min(1),
+});
+
+/** This agent's own certificate credential, and the audience it authenticates to. */
+function loadAgentCredential(): { credential: CertificateCredential; audience: string } {
+  const parsed = agentCredentialEnvSchema.safeParse(process.env);
+  if (!parsed.success) {
+    throw new Error(`Identity agent's own credential environment is incomplete or malformed:\n${z.prettifyError(parsed.error)}`);
+  }
+  const env = parsed.data;
+  const credential = new CertificateCredential({
+    tenantId: env.AZURE_TENANT_ID,
+    clientId: env.AZURE_IDENTITY_AGENT_CLIENT_ID,
+    thumbprint: env.AZURE_IDENTITY_AGENT_CERT_THUMBPRINT,
+    privateKeyPem: readFileSync(env.AZURE_IDENTITY_AGENT_CERT_PATH),
+  });
+  return { credential, audience: env.IDENTITY_GATEWAY_AUDIENCE };
+}
 
 const SYSTEM_PROMPT = [
   "You are the identity helpdesk agent. Your only job is to answer questions about a user's",
@@ -65,6 +108,8 @@ export interface IdentityAgentOptions {
   dbPath?: string;
   /** Injectable for tests; defaults to the Agent SDK's query(). */
   runQuery?: RunQuery;
+  /** Injectable for tests; defaults to minting a real token via this agent's own certificate. */
+  getAccessToken?: () => Promise<string>;
 }
 
 export interface IdentityAgentResult {
@@ -73,10 +118,10 @@ export interface IdentityAgentResult {
   reply: string;
 }
 
-/** Resolve the gateway's built entry point via its package.json, not by importing it. */
-function gatewayEntryPoint(): string {
-  const packageJsonPath = createRequire(import.meta.url).resolve("@helpdesk/identity-gateway/package.json");
-  return resolve(dirname(packageJsonPath), "dist", "bin", "gateway.js");
+async function mintAccessToken(): Promise<string> {
+  const { credential, audience } = loadAgentCredential();
+  const { token } = await credential.getToken(`${audience}/.default`);
+  return token;
 }
 
 export async function runIdentityAgent(options: IdentityAgentOptions): Promise<IdentityAgentResult> {
@@ -87,26 +132,26 @@ export async function runIdentityAgent(options: IdentityAgentOptions): Promise<I
   const requestId = options.requestId ?? randomUUID();
   const dbPath = options.dbPath ?? resolve("data/identity-helpdesk.db");
   const runQuery = options.runQuery ?? query;
+  const getAccessToken = options.getAccessToken ?? mintAccessToken;
 
   const opening = new SessionAudit(dbPath);
   opening.append({ requestId, actor: options.actor, agent: "identity-agent", decision: "request", content: options.requestText });
   opening.close();
 
+  // The token proves which agent is calling and that Entra granted it Gateway.Invoke on this
+  // gateway's API, nothing more. actor and requestId travel as headers this process sets
+  // itself, never as a tool parameter: the same trust tier a --actor spawn argument was over
+  // stdio, just carried over HTTP instead (SPRINT2.md, Stage B, Component 3).
+  const token = await getAccessToken();
   const mcpServers: Record<string, McpServerConfig> = {
     [GATEWAY_SERVER_NAME]: {
-      type: "stdio",
-      command: process.execPath,
-      args: [
-        gatewayEntryPoint(),
-        "--actor",
-        options.actor,
-        "--agent",
-        "identity-agent",
-        "--request-id",
-        requestId,
-        "--db",
-        dbPath,
-      ],
+      type: "http",
+      url: GATEWAY_URL,
+      headers: {
+        authorization: `Bearer ${token}`,
+        "x-actor": options.actor,
+        "x-request-id": requestId,
+      },
     },
   };
 

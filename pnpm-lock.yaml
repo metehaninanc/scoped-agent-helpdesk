@@ -187,9 +187,9 @@ importers:
       '@helpdesk/identity-gateway':
         specifier: workspace:*
         version: link:../identity-gateway
-      '@helpdesk/mdm-gateway':
-        specifier: workspace:*
-        version: link:../mdm-gateway
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/audit: {}
 

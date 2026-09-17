@@ -6,8 +6,8 @@ import { ApprovalStore } from "../approvals/store.js";
 import { AuditLog } from "@helpdesk/audit-core";
 import { openDatabase } from "../db.js";
 import { Rule, type PolicyConfig } from "../policy/types.js";
-import type { GatewayDeps, SessionContext } from "./handler.js";
-import { GATEWAY_NAME, createGatewayServer } from "./server.js";
+import type { GatewayDeps } from "./handler.js";
+import { GATEWAY_NAME, createGatewayServer, sessionFromExtra, type ToolCallExtra } from "./server.js";
 
 const MARKETING = "20a26e53-1cbd-48e3-8cc4-8d86cece7a6a";
 const ALICE = "alice@contoso.com";
@@ -18,12 +18,44 @@ const config: PolicyConfig = {
   directoryRoleIds: [],
 };
 
-const session: SessionContext = { actor: "helpdesk.operator@contoso.com", agent: "identity-agent", requestId: "req-1" };
-
 const textOf = (result: Awaited<ReturnType<Client["callTool"]>>): Record<string, unknown> => {
   const [first] = result.content as { type: string; text: string }[];
   return JSON.parse(first!.text) as Record<string, unknown>;
 };
+
+describe("sessionFromExtra()", () => {
+  const extra = (over: Partial<ToolCallExtra>): ToolCallExtra => ({ signal: new AbortController().signal, ...over }) as ToolCallExtra;
+
+  it("takes the agent identity from the validated token's client id, never a header", () => {
+    const session = sessionFromExtra(
+      extra({
+        authInfo: { token: "x", clientId: "22222222-2222-4222-8222-222222222222", scopes: ["Gateway.Invoke"] },
+        requestInfo: { headers: { "x-actor": "alice@contoso.com", "x-request-id": "req-1" } },
+      }),
+    );
+    expect(session).toEqual({ actor: "alice@contoso.com", agent: "22222222-2222-4222-8222-222222222222", requestId: "req-1" });
+  });
+
+  it("takes actor and requestId from headers, never from authInfo", () => {
+    const session = sessionFromExtra(
+      extra({
+        authInfo: { token: "x", clientId: "22222222-2222-4222-8222-222222222222", scopes: [] },
+        requestInfo: { headers: { "x-actor": "bob@contoso.com", "x-request-id": "req-2", "x-other": "ignored" } },
+      }),
+    );
+    expect(session.actor).toBe("bob@contoso.com");
+    expect(session.requestId).toBe("req-2");
+  });
+
+  it("falls back to a placeholder when authInfo or requestInfo is absent, rather than throwing", () => {
+    expect(sessionFromExtra(extra({}))).toEqual({ actor: "unknown", agent: "unknown", requestId: "unknown" });
+  });
+
+  it("takes the first value when a header repeats", () => {
+    const session = sessionFromExtra(extra({ requestInfo: { headers: { "x-actor": ["first@contoso.com", "second@contoso.com"] } } }));
+    expect(session.actor).toBe("first@contoso.com");
+  });
+});
 
 describe("gateway MCP server", () => {
   let audit: AuditLog;
@@ -47,7 +79,7 @@ describe("gateway MCP server", () => {
     };
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    await createGatewayServer(session, deps).connect(serverTransport);
+    await createGatewayServer(deps).connect(serverTransport);
     client = new Client({ name: "test-client", version: "0.0.0" });
     await client.connect(clientTransport);
   });
@@ -142,7 +174,7 @@ describe("gateway MCP server", () => {
         },
       },
     };
-    await createGatewayServer(session, broken).connect(serverTransport);
+    await createGatewayServer(broken).connect(serverTransport);
     const brokenClient = new Client({ name: "test-client", version: "0.0.0" });
     await brokenClient.connect(clientTransport);
     const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);

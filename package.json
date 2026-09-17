@@ -17,6 +17,7 @@
     "mdm-gateway": "pnpm --filter @helpdesk/mdm-gateway build && node --no-warnings=ExperimentalWarning packages/mdm-gateway/dist/bin/gateway.js",
     "agent": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/identity-agent.js",
     "mdm-agent": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/mdm-agent.js",
+    "token-smoke": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/bin/token-smoke.js",
     "web": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/web.js"
   },
   "devDependencies": {

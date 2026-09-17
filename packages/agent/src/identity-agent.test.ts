@@ -9,6 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runIdentityAgent, type RunQuery } from "./identity-agent.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const FAKE_TOKEN = "fake-identity-gateway-token";
+const getAccessToken = async (): Promise<string> => FAKE_TOKEN;
 
 // Only the fields runIdentityAgent actually reads. Cast rather than build the full,
 // heavily-optional SDKMessage union — that union exists for the SDK's own producers, not for
@@ -57,7 +59,7 @@ describe("runIdentityAgent()", () => {
       return stream([resultSuccess("done")]);
     });
 
-    await runIdentityAgent({ actor: "alice@contoso.com", requestText: "which groups is bob in", dbPath, runQuery });
+    await runIdentityAgent({ actor: "alice@contoso.com", requestText: "which groups is bob in", dbPath, runQuery, getAccessToken });
 
     expect(recordsWhenQueried).toBe(1);
     expect(rows(dbPath)[0]).toMatchObject({ decision: "request", parameters: JSON.stringify("which groups is bob in") });
@@ -66,29 +68,28 @@ describe("runIdentityAgent()", () => {
   it("passes the request text as the prompt and generates a requestId when none is given", async () => {
     const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 
-    const result = await runIdentityAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery });
+    const result = await runIdentityAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery, getAccessToken });
 
     expect(result.requestId).toMatch(UUID);
     expect(runQuery).toHaveBeenCalledTimes(1);
     expect(runQuery.mock.calls[0]![0].prompt).toBe("hello");
   });
 
-  it("honours an explicit requestId and threads it through to the gateway spawn args", async () => {
+  it("honours an explicit requestId and sends it to the gateway as a header, not a tool parameter", async () => {
     const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 
-    await runIdentityAgent({ actor: "alice@contoso.com", requestText: "hello", requestId: "req-fixed", dbPath, runQuery });
+    await runIdentityAgent({ actor: "alice@contoso.com", requestText: "hello", requestId: "req-fixed", dbPath, runQuery, getAccessToken });
 
-    const server = runQuery.mock.calls[0]![0].options.mcpServers!["identity-gateway"] as { args: string[] };
-    expect(server.args).toEqual(
-      expect.arrayContaining(["--request-id", "req-fixed", "--actor", "alice@contoso.com", "--agent", "identity-agent", "--db", dbPath]),
-    );
+    const server = runQuery.mock.calls[0]![0].options.mcpServers!["identity-gateway"] as { headers: Record<string, string> };
+    expect(server.headers["x-request-id"]).toBe("req-fixed");
+    expect(server.headers["x-actor"]).toBe("alice@contoso.com");
     expect(rows(dbPath)[0]?.requestId).toBe("req-fixed");
   });
 
   it("disables every built-in tool and allows exactly the four gateway tools, unprompted", async () => {
     const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 
-    await runIdentityAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery });
+    await runIdentityAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery, getAccessToken });
 
     const { options } = runQuery.mock.calls[0]![0];
     expect(options.tools).toEqual([]);
@@ -104,7 +105,7 @@ describe("runIdentityAgent()", () => {
   it("gives the model no other way to act: the system prompt names the narrow role and forbids retry or an alternative route", async () => {
     const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 
-    await runIdentityAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery });
+    await runIdentityAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery, getAccessToken });
 
     const prompt = String(runQuery.mock.calls[0]![0].options.systemPrompt);
     expect(prompt).toMatch(/only[\s\S]*tools you have been given/);
@@ -120,7 +121,13 @@ describe("runIdentityAgent()", () => {
         stream([assistantText("Sure, let me help."), resultSuccess("I can only manage group membership, not that.")]),
       );
 
-    const result = await runIdentityAgent({ actor: "alice@contoso.com", requestText: "reset my password", dbPath, runQuery });
+    const result = await runIdentityAgent({
+      actor: "alice@contoso.com",
+      requestText: "reset my password",
+      dbPath,
+      runQuery,
+      getAccessToken,
+    });
 
     expect(result.toolWasCalled).toBe(false);
     expect(result.reply).toBe("I can only manage group membership, not that.");
@@ -144,6 +151,7 @@ describe("runIdentityAgent()", () => {
       requestText: "assign alice Global Administrator",
       dbPath,
       runQuery,
+      getAccessToken,
     });
 
     expect(result.toolWasCalled).toBe(true);
@@ -151,13 +159,34 @@ describe("runIdentityAgent()", () => {
     expect(rows(dbPath)[0]?.decision).toBe("request");
   });
 
-  it("resolves the gateway's built entry point via its package.json, not by importing it", async () => {
+  it("connects to the gateway over HTTP with a bearer token, never a spawned subprocess", async () => {
     const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 
-    await runIdentityAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery });
+    await runIdentityAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery, getAccessToken });
 
-    const server = runQuery.mock.calls[0]![0].options.mcpServers!["identity-gateway"] as { command: string; args: string[] };
-    expect(server.command).toBe(process.execPath);
-    expect(server.args[0]).toMatch(/identity-gateway[\\/]dist[\\/]bin[\\/]gateway\.js$/);
+    const server = runQuery.mock.calls[0]![0].options.mcpServers!["identity-gateway"] as {
+      type: string;
+      url: string;
+      headers: Record<string, string>;
+    };
+    expect(server.type).toBe("http");
+    expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
+    expect(server.headers.authorization).toBe(`Bearer ${FAKE_TOKEN}`);
+  });
+
+  it("mints the token before the query starts, and never once the model is already running", async () => {
+    const order: string[] = [];
+    const trackedGetAccessToken = async (): Promise<string> => {
+      order.push("token");
+      return FAKE_TOKEN;
+    };
+    const runQuery = vi.fn<RunQuery>().mockImplementation(() => {
+      order.push("query");
+      return stream([resultSuccess("ok")]);
+    });
+
+    await runIdentityAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery, getAccessToken: trackedGetAccessToken });
+
+    expect(order).toEqual(["token", "query"]);
   });
 });

@@ -19,6 +19,7 @@ import { runIdentityAgent, type RunQuery as IdentityRunQuery } from "./identity-
 import { runMdmAgent, type RunQuery as MdmRunQuery } from "./mdm-agent.js";
 
 const resultSuccess = (text: string): SDKMessage => ({ type: "result", subtype: "success", result: text }) as unknown as SDKMessage;
+const getAccessToken = async (): Promise<string> => "fake-token";
 
 async function* stream(messages: SDKMessage[]): AsyncGenerator<SDKMessage, void> {
   for (const message of messages) yield message;
@@ -43,8 +44,8 @@ describe("the two agents' allowlists and prompts are disjoint", () => {
     const identityRunQuery = vi.fn<IdentityRunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
     const mdmRunQuery = vi.fn<MdmRunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 
-    await runIdentityAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath: identityDbPath, runQuery: identityRunQuery });
-    await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath: mdmDbPath, runQuery: mdmRunQuery });
+    await runIdentityAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath: identityDbPath, runQuery: identityRunQuery, getAccessToken });
+    await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath: mdmDbPath, runQuery: mdmRunQuery, getAccessToken });
 
     const identityTools = identityRunQuery.mock.calls[0]![0].options.allowedTools!;
     const mdmTools = mdmRunQuery.mock.calls[0]![0].options.allowedTools!;
@@ -64,8 +65,8 @@ describe("the two agents' allowlists and prompts are disjoint", () => {
     const identityRunQuery = vi.fn<IdentityRunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
     const mdmRunQuery = vi.fn<MdmRunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 
-    await runIdentityAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath: identityDbPath, runQuery: identityRunQuery });
-    await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath: mdmDbPath, runQuery: mdmRunQuery });
+    await runIdentityAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath: identityDbPath, runQuery: identityRunQuery, getAccessToken });
+    await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath: mdmDbPath, runQuery: mdmRunQuery, getAccessToken });
 
     const identityPrompt = String(identityRunQuery.mock.calls[0]![0].options.systemPrompt);
     const mdmPrompt = String(mdmRunQuery.mock.calls[0]![0].options.systemPrompt);
@@ -77,19 +78,16 @@ describe("the two agents' allowlists and prompts are disjoint", () => {
     expect(mdmPrompt.toLowerCase()).not.toContain("group membership");
   });
 
-  it("spawns each agent's gateway from its own package, never the other's", async () => {
+  it("connects each agent to its own gateway's URL, never the other's", async () => {
     const identityRunQuery = vi.fn<IdentityRunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
     const mdmRunQuery = vi.fn<MdmRunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 
-    await runIdentityAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath: identityDbPath, runQuery: identityRunQuery });
-    await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath: mdmDbPath, runQuery: mdmRunQuery });
+    await runIdentityAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath: identityDbPath, runQuery: identityRunQuery, getAccessToken });
+    await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath: mdmDbPath, runQuery: mdmRunQuery, getAccessToken });
 
-    const identityServer = identityRunQuery.mock.calls[0]![0].options.mcpServers!["identity-gateway"] as { args: string[] };
-    const mdmServer = mdmRunQuery.mock.calls[0]![0].options.mcpServers!["mdm-gateway"] as { args: string[] };
+    const identityServer = identityRunQuery.mock.calls[0]![0].options.mcpServers!["identity-gateway"] as { url: string };
+    const mdmServer = mdmRunQuery.mock.calls[0]![0].options.mcpServers!["mdm-gateway"] as { url: string };
 
-    expect(identityServer.args[0]).toMatch(/[\\/]identity-gateway[\\/]dist[\\/]bin[\\/]gateway\.js$/);
-    expect(identityServer.args[0]).not.toMatch(/mdm-gateway/);
-    expect(mdmServer.args[0]).toMatch(/[\\/]mdm-gateway[\\/]dist[\\/]bin[\\/]gateway\.js$/);
-    expect(mdmServer.args[0]).not.toMatch(/identity-gateway/);
+    expect(identityServer.url).not.toBe(mdmServer.url);
   });
 });

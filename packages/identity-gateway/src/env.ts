@@ -12,6 +12,12 @@
  * thumbprint are gateway-scoped (`_IDENTITY_` / `_MDM_`) so that reading the wrong one is a
  * typo caught by a missing variable, not a silent cross-wire between two credentials that are
  * deliberately supposed to be separate identities.
+ *
+ * Stage B adds each gateway's own Application ID URI (`IDENTITY_GATEWAY_AUDIENCE` /
+ * `MDM_GATEWAY_AUDIENCE`), the value a bearer token's `aud` claim must equal before this
+ * gateway will honour it. This file does not read either agent's own certificate: a gateway
+ * validates tokens against Entra's public keys, it does not mint one for itself, so it never
+ * needs an agent's private key. Agent credentials live in the agent package's own env module.
  */
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -34,6 +40,10 @@ export const gatewayEnvSchema = z.object({
   AZURE_MDM_CERT_PATH: z.string().min(1),
   /** SHA-1 thumbprint, 40 hex characters, as the portal shows it. */
   AZURE_MDM_CERT_THUMBPRINT: thumbprint,
+  /** The identity gateway's own Application ID URI, e.g. api://helpdesk-identity-gateway. */
+  IDENTITY_GATEWAY_AUDIENCE: z.string().min(1),
+  /** The MDM gateway's own Application ID URI, e.g. api://helpdesk-mdm-gateway. */
+  MDM_GATEWAY_AUDIENCE: z.string().min(1),
   /** Optional. SQLite file for the audit log and approvals. Default: data/identity-helpdesk.db. */
   HELPDESK_DB_PATH: optionalString,
   /**
