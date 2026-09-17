@@ -242,21 +242,25 @@ the same audited, approved path as the change itself, instead of a manual escape
 Two disjoint identities: a second app registration, `helpdesk-mdm-gateway`, with exactly one
 Graph permission (`Device.Read.All`) and its own certificate. A new package,
 `packages/mdm-gateway`, exposing `list_devices` and `get_device` (both autonomous, no write
-tools, its own policy engine and its own audit chain and database file). `pnpm prove-isolation`,
-committed evidence that Microsoft — not this codebase — refuses a credential pointed at the
-other gateway's resource (see "Sprint 2, Stage A: gateway credential isolation" below). And
-`remove_user_from_group`, above.
+tools, its own policy engine and its own audit chain and database file). A second agent,
+`packages/agent/src/mdm-agent.ts`, the identity agent's device-lookup counterpart — its own file,
+its own system prompt, its own tool allowlist, no shared constant between the two (see "The MDM
+agent, and the weaker boundary above the gateways" below for what that boundary does and does not
+prove today). `pnpm prove-isolation`, committed evidence that Microsoft — not this codebase —
+refuses a credential pointed at the other gateway's resource. And `remove_user_from_group`,
+above.
 
 ### What Sprint 2, Stage B still has to add
 
 HTTP transport and OAuth on both gateways, with audience-bound tokens issued per agent, so each
-agent runs under its own service principal instead of sharing its gateway's; the web app losing
-its Graph credential entirely, reaching Graph only through the identity gateway; a merged,
-read-only view across the two gateways' separate audit chains. Carried forward unchanged from
-Sprint 1: Entra login on the web app, replacing the plain identity field; a second agent and the
-triage logic to route between them (the seam for this already exists as a placeholder function);
-ledger anchoring, to close the tail truncation gap the hash chain leaves open; and a prompt
-injection test suite.
+agent runs under its own service principal instead of sharing its gateway's, and the agent-level
+tool boundary the previous section describes as "our own code" becomes something Entra itself
+enforces; the web app losing its Graph credential entirely, reaching Graph only through the
+identity gateway; a merged, read-only view across the two gateways' separate audit chains.
+Carried forward unchanged from Sprint 1: Entra login on the web app, replacing the plain identity
+field; the triage logic to route between the two agents that now exist (the seam for this
+already exists as a placeholder function, unused by either agent so far); ledger anchoring, to
+close the tail truncation gap the hash chain leaves open; and a prompt injection test suite.
 
 ## Repo layout
 
@@ -268,7 +272,9 @@ packages/gateway       identity gateway: MCP server, policy engine, Graph client
                         packages/mdm-gateway, see the header comment in graph/client.ts)
 packages/mdm-gateway    MDM gateway: its own MCP server, policy engine and audit chain, disjoint
                         Graph permission and certificate from the identity gateway (SPRINT2.md)
-packages/agent          the identity agent, one file, on the Claude Agent SDK
+packages/agent          two agents, one file each (identity-agent.ts, mdm-agent.ts), on the
+                        Claude Agent SDK; deliberately not one parameterized implementation
+                        (see mdm-agent.ts's header comment)
 packages/web            request form and approval screen, server rendered
 data/                   SQLite, gitignored
 ```
@@ -308,23 +314,29 @@ key path (kept outside the repo): `AZURE_IDENTITY_CLIENT_ID` / `AZURE_IDENTITY_C
 `AZURE_MDM_CERT_THUMBPRINT` / `AZURE_MDM_CERT_PATH` for `helpdesk-mdm-gateway` (SPRINT2.md, Stage
 A). All six are required for any Graph access. `ANTHROPIC_API_KEY` is optional; without it, approvals are still
 created, just without a generated rationale, and the gateway says so at startup. Real
-environment variables always take precedence over `.env`. The identity agent's own model turns
-also need `ANTHROPIC_API_KEY` to resolve, but through a separate mechanism: the Agent SDK's own
+environment variables always take precedence over `.env`. Both agents' own model turns also
+need `ANTHROPIC_API_KEY` to resolve, but through a separate mechanism: the Agent SDK's own
 Claude Code subprocess, which can authenticate from the same `.env` (the agent package loads it
 independently at its own startup), a real environment variable, or an `ant auth login` profile.
 
 Each package can be run directly once built:
 
 ```
-pnpm gateway -- --actor alice@contoso.com --request-id test-1
-pnpm mdm-gateway -- --actor alice@contoso.com --request-id test-1
-pnpm agent -- --actor alice@contoso.com --request "which groups is alice@contoso.com in"
+pnpm gateway --actor alice@contoso.com --request-id test-1
+pnpm mdm-gateway --actor alice@contoso.com --request-id test-1
+pnpm agent --actor alice@contoso.com --request "which groups is alice@contoso.com in"
+pnpm mdm-agent --actor alice@contoso.com --request "list the devices in the tenant"
 pnpm web
 pnpm verify-audit [path/to/helpdesk.db]
 pnpm graph-smoke
 pnpm mdm-graph-smoke
 pnpm prove-isolation
 ```
+
+No `--` before the flags: these scripts chain a build step before `node ...` with `&&`, and on
+this pnpm version a `--` separator is passed straight through as a literal argument to the built
+script, which then rejects it. Plain trailing flags work because pnpm appends them to the whole
+script line.
 
 `pnpm mdm-gateway` defaults to `data/mdm-helpdesk.db`, a separate file from the identity
 gateway's `data/helpdesk.db` (SPRINT2.md, Component 6: two gateways, two audit chains, never
@@ -346,17 +358,18 @@ commit this document was written against.
 
 ### Sprint 2, Stage A status
 
-| Component                          | State                                                        |
-| ----------------------------------- | ------------------------------------------------------------ |
-| 1. MDM gateway                      | done, tests first: `packages/mdm-gateway`                    |
-| 2. Isolation evidence               | done: `pnpm prove-isolation`, `evidence/isolation-run.txt`    |
-| 3. `remove_user_from_group`         | done, tests first: `packages/gateway/src/policy`, `src/tools` |
-| 4. HTTP transport, token validation | not started (Stage B)                                        |
-| 5. Web app loses its Graph credential | not started (Stage B)                                       |
-| 6. Merged audit-chain reader         | not started (Stage B)                                        |
+| Component                            | State                                                          |
+| ------------------------------------- | --------------------------------------------------------------- |
+| 1. MDM gateway                        | done, tests first: `packages/mdm-gateway`                        |
+| 2. Isolation evidence                 | done: `pnpm prove-isolation`, `evidence/isolation-run.txt`        |
+| 3. `remove_user_from_group`           | done, tests first: `packages/gateway/src/policy`, `src/tools`    |
+| 4. MDM agent                          | done, tests first: `packages/agent/src/mdm-agent.ts`             |
+| 5. HTTP transport, token validation   | not started (Stage B)                                            |
+| 6. Web app loses its Graph credential | not started (Stage B)                                            |
+| 7. Merged audit-chain reader          | not started (Stage B)                                            |
 
-360 tests across six packages, all passing; `pnpm typecheck` and `pnpm build` clean, at the
-commit this document was written against.
+371 tests across six packages, all passing; `pnpm typecheck` and `pnpm build` clean, at the
+commit this document was written against. Stage A is complete.
 
 ### Policy engine notes
 
@@ -585,3 +598,29 @@ addresses it only by naming it: run the two gateways under separate OS users, or
 hosts, so that a compromise of one process's filesystem access does not hand over the other's
 private key. That separation is not exercised by this script or by anything else in this repo
 yet.
+
+### The MDM agent, and the weaker boundary above the gateways
+
+`packages/agent/src/mdm-agent.ts` is the device-lookup counterpart to `identity-agent.ts`: same
+shape, zero built-in tools, `allowedTools` naming exactly the two `mdm-gateway` tools, identity
+bound at spawn as a command-line argument, its own `request` and `no_tool_called` audit records
+written into the MDM gateway's own database. It is a separate file with its own system prompt
+text, not a parameterized copy of the identity agent sharing a constant with it — see the file's
+own header comment for why: a shared allowlist or prompt constant would quietly become the thing
+that defines the boundary between the two agents, and the boundary is supposed to come from
+credentials.
+
+`agent-boundary.test.ts` checks the two agents' `allowedTools` never intersect and that each
+names only its own gateway's MCP server. **This is a real check, but a weaker one than
+`prove-isolation.ts` above, and it is worth being honest about the difference.** The isolation
+evidence proves something an attacker cannot talk their way around: Entra itself refuses a token
+minted for the wrong gateway, regardless of what code runs on either side of that call. The
+agent-boundary test proves something a *reviewer* cannot easily miss: today, nothing stops a
+future edit to `mdm-agent.ts` from adding `"mcp__identity-gateway__add_user_to_group"` to its own
+`allowedTools` by mistake, except this test catching it and a reviewer reading the diff. Stage B
+closes that gap at the layer where it actually matters: each agent gets its own app registration,
+holding a credential that authenticates it to its own gateway's HTTP endpoint and to no other,
+verified by signature and audience by Entra on every call. At that point an agent naming the
+wrong tool fails not because a test caught it in CI, but because the gateway it would have to
+reach refuses the token outright — the same class of proof `prove-isolation.ts` already
+demonstrates one layer down, extended to cover the agent layer too.

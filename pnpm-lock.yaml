@@ -187,6 +187,9 @@ importers:
       '@helpdesk/gateway':
         specifier: workspace:*
         version: link:../gateway
+      '@helpdesk/mdm-gateway':
+        specifier: workspace:*
+        version: link:../mdm-gateway
 
   packages/audit: {}
 
