@@ -12,14 +12,10 @@ import { readFileSync } from "node:fs";
 
 import { loadGatewayEnv } from "../env.js";
 import { CertificateCredential, TokenError } from "../graph/certificate-credential.js";
+import { decodeJwtClaims } from "../graph/jwt.js";
 
 const GRAPH = "https://graph.microsoft.com";
 const EXPECTED_ROLES = ["Device.Read.All"];
-
-function claims(jwt: string): Record<string, unknown> {
-  const payload = jwt.split(".")[1] ?? "";
-  return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;
-}
 
 async function main(): Promise<void> {
   const env = loadGatewayEnv();
@@ -36,7 +32,7 @@ async function main(): Promise<void> {
   });
 
   const { token, expiresAt } = await credential.getToken(`${GRAPH}/.default`);
-  const c = claims(token);
+  const c = decodeJwtClaims(token);
   const roles = Array.isArray(c.roles) ? (c.roles as unknown[]).map(String) : [];
   console.log("");
   console.log(`token      ok, expires ${new Date(expiresAt).toISOString()}`);

@@ -486,3 +486,48 @@ Reading the records against the five items:
    way, Graph was never called.
 5. All of the above, including the refusal, are in the one audit trail shown above, and
    `verifyChain()` reports the chain intact across all twelve records.
+
+## Sprint 2, Stage A: gateway credential isolation
+
+[SPRINT2.md](SPRINT2.md) opens a second app registration, `helpdesk-mdm-gateway`, with exactly
+one Graph permission (`Device.Read.All`) and its own certificate, disjoint from the identity
+gateway's (`User.Read.All`, `GroupMember.ReadWrite.All`). The claim worth demonstrating is not
+"our code keeps these separate" but "Microsoft keeps these separate, and would refuse a mistake
+even if our code did not." `pnpm prove-isolation` (`packages/gateway/src/bin/prove-isolation.ts`)
+mints a token from each credential and points it at both the other gateway's endpoint and its
+own, four calls in total, and fails the build if any of them does not come back exactly as
+expected. The result is committed at [evidence/isolation-run.txt](evidence/isolation-run.txt) and
+reproduced here:
+
+```
+Sprint 2, Stage A: gateway credential isolation (SPRINT2.md, Component 2)
+Run at: 2026-09-17T08:55:24.593Z
+Tenant: f5590adf-b4c2-43c0-a656-5fb76451a2b7
+
+check                               expected    actual    roles                               graph error
+--------------------------------------------------------------------------------------------------------------
+identity token -> GET /users        200         200       User.Read.All, GroupMember.ReadWrite.All  -
+identity token -> GET /devices      403         403       User.Read.All, GroupMember.ReadWrite.All  Authorization_RequestDenied
+mdm token -> GET /devices           200         200       Device.Read.All                     -
+mdm token -> GET /users             403         403       Device.Read.All                     Authorization_RequestDenied
+
+PASS: all 4 checks matched their expected status.
+```
+
+The identity gateway's token is refused by Graph itself (403, `Authorization_RequestDenied`)
+when pointed at `/devices`, and the MDM gateway's token is refused the same way when pointed at
+`/users`. Neither refusal is enforced by anything in this repo; both come from Entra evaluating
+the `roles` claim each token actually carries, which the script prints so the row is checkable
+against the app registration, not just against this script's own good faith. Never logged: the
+bearer token or the client assertion used to obtain it, only the decoded `roles` claim and
+Graph's own error code.
+
+**What this proves, and what it does not.** It proves that Microsoft enforces the separation
+between the two app registrations' Graph permissions: an agent holding one gateway's credential
+cannot use it to act as the other, no matter what the model producing the tool call intended. It
+does **not** prove that the MDM gateway's process cannot read the identity gateway's certificate
+off disk, or vice versa; that is a host-level concern, not a Graph-level one, and Sprint 2
+addresses it only by naming it: run the two gateways under separate OS users, or on separate
+hosts, so that a compromise of one process's filesystem access does not hand over the other's
+private key. That separation is not exercised by this script or by anything else in this repo
+yet.
