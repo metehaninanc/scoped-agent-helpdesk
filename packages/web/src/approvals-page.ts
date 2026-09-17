@@ -12,8 +12,8 @@
  * requester/approver check and the required-note check live there (gateway), not here. This
  * file never re-implements either — it just has to show the refusal honestly when one fires.
  */
-import type { ApprovalDecisionInput, ApprovalOutcome, ApprovalRecord } from "@helpdesk/gateway";
-import { ApprovalError } from "@helpdesk/gateway";
+import type { ApprovalDecisionInput, ApprovalOutcome, ApprovalRecord } from "@helpdesk/identity-gateway";
+import { ApprovalError } from "@helpdesk/identity-gateway";
 
 import { escapeHtml, escapedPre } from "./html.js";
 

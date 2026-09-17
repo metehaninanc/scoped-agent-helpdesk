@@ -47,7 +47,7 @@ That is listed as a Sprint 2 item.
 ## Action classes
 
 Every request the agent makes ends up in exactly one of three classes. The policy engine
-(`packages/gateway/src/policy/decide.ts`) decides which one; nothing else in the system gets a
+(`packages/identity-gateway/src/policy/decide.ts`) decides which one; nothing else in the system gets a
 vote.
 
 **Autonomous.** Reads that carry no risk of changing anything: which groups is this user in,
@@ -190,7 +190,7 @@ nothing.
 
 The break glass list (accounts no request may ever target) and the managed group allowlist (the
 only groups `add_user_to_group` may touch) are both hardcoded in
-`packages/gateway/src/policy/config.ts` and committed to version control. This was a deliberate
+`packages/identity-gateway/src/policy/config.ts` and committed to version control. This was a deliberate
 choice against the more common pattern of putting this kind of configuration in environment
 variables.
 
@@ -265,25 +265,26 @@ close the tail truncation gap the hash chain leaves open; and a prompt injection
 ## Repo layout
 
 ```
-packages/audit         the audit record format and its hash chain, shared, standalone
-packages/gateway       identity gateway: MCP server, policy engine, Graph client, audit log
-                        (holds the identity gateway's credential; the web app also holds one,
-                        see "Scope" above; the Graph client's HTTP/auth code is shared with
-                        packages/mdm-gateway, see the header comment in graph/client.ts)
-packages/mdm-gateway    MDM gateway: its own MCP server, policy engine and audit chain, disjoint
-                        Graph permission and certificate from the identity gateway (SPRINT2.md)
-packages/agent          two agents, one file each (identity-agent.ts, mdm-agent.ts), on the
-                        Claude Agent SDK; deliberately not one parameterized implementation
-                        (see mdm-agent.ts's header comment)
-packages/web            request form and approval screen, server rendered
-data/                   SQLite, gitignored
+packages/audit             the audit record format and its hash chain, shared, standalone
+packages/identity-gateway  identity gateway: MCP server, policy engine, Graph client, audit log
+                           (holds the identity gateway's credential; the web app also holds one,
+                           see "Scope" above; the Graph client's HTTP/auth code is shared with
+                           packages/mdm-gateway, see the header comment in graph/client.ts)
+packages/mdm-gateway       MDM gateway: its own MCP server, policy engine and audit chain,
+                           disjoint Graph permission and certificate from the identity gateway
+                           (SPRINT2.md)
+packages/agent             two agents, one file each (identity-agent.ts, mdm-agent.ts), on the
+                           Claude Agent SDK; deliberately not one parameterized implementation
+                           (see mdm-agent.ts's header comment)
+packages/web               request form and approval screen, server rendered
+data/                      SQLite, gitignored
 ```
 
-`packages/gateway/src/index.ts` documents two different rules for two different consumers. The
-agent package may import only type definitions from the gateway package; it reaches the
-gateway's actual behaviour over a spawned MCP connection it does not otherwise trust. The web
-app, a human only interface, imports the gateway's runtime code directly, for the reason given
-under "Scope" above.
+`packages/identity-gateway/src/index.ts` documents two different rules for two different
+consumers. The agent package may import only type definitions from the identity gateway package;
+it reaches the gateway's actual behaviour over a spawned MCP connection it does not otherwise
+trust. The web app, a human only interface, imports the gateway's runtime code directly, for the
+reason given under "Scope" above.
 
 ## Running it
 
@@ -322,7 +323,7 @@ independently at its own startup), a real environment variable, or an `ant auth 
 Each package can be run directly once built:
 
 ```
-pnpm gateway --actor alice@contoso.com --request-id test-1
+pnpm identity-gateway --actor alice@contoso.com --request-id test-1
 pnpm mdm-gateway --actor alice@contoso.com --request-id test-1
 pnpm agent --actor alice@contoso.com --request "which groups is alice@contoso.com in"
 pnpm mdm-agent --actor alice@contoso.com --request "list the devices in the tenant"
@@ -346,10 +347,10 @@ merged); `pnpm verify-audit` takes either path and needs no changes to work agai
 
 | Component            | State                                                |
 | --------------------- | ---------------------------------------------------- |
-| 1. Policy engine      | done, tests first: `packages/gateway/src/policy`      |
-| 2. Gateway            | done, tests first: `packages/gateway/src/tools`       |
+| 1. Policy engine      | done, tests first: `packages/identity-gateway/src/policy`      |
+| 2. Gateway            | done, tests first: `packages/identity-gateway/src/tools`       |
 | 3. Audit log          | done, tests first: `packages/audit`                   |
-| 4. Approval store     | done, tests first: `packages/gateway/src/approvals`   |
+| 4. Approval store     | done, tests first: `packages/identity-gateway/src/approvals`   |
 | 5. Identity agent     | done, tests first: `packages/agent`                   |
 | 6. Web                | done, tests first: `packages/web`                     |
 
@@ -362,7 +363,7 @@ commit this document was written against.
 | ------------------------------------- | --------------------------------------------------------------- |
 | 1. MDM gateway                        | done, tests first: `packages/mdm-gateway`                        |
 | 2. Isolation evidence                 | done: `pnpm prove-isolation`, `evidence/isolation-run.txt`        |
-| 3. `remove_user_from_group`           | done, tests first: `packages/gateway/src/policy`, `src/tools`    |
+| 3. `remove_user_from_group`           | done, tests first: `packages/identity-gateway/src/policy`, `src/tools` |
 | 4. MDM agent                          | done, tests first: `packages/agent/src/mdm-agent.ts`             |
 | 5. HTTP transport, token validation   | not started (Stage B)                                            |
 | 6. Web app loses its Graph credential | not started (Stage B)                                            |
@@ -560,7 +561,7 @@ Reading the records against the five items:
 one Graph permission (`Device.Read.All`) and its own certificate, disjoint from the identity
 gateway's (`User.Read.All`, `GroupMember.ReadWrite.All`). The claim worth demonstrating is not
 "our code keeps these separate" but "Microsoft keeps these separate, and would refuse a mistake
-even if our code did not." `pnpm prove-isolation` (`packages/gateway/src/bin/prove-isolation.ts`)
+even if our code did not." `pnpm prove-isolation` (`packages/identity-gateway/src/bin/prove-isolation.ts`)
 mints a token from each credential and points it at both the other gateway's endpoint and its
 own, four calls in total, and fails the build if any of them does not come back exactly as
 expected. The result is committed at [evidence/isolation-run.txt](evidence/isolation-run.txt) and

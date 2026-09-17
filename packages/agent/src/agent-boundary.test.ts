@@ -87,8 +87,9 @@ describe("the two agents' allowlists and prompts are disjoint", () => {
     const identityServer = identityRunQuery.mock.calls[0]![0].options.mcpServers!["identity-gateway"] as { args: string[] };
     const mdmServer = mdmRunQuery.mock.calls[0]![0].options.mcpServers!["mdm-gateway"] as { args: string[] };
 
-    expect(identityServer.args[0]).toMatch(/[\\/]gateway[\\/]dist[\\/]bin[\\/]gateway\.js$/);
+    expect(identityServer.args[0]).toMatch(/[\\/]identity-gateway[\\/]dist[\\/]bin[\\/]gateway\.js$/);
     expect(identityServer.args[0]).not.toMatch(/mdm-gateway/);
-    expect(mdmServer.args[0]).toMatch(/mdm-gateway[\\/]dist[\\/]bin[\\/]gateway\.js$/);
+    expect(mdmServer.args[0]).toMatch(/[\\/]mdm-gateway[\\/]dist[\\/]bin[\\/]gateway\.js$/);
+    expect(mdmServer.args[0]).not.toMatch(/identity-gateway/);
   });
 });

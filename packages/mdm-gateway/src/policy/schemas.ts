@@ -5,7 +5,7 @@
  */
 import { z } from "zod";
 
-import { deviceId } from "@helpdesk/gateway";
+import { deviceId } from "@helpdesk/identity-gateway";
 
 import type { ToolRequest } from "./types.js";
 

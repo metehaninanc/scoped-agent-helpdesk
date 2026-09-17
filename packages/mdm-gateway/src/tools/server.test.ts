@@ -3,7 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuditLog } from "@helpdesk/audit-core";
-import { openDatabase } from "@helpdesk/gateway";
+import { openDatabase } from "@helpdesk/identity-gateway";
 
 import { Rule, type PolicyConfig } from "../policy/types.js";
 import type { GatewayDeps, SessionContext } from "./handler.js";

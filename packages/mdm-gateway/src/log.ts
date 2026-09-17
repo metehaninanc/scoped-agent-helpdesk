@@ -1,5 +1,5 @@
 /**
- * stderr-only logging, same rule as the identity gateway's (packages/gateway/src/log.ts): on
+ * stderr-only logging, same rule as the identity gateway's (packages/identity-gateway/src/log.ts): on
  * stdio transport, stdout IS the MCP channel, so nothing here may write to it. Kept as its own
  * small file rather than a shared export — this is boundary-respecting duplication of fourteen
  * lines, not the kind of thing SPRINT2.md means by "shared code is fine, shared config is not".

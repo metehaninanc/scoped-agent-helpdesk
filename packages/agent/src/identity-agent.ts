@@ -75,7 +75,7 @@ export interface IdentityAgentResult {
 
 /** Resolve the gateway's built entry point via its package.json, not by importing it. */
 function gatewayEntryPoint(): string {
-  const packageJsonPath = createRequire(import.meta.url).resolve("@helpdesk/gateway/package.json");
+  const packageJsonPath = createRequire(import.meta.url).resolve("@helpdesk/identity-gateway/package.json");
   return resolve(dirname(packageJsonPath), "dist", "bin", "gateway.js");
 }
 

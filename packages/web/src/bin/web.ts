@@ -19,7 +19,7 @@ import {
   GraphClient,
   loadGatewayEnv,
   openDatabase,
-} from "@helpdesk/gateway";
+} from "@helpdesk/identity-gateway";
 
 import { createWebServer } from "../server.js";
 

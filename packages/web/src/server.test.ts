@@ -1,6 +1,6 @@
 import type { AddressInfo } from "node:net";
 
-import { ApprovalError, type ApprovalDecisionInput, type ApprovalOutcome, type ApprovalRecord } from "@helpdesk/gateway";
+import { ApprovalError, type ApprovalDecisionInput, type ApprovalOutcome, type ApprovalRecord } from "@helpdesk/identity-gateway";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentRunResult, SubmitRequestInput } from "./request-page.js";

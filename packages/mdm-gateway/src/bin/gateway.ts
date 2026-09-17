@@ -1,6 +1,6 @@
 /**
  * The MDM gateway, as an MCP server over stdio. Same spawn shape as the identity gateway's
- * (packages/gateway/src/bin/gateway.ts), a disjoint credential: this process holds the
+ * (packages/identity-gateway/src/bin/gateway.ts), a disjoint credential: this process holds the
  * `helpdesk-mdm-gateway` certificate, scoped to Device.Read.All only.
  *
  *   node dist/bin/gateway.js --actor <upn> --request-id <id> [--agent <name>] [--db <path>]
@@ -22,7 +22,7 @@ import { parseArgs } from "node:util";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { AuditLog } from "@helpdesk/audit-core";
-import { CertificateCredential, GraphClient, loadGatewayEnv, openDatabase, userPrincipalName } from "@helpdesk/gateway";
+import { CertificateCredential, GraphClient, loadGatewayEnv, openDatabase, userPrincipalName } from "@helpdesk/identity-gateway";
 
 import { log } from "../log.js";
 import { policyConfig } from "../policy/config.js";

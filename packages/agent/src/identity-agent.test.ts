@@ -158,6 +158,6 @@ describe("runIdentityAgent()", () => {
 
     const server = runQuery.mock.calls[0]![0].options.mcpServers!["identity-gateway"] as { command: string; args: string[] };
     expect(server.command).toBe(process.execPath);
-    expect(server.args[0]).toMatch(/gateway[\\/]dist[\\/]bin[\\/]gateway\.js$/);
+    expect(server.args[0]).toMatch(/identity-gateway[\\/]dist[\\/]bin[\\/]gateway\.js$/);
   });
 });

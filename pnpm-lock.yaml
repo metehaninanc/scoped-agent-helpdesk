@@ -184,16 +184,16 @@ importers:
       '@helpdesk/audit-core':
         specifier: workspace:*
         version: link:../audit
-      '@helpdesk/gateway':
+      '@helpdesk/identity-gateway':
         specifier: workspace:*
-        version: link:../gateway
+        version: link:../identity-gateway
       '@helpdesk/mdm-gateway':
         specifier: workspace:*
         version: link:../mdm-gateway
 
   packages/audit: {}
 
-  packages/gateway:
+  packages/identity-gateway:
     dependencies:
       '@anthropic-ai/sdk':
         specifier: ^0.125.0
@@ -213,9 +213,9 @@ importers:
       '@helpdesk/audit-core':
         specifier: workspace:*
         version: link:../audit
-      '@helpdesk/gateway':
+      '@helpdesk/identity-gateway':
         specifier: workspace:*
-        version: link:../gateway
+        version: link:../identity-gateway
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
         version: 1.30.0(zod@4.6.5)
@@ -231,9 +231,9 @@ importers:
       '@helpdesk/audit-core':
         specifier: workspace:*
         version: link:../audit
-      '@helpdesk/gateway':
+      '@helpdesk/identity-gateway':
         specifier: workspace:*
-        version: link:../gateway
+        version: link:../identity-gateway
 
 packages:
 

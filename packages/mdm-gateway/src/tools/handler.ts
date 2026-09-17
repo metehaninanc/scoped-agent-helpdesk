@@ -18,8 +18,8 @@
  * autonomous.
  */
 import type { AuditInput, AuditRecord } from "@helpdesk/audit-core";
-import type { DeviceSummary } from "@helpdesk/gateway";
-import { GraphError } from "@helpdesk/gateway";
+import type { DeviceSummary } from "@helpdesk/identity-gateway";
+import { GraphError } from "@helpdesk/identity-gateway";
 
 import { decide as defaultDecide } from "../policy/decide.js";
 import { parseToolRequest, type ValidatedToolRequest } from "../policy/schemas.js";

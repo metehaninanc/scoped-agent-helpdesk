@@ -5,7 +5,7 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
-import type { ApprovalDecisionInput, ApprovalRecord } from "@helpdesk/gateway";
+import type { ApprovalDecisionInput, ApprovalRecord } from "@helpdesk/identity-gateway";
 
 import { decideApproval, renderApprovalDetail, renderApprovalsList, type DecideDeps } from "./approvals-page.js";
 import { page } from "./html.js";
