@@ -1,12 +1,22 @@
 /**
- * The Microsoft Graph calls the gateway makes, and nothing else. Two operations, matching the
- * two tools in SPRINT1.md. If a third call is needed, that is a scope decision, not a detail.
+ * The Microsoft Graph calls either gateway makes, and nothing else. Originally two operations
+ * matching the two Sprint 1 tools; SPRINT2.md, Component 1 adds the MDM gateway's two device
+ * reads here rather than a second client, because the HTTP and auth plumbing is identical and
+ * this is genuinely shared code, not shared configuration — each gateway still injects its own
+ * credential, minted from its own certificate, and Microsoft is what actually keeps a call made
+ * with one gateway's token from reaching the other gateway's resource (see prove-isolation.ts).
+ * If a call belongs to neither gateway's stated scope, adding it here is a scope decision, not
+ * a detail.
  *
- * Inputs are re-validated with the same schemas the policy engine uses, so nothing that did
- * not pass decide() can be shaped into a URL here.
+ * Inputs are re-validated with the same schemas the policy engines use, so nothing that did not
+ * pass decide() can be shaped into a URL here.
  */
+import { z } from "zod";
+
 import { groupId as groupIdSchema, userPrincipalName as upnSchema } from "../policy/schemas.js";
 import type { AccessToken } from "./certificate-credential.js";
+
+export const deviceId = z.guid("must be an Entra device object id");
 
 export const GRAPH_SCOPE = "https://graph.microsoft.com/.default";
 const DEFAULT_BASE_URL = "https://graph.microsoft.com/v1.0";
@@ -31,6 +41,14 @@ export interface GroupSummary {
 export interface AddMemberResult {
   /** True when Graph reported the user was already a member. The desired state holds either way. */
   alreadyMember: boolean;
+}
+
+export interface DeviceSummary {
+  id: string;
+  displayName: string;
+  operatingSystem: string;
+  /** Entra's own compliance flag for the device. Null when Graph reports none. */
+  isCompliant: boolean | null;
 }
 
 export class GraphError extends Error {
@@ -130,7 +148,40 @@ export class GraphClient {
     }
   }
 
-  private async request<T>(url: string, options: { method?: "GET" | "POST"; body?: unknown } = {}): Promise<T> {
+  /** GET /devices. SPRINT2.md, Component 1: id, displayName, operatingSystem, compliance state. */
+  async listDevices(): Promise<DeviceSummary[]> {
+    const devices: DeviceSummary[] = [];
+    let url: string | undefined = `${this.baseUrl}/devices?$select=id,displayName,operatingSystem,isCompliant`;
+    while (url !== undefined) {
+      const page: Page<{ id: string; displayName?: string | null; operatingSystem?: string | null; isCompliant?: boolean | null }> =
+        await this.request(url);
+      for (const d of page.value) {
+        devices.push({
+          id: d.id,
+          displayName: d.displayName ?? "",
+          operatingSystem: d.operatingSystem ?? "",
+          isCompliant: d.isCompliant ?? null,
+        });
+      }
+      url = page["@odata.nextLink"];
+    }
+    return devices;
+  }
+
+  /** GET /devices/{id}. Throws GraphError (404) when the device does not exist; the model reports that as given. */
+  async getDevice(id: string): Promise<DeviceSummary> {
+    const device = deviceId.parse(id);
+    const found: { id: string; displayName?: string | null; operatingSystem?: string | null; isCompliant?: boolean | null } =
+      await this.request(`${this.baseUrl}/devices/${encodeURIComponent(device)}?$select=id,displayName,operatingSystem,isCompliant`);
+    return {
+      id: found.id,
+      displayName: found.displayName ?? "",
+      operatingSystem: found.operatingSystem ?? "",
+      isCompliant: found.isCompliant ?? null,
+    };
+  }
+
+  private async request<T>(url: string, options: { method?: "GET" | "POST" | "DELETE"; body?: unknown } = {}): Promise<T> {
     const { token } = await this.credential.getToken(GRAPH_SCOPE);
     const headers: Record<string, string> = { authorization: `Bearer ${token}`, accept: "application/json" };
     if (options.body !== undefined) headers["content-type"] = "application/json";

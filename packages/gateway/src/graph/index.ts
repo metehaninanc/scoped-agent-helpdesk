@@ -8,8 +8,11 @@ export {
   GRAPH_SCOPE,
   GraphClient,
   GraphError,
+  deviceId,
   type AddMemberResult,
+  type DeviceSummary,
   type GraphClientOptions,
   type GroupSummary,
   type TokenProvider,
 } from "./client.js";
+export { decodeJwtClaims } from "./jwt.js";

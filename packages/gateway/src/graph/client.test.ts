@@ -10,6 +10,7 @@ const BASE = "https://graph.microsoft.com/v1.0";
 const ALICE = "alice@contoso.com";
 const ALICE_ID = "a9992a37-c017-46f6-a5dc-dbae7e1ea1b2";
 const MARKETING = "88981a1a-1f6b-438c-9475-26b7c619dce0";
+const DEVICE_ID = "d4e5f6a7-1234-4abc-8def-0123456789ab";
 
 type Handler = (init: RequestInit | undefined) => Response;
 
@@ -230,6 +231,84 @@ describe("GraphClient", () => {
     it("refuses a group id that is not a GUID before touching the network", async () => {
       const { client, fetch } = fakeGraph({});
       await expect(client.addUserToGroup(ALICE, "Marketing")).rejects.toThrow(/group object id/i);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("listDevices()", () => {
+    const url = `GET ${BASE}/devices?$select=id,displayName,operatingSystem,isCompliant`;
+
+    it("reads devices and maps id, displayName, operatingSystem and isCompliant", async () => {
+      const { client, credential } = fakeGraph({
+        [url]: () =>
+          json(200, {
+            value: [
+              { id: DEVICE_ID, displayName: "alice-laptop", operatingSystem: "Windows", isCompliant: true, extra: "ignored" },
+              { id: "d2", displayName: "bob-phone", operatingSystem: "iOS", isCompliant: false },
+            ],
+          }),
+      });
+
+      const devices = await client.listDevices();
+
+      expect(devices).toEqual([
+        { id: DEVICE_ID, displayName: "alice-laptop", operatingSystem: "Windows", isCompliant: true },
+        { id: "d2", displayName: "bob-phone", operatingSystem: "iOS", isCompliant: false },
+      ]);
+      expect(credential.getToken).toHaveBeenCalledWith(GRAPH_SCOPE);
+    });
+
+    it("returns an empty list when the tenant has no devices", async () => {
+      const { client } = fakeGraph({ [url]: () => json(200, { value: [] }) });
+      expect(await client.listDevices()).toEqual([]);
+    });
+
+    it("follows @odata.nextLink until the collection is exhausted", async () => {
+      const next = `${BASE}/devices?$skiptoken=abc`;
+      const { client, calls } = fakeGraph({
+        [url]: () => json(200, { value: [{ id: "d1", displayName: "One", operatingSystem: "Windows", isCompliant: null }], "@odata.nextLink": next }),
+        [`GET ${next}`]: () => json(200, { value: [{ id: "d2", displayName: "Two", operatingSystem: "macOS", isCompliant: true }] }),
+      });
+
+      const devices = await client.listDevices();
+
+      expect(devices.map((d) => d.id)).toEqual(["d1", "d2"]);
+      expect(calls).toHaveLength(2);
+    });
+
+    it("reports a missing compliance flag as null rather than false", async () => {
+      const { client } = fakeGraph({
+        [url]: () => json(200, { value: [{ id: "d1", displayName: "One", operatingSystem: "Windows" }] }),
+      });
+      expect((await client.listDevices())[0]?.isCompliant).toBeNull();
+    });
+  });
+
+  describe("getDevice()", () => {
+    const url = `GET ${BASE}/devices/${DEVICE_ID}?$select=id,displayName,operatingSystem,isCompliant`;
+
+    it("returns one device by id", async () => {
+      const { client } = fakeGraph({
+        [url]: () => json(200, { id: DEVICE_ID, displayName: "alice-laptop", operatingSystem: "Windows", isCompliant: true }),
+      });
+      expect(await client.getDevice(DEVICE_ID)).toEqual({
+        id: DEVICE_ID,
+        displayName: "alice-laptop",
+        operatingSystem: "Windows",
+        isCompliant: true,
+      });
+    });
+
+    it("throws a GraphError when the device does not exist, rather than returning null", async () => {
+      const { client } = fakeGraph({
+        [url]: () => graphError(404, "Request_ResourceNotFound", "Resource does not exist."),
+      });
+      await expect(client.getDevice(DEVICE_ID)).rejects.toMatchObject({ status: 404 });
+    });
+
+    it("refuses a device id that is not a GUID before touching the network", async () => {
+      const { client, fetch } = fakeGraph({});
+      await expect(client.getDevice("alice-laptop")).rejects.toThrow(/device object id/i);
       expect(fetch).not.toHaveBeenCalled();
     });
   });

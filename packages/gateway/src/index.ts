@@ -17,6 +17,12 @@
  * consumer of the gateway's types (the web app, rendering an approval) does not need to know
  * that package exists separately. The agent package imports @helpdesk/audit-core directly,
  * as a normal dependency, not through here — it is a shared package, not gateway internals.
+ *
+ * A third consumer as of SPRINT2.md, Stage A: @helpdesk/mdm-gateway imports the Graph HTTP/auth
+ * plumbing (CertificateCredential, GraphClient, deviceId), openDatabase, loadGatewayEnv and
+ * userPrincipalName from here, the same way the web app does — genuinely shared code, never
+ * shared configuration. It does not import this package's PolicyConfig, policyConfig, or any
+ * identity-specific tool schema; its own policy/ module is its own, on purpose.
  */
 export type { AuditDecision, AuditInput, AuditRecord, ChainBreak } from "@helpdesk/audit-core";
 
@@ -37,11 +43,13 @@ export { loadGatewayEnv } from "./env.js";
 export type { GatewayEnv } from "./env.js";
 
 export { CertificateCredential } from "./graph/certificate-credential.js";
-export { GraphClient, GraphError, GRAPH_SCOPE } from "./graph/client.js";
-export type { AddMemberResult, GroupSummary } from "./graph/client.js";
+export { GraphClient, GraphError, GRAPH_SCOPE, deviceId } from "./graph/client.js";
+export type { AddMemberResult, DeviceSummary, GroupSummary } from "./graph/client.js";
+export { decodeJwtClaims } from "./graph/jwt.js";
 
 export { policyConfig } from "./policy/config.js";
 export type { Decision, PolicyConfig, RequestContext, RuleId, ToolRequest } from "./policy/types.js";
+export { userPrincipalName } from "./policy/schemas.js";
 export type { ToolName, ToolParams } from "./policy/schemas.js";
 
 export type { SessionContext, ToolOutput } from "./tools/handler.js";

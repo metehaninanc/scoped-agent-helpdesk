@@ -205,6 +205,21 @@ importers:
         specifier: ^4.6.5
         version: 4.6.5
 
+  packages/mdm-gateway:
+    dependencies:
+      '@helpdesk/audit-core':
+        specifier: workspace:*
+        version: link:../audit
+      '@helpdesk/gateway':
+        specifier: workspace:*
+        version: link:../gateway
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.30.0
+        version: 1.30.0(zod@4.6.5)
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+
   packages/web:
     dependencies:
       '@helpdesk/agent':
