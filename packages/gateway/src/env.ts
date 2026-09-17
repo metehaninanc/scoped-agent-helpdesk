@@ -5,23 +5,35 @@
  *
  * Loading order: real environment variables win, then `.env` fills the gaps. That is
  * process.loadEnvFile()'s own rule, and it is what lets a one-off override such as
- * `AZURE_CERT_PATH=... node ...` work without editing the file.
+ * `AZURE_IDENTITY_CERT_PATH=... node ...` work without editing the file.
+ *
+ * Two app registrations, two certificates, one shared tenant (SPRINT2.md, Stage A): the
+ * `AZURE_TENANT_ID` variable stays shared, one directory, but the client id, cert path and
+ * thumbprint are gateway-scoped (`_IDENTITY_` / `_MDM_`) so that reading the wrong one is a
+ * typo caught by a missing variable, not a silent cross-wire between two credentials that are
+ * deliberately supposed to be separate identities.
  */
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 
 const guid = z.guid();
+const thumbprint = z.string().regex(/^[0-9a-f]{40}$/i, "must be a 40-character hex SHA-1 thumbprint");
 /** `.env` lines like `X=` arrive as empty strings; treat those as unset. */
 const optionalString = z.preprocess((v) => (v === "" ? undefined : v), z.string().optional());
 
 export const gatewayEnvSchema = z.object({
   AZURE_TENANT_ID: guid,
-  AZURE_CLIENT_ID: guid,
+  AZURE_IDENTITY_CLIENT_ID: guid,
   /** Path to the PEM private key. Lives outside the repo. */
-  AZURE_CERT_PATH: z.string().min(1),
+  AZURE_IDENTITY_CERT_PATH: z.string().min(1),
   /** SHA-1 thumbprint, 40 hex characters, as the portal shows it. */
-  AZURE_CERT_THUMBPRINT: z.string().regex(/^[0-9a-f]{40}$/i, "must be a 40-character hex SHA-1 thumbprint"),
+  AZURE_IDENTITY_CERT_THUMBPRINT: thumbprint,
+  AZURE_MDM_CLIENT_ID: guid,
+  /** Path to the PEM private key. Lives outside the repo. */
+  AZURE_MDM_CERT_PATH: z.string().min(1),
+  /** SHA-1 thumbprint, 40 hex characters, as the portal shows it. */
+  AZURE_MDM_CERT_THUMBPRINT: thumbprint,
   /** Optional. SQLite file for the audit log and approvals. Default: data/helpdesk.db. */
   HELPDESK_DB_PATH: optionalString,
   /**

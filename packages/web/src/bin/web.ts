@@ -33,9 +33,9 @@ const audit = new AuditLog(db);
 
 const credential = new CertificateCredential({
   tenantId: env.AZURE_TENANT_ID,
-  clientId: env.AZURE_CLIENT_ID,
-  thumbprint: env.AZURE_CERT_THUMBPRINT,
-  privateKeyPem: readFileSync(env.AZURE_CERT_PATH),
+  clientId: env.AZURE_IDENTITY_CLIENT_ID,
+  thumbprint: env.AZURE_IDENTITY_CERT_THUMBPRINT,
+  privateKeyPem: readFileSync(env.AZURE_IDENTITY_CERT_PATH),
 });
 const graph = new GraphClient({ credential });
 const workflow = new ApprovalWorkflow({ approvals, audit, graph });

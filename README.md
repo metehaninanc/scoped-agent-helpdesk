@@ -280,9 +280,12 @@ pnpm typecheck
 pnpm build
 ```
 
-Copy `.env.example` to `.env` and fill it in. `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`,
-`AZURE_CERT_THUMBPRINT`, and `AZURE_CERT_PATH` (the PEM private key, kept outside the repo) are
-required for any Graph access. `ANTHROPIC_API_KEY` is optional; without it, approvals are still
+Copy `.env.example` to `.env` and fill it in. `AZURE_TENANT_ID` is shared, one directory; the
+identity and MDM gateways each get their own client id, certificate thumbprint, and PEM private
+key path (kept outside the repo): `AZURE_IDENTITY_CLIENT_ID` / `AZURE_IDENTITY_CERT_THUMBPRINT` /
+`AZURE_IDENTITY_CERT_PATH` for `helpdesk-identity-gateway`, and `AZURE_MDM_CLIENT_ID` /
+`AZURE_MDM_CERT_THUMBPRINT` / `AZURE_MDM_CERT_PATH` for `helpdesk-mdm-gateway` (SPRINT2.md, Stage
+A). All six are required for any Graph access. `ANTHROPIC_API_KEY` is optional; without it, approvals are still
 created, just without a generated rationale, and the gateway says so at startup. Real
 environment variables always take precedence over `.env`. The identity agent's own model turns
 also need `ANTHROPIC_API_KEY` to resolve, but through a separate mechanism: the Agent SDK's own

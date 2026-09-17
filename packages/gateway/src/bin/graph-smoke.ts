@@ -23,15 +23,15 @@ function claims(jwt: string): Record<string, unknown> {
 async function main(): Promise<void> {
   const env = loadGatewayEnv();
   console.log(`tenant     ${env.AZURE_TENANT_ID}`);
-  console.log(`client     ${env.AZURE_CLIENT_ID}`);
-  console.log(`thumbprint ${env.AZURE_CERT_THUMBPRINT}`);
-  console.log(`key file   ${env.AZURE_CERT_PATH}`);
+  console.log(`client     ${env.AZURE_IDENTITY_CLIENT_ID}`);
+  console.log(`thumbprint ${env.AZURE_IDENTITY_CERT_THUMBPRINT}`);
+  console.log(`key file   ${env.AZURE_IDENTITY_CERT_PATH}`);
 
   const credential = new CertificateCredential({
     tenantId: env.AZURE_TENANT_ID,
-    clientId: env.AZURE_CLIENT_ID,
-    thumbprint: env.AZURE_CERT_THUMBPRINT,
-    privateKeyPem: readFileSync(env.AZURE_CERT_PATH),
+    clientId: env.AZURE_IDENTITY_CLIENT_ID,
+    thumbprint: env.AZURE_IDENTITY_CERT_THUMBPRINT,
+    privateKeyPem: readFileSync(env.AZURE_IDENTITY_CERT_PATH),
   });
 
   const { token, expiresAt } = await credential.getToken(`${GRAPH}/.default`);
