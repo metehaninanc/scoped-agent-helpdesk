@@ -43,7 +43,7 @@ describe("runIdentityAgent()", () => {
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "helpdesk-agent-"));
-    dbPath = join(dir, "helpdesk.db");
+    dbPath = join(dir, "identity-helpdesk.db");
   });
 
   afterEach(async () => {

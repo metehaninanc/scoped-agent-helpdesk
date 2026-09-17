@@ -1,7 +1,7 @@
 /**
  * Walk the audit log and report whether the hash chain is intact.
  *
- *   pnpm verify-audit [path/to/helpdesk.db]
+ *   pnpm verify-audit [path/to/identity-helpdesk.db]
  *
  * Exit code 0 when intact, 1 when broken, 2 when the file does not exist.
  */
@@ -12,7 +12,7 @@ import { AuditLog } from "@helpdesk/audit-core";
 
 import { openDatabase } from "../db.js";
 
-const path = resolve(process.argv[2] ?? "data/helpdesk.db");
+const path = resolve(process.argv[2] ?? "data/identity-helpdesk.db");
 
 if (!existsSync(path)) {
   console.error(`No audit database at ${path}`);

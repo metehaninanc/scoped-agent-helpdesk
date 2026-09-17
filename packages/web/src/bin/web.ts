@@ -25,7 +25,7 @@ import { createWebServer } from "../server.js";
 
 const env = loadGatewayEnv();
 const port = Number.parseInt(process.env.WEB_PORT ?? "3000", 10);
-const dbPath = resolve(env.HELPDESK_DB_PATH ?? "data/helpdesk.db");
+const dbPath = resolve(env.HELPDESK_DB_PATH ?? "data/identity-helpdesk.db");
 
 const db = openDatabase(dbPath);
 const approvals = new ApprovalStore(db);

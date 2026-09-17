@@ -28,7 +28,7 @@ import { userPrincipalName } from "../policy/schemas.js";
 import { formatFinding, verifyManagedGroups } from "../startup/verify-managed-groups.js";
 import { createGatewayServer } from "../tools/server.js";
 
-const DEFAULT_DB_PATH = "data/helpdesk.db";
+const DEFAULT_DB_PATH = "data/identity-helpdesk.db";
 
 function parseSession(): { actor: string; agent: string; requestId: string; db: string | undefined } {
   const { values } = parseArgs({

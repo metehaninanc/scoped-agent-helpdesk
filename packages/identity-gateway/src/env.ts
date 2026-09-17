@@ -34,7 +34,7 @@ export const gatewayEnvSchema = z.object({
   AZURE_MDM_CERT_PATH: z.string().min(1),
   /** SHA-1 thumbprint, 40 hex characters, as the portal shows it. */
   AZURE_MDM_CERT_THUMBPRINT: thumbprint,
-  /** Optional. SQLite file for the audit log and approvals. Default: data/helpdesk.db. */
+  /** Optional. SQLite file for the audit log and approvals. Default: data/identity-helpdesk.db. */
   HELPDESK_DB_PATH: optionalString,
   /**
    * Optional. Used for one thing: the approval rationale, one model call per approval record.

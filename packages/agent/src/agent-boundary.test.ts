@@ -31,7 +31,7 @@ describe("the two agents' allowlists and prompts are disjoint", () => {
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "helpdesk-agent-boundary-"));
-    identityDbPath = join(dir, "helpdesk.db");
+    identityDbPath = join(dir, "identity-helpdesk.db");
     mdmDbPath = join(dir, "mdm-helpdesk.db");
   });
 

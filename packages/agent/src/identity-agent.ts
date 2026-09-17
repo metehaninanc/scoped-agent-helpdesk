@@ -85,7 +85,7 @@ export async function runIdentityAgent(options: IdentityAgentOptions): Promise<I
   ensureEnvLoaded();
 
   const requestId = options.requestId ?? randomUUID();
-  const dbPath = options.dbPath ?? resolve("data/helpdesk.db");
+  const dbPath = options.dbPath ?? resolve("data/identity-helpdesk.db");
   const runQuery = options.runQuery ?? query;
 
   const opening = new SessionAudit(dbPath);

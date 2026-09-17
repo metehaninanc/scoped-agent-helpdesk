@@ -328,7 +328,7 @@ pnpm mdm-gateway --actor alice@contoso.com --request-id test-1
 pnpm agent --actor alice@contoso.com --request "which groups is alice@contoso.com in"
 pnpm mdm-agent --actor alice@contoso.com --request "list the devices in the tenant"
 pnpm web
-pnpm verify-audit [path/to/helpdesk.db]
+pnpm verify-audit [path/to/identity-helpdesk.db]
 pnpm graph-smoke
 pnpm mdm-graph-smoke
 pnpm prove-isolation
@@ -340,8 +340,8 @@ script, which then rejects it. Plain trailing flags work because pnpm appends th
 script line.
 
 `pnpm mdm-gateway` defaults to `data/mdm-helpdesk.db`, a separate file from the identity
-gateway's `data/helpdesk.db` (SPRINT2.md, Component 6: two gateways, two audit chains, never
-merged); `pnpm verify-audit` takes either path and needs no changes to work against both.
+gateway's `data/identity-helpdesk.db` (SPRINT2.md, Component 6: two gateways, two audit chains,
+never merged); `pnpm verify-audit` takes either path and needs no changes to work against both.
 
 ## Status
 
