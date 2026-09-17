@@ -1,20 +1,23 @@
-Sprint 2, Stage A: gateway credential isolation (SPRINT2.md, Component 2)
-Run at: 2026-09-17T08:55:24.593Z
+Sprint 2: gateway isolation, Graph-level (Stage A, Component 2) and gateway-level (Stage B, Component 4)
+Run at: 2026-09-17T20:12:29.312Z
 Tenant: f5590adf-b4c2-43c0-a656-5fb76451a2b7
 
-This proves Microsoft enforces the separation between the identity and MDM gateways'
-Graph permissions. It does not prove that a gateway process cannot read the other
-gateway's certificate from disk; that is a host-level concern (separate users or separate
-hosts), out of scope here.
+The first four checks prove Microsoft enforces the separation between the identity and MDM
+gateways' Graph permissions. The last two prove this codebase's own token validation refuses
+a token minted for the wrong gateway, with a 401 naming the audience mismatch. Neither set
+proves a gateway process cannot read the other gateway's certificate from disk; that is a
+host-level concern (separate users or separate hosts), out of scope here.
 
 An empty result set is still a 200: the tenant has no devices, and the check is the status
 code Graph returns, not how many rows come back.
 
-check                               expected    actual    roles                               graph error
---------------------------------------------------------------------------------------------------------------
-identity token -> GET /users        200         200       User.Read.All, GroupMember.ReadWrite.All  -
-identity token -> GET /devices      403         403       User.Read.All, GroupMember.ReadWrite.All  Authorization_RequestDenied
-mdm token -> GET /devices           200         200       Device.Read.All                     -
-mdm token -> GET /users             403         403       Device.Read.All                     Authorization_RequestDenied
+check                                     expected    actual    roles                               error code
+--------------------------------------------------------------------------------------------------------------------
+identity token -> GET /users              200         200       User.Read.All, GroupMember.ReadWrite.All  -
+identity token -> GET /devices            403         403       User.Read.All, GroupMember.ReadWrite.All  Authorization_RequestDenied
+mdm token -> GET /devices                 200         200       Device.Read.All                     -
+mdm token -> GET /users                   403         403       Device.Read.All                     Authorization_RequestDenied
+identity agent token -> MDM gateway       401         401       Gateway.Invoke                      token_audience_mismatch
+MDM agent token -> identity gateway       401         401       Gateway.Invoke                      token_audience_mismatch
 
-PASS: all 4 checks matched their expected status.
+PASS: all 6 checks matched their expected outcome.
