@@ -39,10 +39,10 @@ export function toolDescription(tool: ToolName): string {
 
     case "list_managed_groups":
       return [
-        "Lists the groups this system is allowed to manage, as { id, displayName } pairs. These are the only groups add_user_to_group can target.",
+        "Lists the groups this system is allowed to manage, as { id, displayName } pairs. These are the only groups add_user_to_group and remove_user_from_group can target.",
         "Takes no parameters. Runs without approval and changes nothing.",
         "",
-        "Call it when you need to turn a group name into a group id for add_user_to_group. If the group the requester named is not in the list, the change cannot be requested through this system; tell the requester that plainly.",
+        "Call it when you need to turn a group name into a group id for add_user_to_group or remove_user_from_group. If the group the requester named is not in the list, the change cannot be requested through this system; tell the requester that plainly.",
         "",
         "Results:",
         '- { status: "ok", groups: [...] }: the managed groups. An empty list means nothing can be requested.',
@@ -57,6 +57,21 @@ export function toolDescription(tool: ToolName): string {
         "groupId must be an id returned by list_managed_groups. If you only have a group name, call list_managed_groups first and use the matching id. Do not guess a group id.",
         "",
         "In this system every group change needs a human approver, so the normal, successful result of this tool is:",
+        '- { status: "pending_approval", approvalId }: the request has been recorded and is waiting for an approver. This is success. Tell the requester the change is pending approval, give them the approvalId, and stop. Do not call this tool again for the same user and group, do not look for another tool or method to make the change, and do not say the change has been made.',
+        "",
+        "Other results:",
+        '- { status: "denied", rules, message }: policy refused the request, for example because the target is a directory role rather than a group, the account is protected, or the group is not one this system manages. Report the refusal and the rule plainly. Do not retry with different parameters to get around it.',
+        '- { status: "executed" }: the change was carried out immediately. This does not happen in the current configuration.',
+        '- { status: "error", code, message }: the request could not be recorded. Report the message as given.',
+      ].join("\n");
+
+    case "remove_user_from_group":
+      return [
+        "Requests that a user be removed from one of the managed security groups. This tool records the request; it does not perform the change itself.",
+        "",
+        "groupId must be an id returned by list_managed_groups. If you only have a group name, call list_managed_groups first and use the matching id. Do not guess a group id.",
+        "",
+        "In this system every group change needs a human approver, the same as add_user_to_group, so the normal, successful result of this tool is:",
         '- { status: "pending_approval", approvalId }: the request has been recorded and is waiting for an approver. This is success. Tell the requester the change is pending approval, give them the approvalId, and stop. Do not call this tool again for the same user and group, do not look for another tool or method to make the change, and do not say the change has been made.',
         "",
         "Other results:",

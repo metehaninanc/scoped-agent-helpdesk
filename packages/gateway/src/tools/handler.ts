@@ -41,6 +41,7 @@ export interface GatewayDeps {
   graph: {
     listUserGroups(userPrincipalName: string): Promise<GroupSummary[]>;
     addUserToGroup(userPrincipalName: string, groupId: string): Promise<AddMemberResult>;
+    removeUserFromGroup(userPrincipalName: string, groupId: string): Promise<void>;
   };
   config: PolicyConfig;
   decide?: (request: ToolRequest, context: RequestContext, config: PolicyConfig) => Decision;
@@ -197,6 +198,10 @@ async function execute(request: ValidatedToolRequest, deps: GatewayDeps): Promis
       // Not reachable in Sprint 1: add_user_to_group always needs approval. Kept so the
       // branch is honest if the policy ever changes.
       await deps.graph.addUserToGroup(request.params.userPrincipalName, request.params.groupId);
+      return { status: "executed" };
+    case "remove_user_from_group":
+      // Not reachable: remove_user_from_group always needs approval, same as the addition.
+      await deps.graph.removeUserFromGroup(request.params.userPrincipalName, request.params.groupId);
       return { status: "executed" };
   }
 }

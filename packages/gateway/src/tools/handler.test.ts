@@ -41,6 +41,7 @@ describe("handleToolCall()", () => {
   let graph: {
     listUserGroups: ReturnType<typeof vi.fn<(upn: string) => Promise<GroupSummary[]>>>;
     addUserToGroup: ReturnType<typeof vi.fn<(upn: string, groupId: string) => Promise<AddMemberResult>>>;
+    removeUserFromGroup: ReturnType<typeof vi.fn<(upn: string, groupId: string) => Promise<void>>>;
   };
   let deps: GatewayDeps;
   let t: number;
@@ -54,6 +55,7 @@ describe("handleToolCall()", () => {
     graph = {
       listUserGroups: vi.fn<(upn: string) => Promise<GroupSummary[]>>(async () => [{ id: MARKETING, displayName: "Marketing" }]),
       addUserToGroup: vi.fn<(upn: string, groupId: string) => Promise<AddMemberResult>>(async () => ({ alreadyMember: false })),
+      removeUserFromGroup: vi.fn<(upn: string, groupId: string) => Promise<void>>(async () => undefined),
     };
     deps = { audit, approvals, graph, config, now };
   });
@@ -338,6 +340,52 @@ describe("handleToolCall()", () => {
 
   // -------------------------------------------------------------------------
 
+  describe("approval: remove_user_from_group", () => {
+    it("creates an approval record, calls nothing, and returns pending_approval", async () => {
+      const result = await handleToolCall(
+        "remove_user_from_group",
+        { userPrincipalName: ALICE, groupId: MARKETING },
+        session,
+        deps,
+      );
+
+      expect(result.isError).toBeFalsy();
+      const body = payload(result);
+      expect(body.status).toBe("pending_approval");
+
+      expect(graph.removeUserFromGroup).not.toHaveBeenCalled();
+
+      const pending = approvals.listPending();
+      expect(pending).toHaveLength(1);
+      expect(pending[0]).toMatchObject({
+        tool: "remove_user_from_group",
+        params: { userPrincipalName: ALICE, groupId: MARKETING },
+        rules: [Rule.ApprovalRemoveUserFromGroup],
+        status: "pending",
+      });
+
+      expect(audit.list()[0]).toMatchObject({
+        decision: "approval",
+        rules: [Rule.ApprovalRemoveUserFromGroup],
+        tool: "remove_user_from_group",
+      });
+    });
+
+    it("inherits the deny rules: a break glass target is refused before any approval is created", async () => {
+      const result = await handleToolCall(
+        "remove_user_from_group",
+        { userPrincipalName: BREAK_GLASS, groupId: MARKETING },
+        session,
+        deps,
+      );
+
+      expect(payload(result)).toMatchObject({ status: "denied", rules: [Rule.DenyBreakGlassUser] });
+      expect(approvals.listPending()).toEqual([]);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+
   describe("denied", () => {
     it.each([
       ["a directory role target", { userPrincipalName: ALICE, groupId: GLOBAL_ADMIN_ROLE }, Rule.DenyDirectoryRoleTarget],
@@ -377,10 +425,10 @@ describe("handleToolCall()", () => {
     });
 
     it("audits an unknown tool as a denial", async () => {
-      const result = await handleToolCall("remove_user_from_group", { userPrincipalName: ALICE }, session, deps);
+      const result = await handleToolCall("delete_user", { userPrincipalName: ALICE }, session, deps);
 
       expect(payload(result)).toMatchObject({ status: "denied", rules: [Rule.DenyUnknownTool] });
-      expect(audit.list()[0]).toMatchObject({ tool: "remove_user_from_group", decision: "denied" });
+      expect(audit.list()[0]).toMatchObject({ tool: "delete_user", decision: "denied" });
     });
 
     it("survives arguments that are not an object", async () => {

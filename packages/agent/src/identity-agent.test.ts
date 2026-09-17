@@ -85,7 +85,7 @@ describe("runIdentityAgent()", () => {
     expect(rows(dbPath)[0]?.requestId).toBe("req-fixed");
   });
 
-  it("disables every built-in tool and allows exactly the three gateway tools, unprompted", async () => {
+  it("disables every built-in tool and allows exactly the four gateway tools, unprompted", async () => {
     const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 
     await runIdentityAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery });
@@ -96,6 +96,7 @@ describe("runIdentityAgent()", () => {
       "mcp__identity-gateway__list_user_groups",
       "mcp__identity-gateway__list_managed_groups",
       "mcp__identity-gateway__add_user_to_group",
+      "mcp__identity-gateway__remove_user_from_group",
     ]);
     expect(options.permissionMode).toBe("dontAsk");
   });

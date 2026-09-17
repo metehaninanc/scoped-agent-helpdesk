@@ -71,6 +71,7 @@ export const Rule = {
 
   // Approval rules.
   ApprovalAddUserToGroup: "approval.add_user_to_group",
+  ApprovalRemoveUserFromGroup: "approval.remove_user_from_group",
 
   // Autonomous rules. These never surface in a Decision but keep the ladder uniform.
   AutonomousListUserGroups: "autonomous.list_user_groups",

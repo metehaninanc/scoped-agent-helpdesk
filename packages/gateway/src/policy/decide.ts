@@ -32,9 +32,16 @@ const lower = (s: string): string => s.toLowerCase();
 const targetUser = (request: ValidatedToolRequest): string | undefined =>
   "userPrincipalName" in request.params ? lower(request.params.userPrincipalName) : undefined;
 
-/** Only add_user_to_group has a target group. Undefined means "no group rule applies". */
+/**
+ * add_user_to_group and remove_user_from_group both name a target group. Undefined means "no
+ * group rule applies". Extending this instead of writing a second copy of the deny tier is what
+ * lets remove_user_from_group inherit every existing deny rule without a new one being written
+ * (SPRINT2.md, Component 3) — confirmed in decide.test.ts rather than assumed.
+ */
 const targetGroup = (request: ValidatedToolRequest): string | undefined =>
-  request.tool === "add_user_to_group" ? lower(request.params.groupId) : undefined;
+  request.tool === "add_user_to_group" || request.tool === "remove_user_from_group"
+    ? lower(request.params.groupId)
+    : undefined;
 
 const includesIgnoringCase = (haystack: readonly string[], needle: string): boolean =>
   haystack.some((candidate) => lower(candidate) === needle);
@@ -73,6 +80,11 @@ const approvalRules: readonly PolicyRule[] = [
     // No exceptions, no "safe groups" allowlist in Sprint 1.
     id: Rule.ApprovalAddUserToGroup,
     matches: (request) => request.tool === "add_user_to_group",
+  },
+  {
+    // Same class as the addition (SPRINT2.md, Component 3): no exceptions here either.
+    id: Rule.ApprovalRemoveUserFromGroup,
+    matches: (request) => request.tool === "remove_user_from_group",
   },
 ];
 

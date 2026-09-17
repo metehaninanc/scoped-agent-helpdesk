@@ -41,6 +41,7 @@ describe("gateway MCP server", () => {
       graph: {
         listUserGroups: vi.fn(async () => [{ id: MARKETING, displayName: "Marketing" }]),
         addUserToGroup: vi.fn(async () => ({ alreadyMember: false })),
+        removeUserFromGroup: vi.fn(async () => undefined),
       },
       config,
     };
@@ -56,12 +57,17 @@ describe("gateway MCP server", () => {
     audit.close();
   });
 
-  it("identifies itself and advertises exactly the three tools with closed schemas and no ids", async () => {
+  it("identifies itself and advertises exactly the four tools with closed schemas and no ids", async () => {
     expect(client.getServerVersion()?.name).toBe(GATEWAY_NAME);
 
     const { tools } = await client.listTools();
 
-    expect(tools.map((t) => t.name)).toEqual(["list_user_groups", "list_managed_groups", "add_user_to_group"]);
+    expect(tools.map((t) => t.name)).toEqual([
+      "list_user_groups",
+      "list_managed_groups",
+      "add_user_to_group",
+      "remove_user_from_group",
+    ]);
     for (const tool of tools) {
       expect(tool.description).toBeTruthy();
       expect(tool.inputSchema.additionalProperties).toBe(false);

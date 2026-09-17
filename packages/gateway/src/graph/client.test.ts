@@ -235,6 +235,58 @@ describe("GraphClient", () => {
     });
   });
 
+  describe("removeUserFromGroup()", () => {
+    const userLookup = `GET ${BASE}/users/${encodeURIComponent(ALICE)}?$select=id`;
+    const removeRef = `DELETE ${BASE}/groups/${MARKETING}/members/${ALICE_ID}/$ref`;
+
+    it("resolves the user, then deletes the directoryObjects reference from the group", async () => {
+      const { client, calls } = fakeGraph({
+        [userLookup]: () => json(200, { id: ALICE_ID }),
+        [removeRef]: () => new Response(null, { status: 204 }),
+      });
+
+      await client.removeUserFromGroup(ALICE, MARKETING);
+
+      expect(calls.map((c) => c.method)).toEqual(["GET", "DELETE"]);
+    });
+
+    it("throws a GraphError when the membership does not exist", async () => {
+      const { client } = fakeGraph({
+        [userLookup]: () => json(200, { id: ALICE_ID }),
+        [removeRef]: () => graphError(404, "Request_ResourceNotFound", "Resource does not exist."),
+      });
+
+      await expect(client.removeUserFromGroup(ALICE, MARKETING)).rejects.toMatchObject({ status: 404 });
+    });
+
+    it("throws a GraphError when the app lacks permission", async () => {
+      const { client } = fakeGraph({
+        [userLookup]: () => json(200, { id: ALICE_ID }),
+        [removeRef]: () => graphError(403, "Authorization_RequestDenied", "Insufficient privileges to complete the operation."),
+      });
+
+      await expect(client.removeUserFromGroup(ALICE, MARKETING)).rejects.toMatchObject({
+        status: 403,
+        code: "Authorization_RequestDenied",
+      });
+    });
+
+    it("does not delete when the user cannot be resolved", async () => {
+      const { client, calls } = fakeGraph({
+        [userLookup]: () => graphError(404, "Request_ResourceNotFound", "Resource does not exist."),
+      });
+
+      await expect(client.removeUserFromGroup(ALICE, MARKETING)).rejects.toBeInstanceOf(GraphError);
+      expect(calls.map((c) => c.method)).toEqual(["GET"]);
+    });
+
+    it("refuses a group id that is not a GUID before touching the network", async () => {
+      const { client, fetch } = fakeGraph({});
+      await expect(client.removeUserFromGroup(ALICE, "Marketing")).rejects.toThrow(/group object id/i);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+
   describe("listDevices()", () => {
     const url = `GET ${BASE}/devices?$select=id,displayName,operatingSystem,isCompliant`;
 

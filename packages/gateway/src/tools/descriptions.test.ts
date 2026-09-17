@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { TOOL_NAMES, toolDefinitions, toolDescription, toolInputSchema } from "./descriptions.js";
 
 describe("tool definitions", () => {
-  it("exposes exactly the three Sprint 1 tools, reads before the write", () => {
-    expect(TOOL_NAMES).toEqual(["list_user_groups", "list_managed_groups", "add_user_to_group"]);
+  it("exposes exactly the four tools, reads before the writes", () => {
+    expect(TOOL_NAMES).toEqual(["list_user_groups", "list_managed_groups", "add_user_to_group", "remove_user_from_group"]);
     expect(toolDefinitions().map((t) => t.name)).toEqual(TOOL_NAMES);
   });
 
@@ -76,6 +76,36 @@ describe("add_user_to_group description", () => {
   });
 });
 
+describe("remove_user_from_group description", () => {
+  const text = toolDescription("remove_user_from_group");
+
+  it("presents pending_approval as the normal, successful result", () => {
+    expect(text).toContain("pending_approval");
+    expect(text).toContain("This is success.");
+  });
+
+  it("tells the agent to report pending plainly and stop, not retry or route around it", () => {
+    expect(text).toContain("Tell the requester the change is pending approval");
+    expect(text).toContain("Do not call this tool again for the same user and group");
+    expect(text).toContain("do not look for another tool or method to make the change");
+    expect(text).toContain("do not say the change has been made");
+  });
+
+  it("says plainly that the tool records a request and does not make the change", () => {
+    expect(text).toContain("it does not perform the change itself");
+  });
+
+  it("explains denied and forbids parameter-shuffling to get around it", () => {
+    expect(text).toContain('{ status: "denied", rules, message }');
+    expect(text).toContain("Do not retry with different parameters");
+  });
+
+  it("sends the agent to list_managed_groups to resolve a group name", () => {
+    expect(text).toContain("call list_managed_groups");
+    expect(text).toContain("Do not guess a group id");
+  });
+});
+
 describe("list_managed_groups description", () => {
   const text = toolDescription("list_managed_groups");
 
@@ -85,9 +115,10 @@ describe("list_managed_groups description", () => {
     expect(text).toContain("{ id, displayName }");
   });
 
-  it("frames it as the way to resolve a name for add_user_to_group", () => {
+  it("frames it as the way to resolve a name for add_user_to_group and remove_user_from_group", () => {
     expect(text).toContain("add_user_to_group");
-    expect(text).toContain("the only groups add_user_to_group can target");
+    expect(text).toContain("remove_user_from_group");
+    expect(text).toContain("the only groups add_user_to_group and remove_user_from_group can target");
   });
 });
 

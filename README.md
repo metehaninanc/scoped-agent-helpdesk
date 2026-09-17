@@ -54,11 +54,12 @@ vote.
 what groups exist for the agent to talk about. These run immediately, with no approval and no
 special scrutiny beyond the fact that they are still validated and still logged.
 
-**Approval gated.** Anything that changes state: adding a user to a group. In Sprint 1 this
-class has exactly one member, and it has no exceptions. There is no allowlist of "safe" groups
-that skip review. Every group addition creates an approval record and waits for a human. The
-agent is told, in its own tool description, that a pending result is the normal, successful
-outcome of asking for a change, not a failure to work around.
+**Approval gated.** Anything that changes state: adding a user to a group, or (as of Sprint 2)
+removing one. Neither has any exceptions. There is no allowlist of "safe" groups that skip
+review, and removal is not treated as lower-risk than addition. Every group change creates an
+approval record and waits for a human. The agent is told, in its own tool description, that a
+pending result is the normal, successful outcome of asking for a change, not a failure to work
+around.
 
 **Never automated.** Anything the policy explicitly refuses regardless of who is asking or why:
 targeting a directory role instead of a security group, targeting an account on the break glass
@@ -88,7 +89,7 @@ wrong, it is wrong the same way every time, in a way a reviewer can find by read
 That is a much better property for a control to have.
 
 The model's job is narrower than "decide if this is safe." It is: understand what the user is
-asking for in natural language, choose which of the three tools to call and with what
+asking for in natural language, choose which tool to call and with what
 parameters, and report the result honestly, including a refusal or a pending approval. The
 policy engine's decision is not a suggestion the model can override or reinterpret; it is the
 tool call's actual result. A denied response tells the agent plainly that nothing happened and
@@ -226,30 +227,50 @@ gateway process (a human only interface, never reachable by the model), not a ne
 still a second process on disk with access to the private key. Sprint 2's HTTP transport should
 let the web app reach the gateway instead of duplicating its credential handling.
 
-**There is no `remove_user_from_group` tool.** `add_user_to_group` is the only write Sprint 1
-built. Every live demonstration in this document that changed real tenant state was reverted
-by hand, with a one-off Graph call made outside this codebase, not through anything the agent or
-the web app can do. A remove path, with its own policy rule (most obviously: also gated on
-approval, not autonomous), is a natural Sprint 2 addition if undoing a change needs to be
-something the system supports rather than a manual escape hatch.
+**There was no `remove_user_from_group` tool. Closed in Sprint 2, Stage A.** `add_user_to_group`
+was the only write Sprint 1 built, so every live demonstration in this document that changed
+real tenant state had to be reverted by hand, with a one-off Graph call made outside this
+codebase. `remove_user_from_group` now exists on the identity gateway (Component 3), approval
+gated, the same class as the addition with no exceptions. It needed no new deny rule: extending
+the existing rules' notion of "target group" to cover this tool as well as `add_user_to_group`
+was enough for the directory-role and managed-allowlist deny rules to apply to it automatically,
+confirmed in `policy/decide.test.ts` rather than assumed. The demo revert can now run through
+the same audited, approved path as the change itself, instead of a manual escape hatch.
 
-### What Sprint 2 is expected to add
+### What Sprint 2, Stage A adds
 
-HTTP transport and OAuth on the gateway, so each agent can run under its own service principal
-instead of sharing the gateway's; Entra login on the web app, replacing the plain identity
-field; a second agent and the triage logic to route between them (the seam for this already
-exists as a placeholder function); ledger anchoring, to close the tail truncation gap the hash
-chain leaves open; and a prompt injection test suite.
+Two disjoint identities: a second app registration, `helpdesk-mdm-gateway`, with exactly one
+Graph permission (`Device.Read.All`) and its own certificate. A new package,
+`packages/mdm-gateway`, exposing `list_devices` and `get_device` (both autonomous, no write
+tools, its own policy engine and its own audit chain and database file). `pnpm prove-isolation`,
+committed evidence that Microsoft — not this codebase — refuses a credential pointed at the
+other gateway's resource (see "Sprint 2, Stage A: gateway credential isolation" below). And
+`remove_user_from_group`, above.
+
+### What Sprint 2, Stage B still has to add
+
+HTTP transport and OAuth on both gateways, with audience-bound tokens issued per agent, so each
+agent runs under its own service principal instead of sharing its gateway's; the web app losing
+its Graph credential entirely, reaching Graph only through the identity gateway; a merged,
+read-only view across the two gateways' separate audit chains. Carried forward unchanged from
+Sprint 1: Entra login on the web app, replacing the plain identity field; a second agent and the
+triage logic to route between them (the seam for this already exists as a placeholder function);
+ledger anchoring, to close the tail truncation gap the hash chain leaves open; and a prompt
+injection test suite.
 
 ## Repo layout
 
 ```
-packages/audit     the audit record format and its hash chain, shared, standalone
-packages/gateway   MCP server, policy engine, Graph client, audit log (the only package with
-                    credentials, other than the web app; see "Scope" above)
-packages/agent     the identity agent, one file, on the Claude Agent SDK
-packages/web       request form and approval screen, server rendered
-data/              SQLite, gitignored
+packages/audit         the audit record format and its hash chain, shared, standalone
+packages/gateway       identity gateway: MCP server, policy engine, Graph client, audit log
+                        (holds the identity gateway's credential; the web app also holds one,
+                        see "Scope" above; the Graph client's HTTP/auth code is shared with
+                        packages/mdm-gateway, see the header comment in graph/client.ts)
+packages/mdm-gateway    MDM gateway: its own MCP server, policy engine and audit chain, disjoint
+                        Graph permission and certificate from the identity gateway (SPRINT2.md)
+packages/agent          the identity agent, one file, on the Claude Agent SDK
+packages/web            request form and approval screen, server rendered
+data/                   SQLite, gitignored
 ```
 
 `packages/gateway/src/index.ts` documents two different rules for two different consumers. The
@@ -296,10 +317,18 @@ Each package can be run directly once built:
 
 ```
 pnpm gateway -- --actor alice@contoso.com --request-id test-1
+pnpm mdm-gateway -- --actor alice@contoso.com --request-id test-1
 pnpm agent -- --actor alice@contoso.com --request "which groups is alice@contoso.com in"
 pnpm web
 pnpm verify-audit [path/to/helpdesk.db]
+pnpm graph-smoke
+pnpm mdm-graph-smoke
+pnpm prove-isolation
 ```
+
+`pnpm mdm-gateway` defaults to `data/mdm-helpdesk.db`, a separate file from the identity
+gateway's `data/helpdesk.db` (SPRINT2.md, Component 6: two gateways, two audit chains, never
+merged); `pnpm verify-audit` takes either path and needs no changes to work against both.
 
 ## Status
 
@@ -313,6 +342,20 @@ pnpm verify-audit [path/to/helpdesk.db]
 | 6. Web                | done, tests first: `packages/web`                     |
 
 283 tests across four packages, all passing; `pnpm typecheck` and `pnpm build` clean, at the
+commit this document was written against.
+
+### Sprint 2, Stage A status
+
+| Component                          | State                                                        |
+| ----------------------------------- | ------------------------------------------------------------ |
+| 1. MDM gateway                      | done, tests first: `packages/mdm-gateway`                    |
+| 2. Isolation evidence               | done: `pnpm prove-isolation`, `evidence/isolation-run.txt`    |
+| 3. `remove_user_from_group`         | done, tests first: `packages/gateway/src/policy`, `src/tools` |
+| 4. HTTP transport, token validation | not started (Stage B)                                        |
+| 5. Web app loses its Graph credential | not started (Stage B)                                       |
+| 6. Merged audit-chain reader         | not started (Stage B)                                        |
+
+360 tests across six packages, all passing; `pnpm typecheck` and `pnpm build` clean, at the
 commit this document was written against.
 
 ### Policy engine notes
@@ -348,26 +391,37 @@ package) prints the log and the verification result, with a nonzero exit code on
 ### Graph client notes
 
 The certificate credential flow (`private_key_jwt`) is hand rolled on `node:crypto` and `fetch`
-rather than pulling in an auth library, since this is the only package meant to hold credentials
-and the flow is short enough to read end to end. `GraphClient` exposes exactly two operations:
-`listUserGroups` (group memberships only, directory roles and administrative units excluded, with
-paging) and `addUserToGroup` (already being a member is reported as success). Inputs are
-re-validated with the same schemas the policy engine uses before they are used to build a URL.
-There is no retry on throttling yet; the tenant this was built against does not throttle at this
-volume.
+rather than pulling in an auth library, since this is the only package meant to hold Graph
+credentials for the identity gateway and the flow is short enough to read end to end. As of
+Sprint 2, `GraphClient` is also what `packages/mdm-gateway` imports for its own, separately
+credentialed calls (see the file's own header comment for why that is sharing code, not sharing
+configuration). It exposes: `listUserGroups` (group memberships only, directory roles and
+administrative units excluded, with paging), `addUserToGroup` and `removeUserFromGroup` (already
+being a member, or already not being one, is not specially handled for removal the way it is for
+addition — Graph's 404 on removing a non-member propagates as an ordinary `GraphError`, since
+SPRINT2.md's Component 3 does not ask for idempotency here), and `listDevices` / `getDevice`
+(paging for the list; a 404 on `getDevice` propagates rather than returning null, since this one
+is model-facing, unlike the identity-only `getGroup`). Inputs are re-validated with the same
+schemas the policy engines use before they are used to build a URL. There is no retry on
+throttling yet; the tenant this was built against does not throttle at this volume.
 
 ### Gateway notes
 
-Three tools are exposed: `list_user_groups`, `list_managed_groups`, `add_user_to_group`. Tool
-descriptions live in one file (`tools/descriptions.ts`), reviewed as prompt surface with tests
-that pin the phrases that matter, most importantly that a pending approval is described as
-success, not as something to retry around. The managed group allowlist is not embedded in any
-description; the agent calls `list_managed_groups` to resolve a group name, and that call is
-itself audited, so even "the agent asked what groups exist" is on the record. The MCP server is
-built on the SDK's low level `Server` rather than the higher level tool registration helper,
-because the latter validates arguments before a handler runs, and a call rejected there would
-never reach the audit log. One gateway process runs per agent session, with identity bound at
-spawn as described above.
+Four tools are exposed: `list_user_groups`, `list_managed_groups`, `add_user_to_group`,
+`remove_user_from_group`. Tool descriptions live in one file (`tools/descriptions.ts`), reviewed
+as prompt surface with tests that pin the phrases that matter, most importantly that a pending
+approval is described as success, not as something to retry around — true for both writes now,
+not just the addition. The managed group allowlist is not embedded in any description; the agent
+calls `list_managed_groups` to resolve a group name, and that call is itself audited, so even
+"the agent asked what groups exist" is on the record. The MCP server is built on the SDK's low
+level `Server` rather than the higher level tool registration helper, because the latter
+validates arguments before a handler runs, and a call rejected there would never reach the audit
+log. One gateway process runs per agent session, with identity bound at spawn as described
+above. `packages/mdm-gateway` repeats this shape independently — its own `tools/`, its own
+policy engine, its own MCP server identifying as `helpdesk-mdm-gateway` — rather than
+parameterizing this package to serve both gateways, so that the two remain two things a reviewer
+can reason about separately, the same argument SPRINT2.md's Component 6 makes for the audit
+chains.
 
 ### Approval store and rationale notes
 

@@ -28,6 +28,7 @@ export const toolParamSchemas = {
   list_user_groups: z.strictObject({ userPrincipalName }),
   list_managed_groups: z.strictObject({}),
   add_user_to_group: z.strictObject({ userPrincipalName, groupId }),
+  remove_user_from_group: z.strictObject({ userPrincipalName, groupId }),
 } as const;
 
 export type ToolName = keyof typeof toolParamSchemas;

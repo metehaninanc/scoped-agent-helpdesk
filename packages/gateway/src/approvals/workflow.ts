@@ -51,7 +51,7 @@ export interface ApprovalDecisionInput {
 }
 
 export type ExecutionOutcome =
-  | { status: "executed"; alreadyMember: boolean }
+  | { status: "executed"; alreadyMember?: boolean }
   | { status: "error"; code: string; message: string; requestId?: string };
 
 export interface ApprovalOutcome {
@@ -63,7 +63,10 @@ export interface ApprovalOutcome {
 export interface ApprovalWorkflowDeps {
   approvals: Pick<ApprovalStore, "get" | "recordVerdict">;
   audit: { append(input: AuditInput): AuditRecord };
-  graph: { addUserToGroup(userPrincipalName: string, groupId: string): Promise<AddMemberResult> };
+  graph: {
+    addUserToGroup(userPrincipalName: string, groupId: string): Promise<AddMemberResult>;
+    removeUserFromGroup(userPrincipalName: string, groupId: string): Promise<void>;
+  };
 }
 
 const sameUser = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
@@ -133,12 +136,20 @@ export class ApprovalWorkflow {
 
   private async execute(approval: ApprovalRecord): Promise<ExecutionOutcome> {
     const params = approval.params as { userPrincipalName?: unknown; groupId?: unknown };
-    if (approval.tool !== "add_user_to_group" || typeof params.userPrincipalName !== "string" || typeof params.groupId !== "string") {
+    if (
+      (approval.tool !== "add_user_to_group" && approval.tool !== "remove_user_from_group") ||
+      typeof params.userPrincipalName !== "string" ||
+      typeof params.groupId !== "string"
+    ) {
       return { status: "error", code: "unsupported_tool", message: `cannot execute ${approval.tool}` };
     }
     try {
-      const { alreadyMember } = await this.deps.graph.addUserToGroup(params.userPrincipalName, params.groupId);
-      return { status: "executed", alreadyMember };
+      if (approval.tool === "add_user_to_group") {
+        const { alreadyMember } = await this.deps.graph.addUserToGroup(params.userPrincipalName, params.groupId);
+        return { status: "executed", alreadyMember };
+      }
+      await this.deps.graph.removeUserFromGroup(params.userPrincipalName, params.groupId);
+      return { status: "executed" };
     } catch (error) {
       if (error instanceof GraphError) {
         const message = error.message.replace(/^Graph \d+ \S+: /, "");

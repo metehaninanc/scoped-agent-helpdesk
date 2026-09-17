@@ -46,6 +46,11 @@ const addToGroup = (userPrincipalName: string, groupId: string): ToolRequest => 
   params: { userPrincipalName, groupId },
 });
 
+const removeFromGroup = (userPrincipalName: string, groupId: string): ToolRequest => ({
+  tool: "remove_user_from_group",
+  params: { userPrincipalName, groupId },
+});
+
 /** Narrow a Decision to the two variants that carry rules. */
 const rulesOf = (decision: ReturnType<typeof decide>): string[] =>
   decision.outcome === "autonomous" ? [] : decision.rules;
@@ -76,6 +81,47 @@ describe("decide()", () => {
         outcome: "approval",
         rules: [Rule.ApprovalAddUserToGroup],
       });
+    });
+
+    it("always requires approval for remove_user_from_group too, same class as the addition", () => {
+      expect(decide(removeFromGroup(ALICE, MARKETING), context, config)).toEqual({
+        outcome: "approval",
+        rules: [Rule.ApprovalRemoveUserFromGroup],
+      });
+    });
+  });
+
+  describe("remove_user_from_group inherits every existing deny rule", () => {
+    it("denies when the target is a directory role rather than a group", () => {
+      const misconfigured: PolicyConfig = {
+        ...config,
+        managedGroups: [...config.managedGroups, { id: GLOBAL_ADMIN_ROLE, displayName: "oops" }],
+      };
+      expect(decide(removeFromGroup(ALICE, GLOBAL_ADMIN_ROLE), context, misconfigured)).toEqual({
+        outcome: "denied",
+        rules: [Rule.DenyDirectoryRoleTarget],
+      });
+    });
+
+    it("denies when the target user is on the break glass list", () => {
+      expect(decide(removeFromGroup(BREAK_GLASS_1, MARKETING), context, config)).toEqual({
+        outcome: "denied",
+        rules: [Rule.DenyBreakGlassUser],
+      });
+    });
+
+    it("denies when the target group is not on the managed allowlist", () => {
+      expect(decide(removeFromGroup(ALICE, UNMANAGED_GROUP), context, config)).toEqual({
+        outcome: "denied",
+        rules: [Rule.DenyGroupNotManaged],
+      });
+    });
+
+    it("deny still wins over the approval rule", () => {
+      const decision = decide(removeFromGroup(BREAK_GLASS_1, MARKETING), context, config);
+      expect(decision.outcome).toBe("denied");
+      expect(rulesOf(decision)).toContain(Rule.DenyBreakGlassUser);
+      expect(rulesOf(decision)).not.toContain(Rule.ApprovalRemoveUserFromGroup);
     });
   });
 
@@ -143,7 +189,7 @@ describe("decide()", () => {
 
   describe("structural denials", () => {
     it.each([
-      ["a tool that does not exist", "remove_user_from_group"],
+      ["a tool that does not exist", "delete_user"],
       ["an empty tool name", ""],
       ["an Object.prototype key", "constructor"],
       ["a non-string tool name", 42 as unknown as string],

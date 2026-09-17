@@ -15,6 +15,7 @@ describe("ApprovalWorkflow", () => {
   let audit: AuditLog;
   let approvals: ApprovalStore;
   let addUserToGroup: ReturnType<typeof vi.fn<(upn: string, groupId: string) => Promise<AddMemberResult>>>;
+  let removeUserFromGroup: ReturnType<typeof vi.fn<(upn: string, groupId: string) => Promise<void>>>;
   let workflow: ApprovalWorkflow;
   let pending: ApprovalRecord;
 
@@ -25,7 +26,8 @@ describe("ApprovalWorkflow", () => {
     audit = new AuditLog(db, { now });
     approvals = new ApprovalStore(db, { now });
     addUserToGroup = vi.fn<(upn: string, groupId: string) => Promise<AddMemberResult>>(async () => ({ alreadyMember: false }));
-    workflow = new ApprovalWorkflow({ approvals, audit, graph: { addUserToGroup } });
+    removeUserFromGroup = vi.fn<(upn: string, groupId: string) => Promise<void>>(async () => undefined);
+    workflow = new ApprovalWorkflow({ approvals, audit, graph: { addUserToGroup, removeUserFromGroup } });
 
     pending = approvals.create({
       requestId: "req-1",
@@ -102,6 +104,35 @@ describe("ApprovalWorkflow", () => {
       addUserToGroup.mockResolvedValue({ alreadyMember: true });
       const outcome = await workflow.decide({ approvalId: pending.id, decidedBy: APPROVER, decision: "approved", note: "ok" });
       expect(outcome.execution).toEqual({ status: "executed", alreadyMember: true });
+    });
+  });
+
+  describe("approve: remove_user_from_group", () => {
+    beforeEach(() => {
+      pending = approvals.create({
+        requestId: "req-2",
+        actor: REQUESTER,
+        tool: "remove_user_from_group",
+        params: { userPrincipalName: ALICE, groupId: MARKETING },
+        rules: ["approval.remove_user_from_group"],
+      });
+    });
+
+    it("calls removeUserFromGroup, not addUserToGroup, and reports executed with no alreadyMember field", async () => {
+      const outcome = await workflow.decide({ approvalId: pending.id, decidedBy: APPROVER, decision: "approved", note: "ok" });
+
+      expect(removeUserFromGroup).toHaveBeenCalledWith(ALICE, MARKETING);
+      expect(addUserToGroup).not.toHaveBeenCalled();
+      expect(outcome.execution).toEqual({ status: "executed" });
+    });
+
+    it("keeps the approval approved and records the failure when Graph fails", async () => {
+      removeUserFromGroup.mockRejectedValue(new GraphError(404, "Request_ResourceNotFound", "Resource does not exist.", "req-x"));
+
+      const outcome = await workflow.decide({ approvalId: pending.id, decidedBy: APPROVER, decision: "approved", note: "ok" });
+
+      expect(outcome.approval.status).toBe("approved");
+      expect(outcome.execution).toMatchObject({ status: "error", code: "Request_ResourceNotFound" });
     });
   });
 
@@ -220,7 +251,7 @@ describe("ApprovalWorkflow", () => {
           throw new Error("disk full");
         },
       },
-      graph: { addUserToGroup },
+      graph: { addUserToGroup, removeUserFromGroup },
     });
 
     await expect(broken.decide({ approvalId: pending.id, decidedBy: APPROVER, decision: "approved", note: "ok" })).rejects.toThrow(

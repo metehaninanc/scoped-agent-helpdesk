@@ -181,6 +181,16 @@ export class GraphClient {
     };
   }
 
+  /** DELETE /groups/{id}/members/{userId}/$ref. Resolves the user first, same as the add path. */
+  async removeUserFromGroup(userPrincipalName: string, groupId: string): Promise<void> {
+    const upn = upnSchema.parse(userPrincipalName);
+    const group = groupIdSchema.parse(groupId);
+    const userId = await this.getUserId(upn);
+    await this.request(`${this.baseUrl}/groups/${encodeURIComponent(group)}/members/${encodeURIComponent(userId)}/$ref`, {
+      method: "DELETE",
+    });
+  }
+
   private async request<T>(url: string, options: { method?: "GET" | "POST" | "DELETE"; body?: unknown } = {}): Promise<T> {
     const { token } = await this.credential.getToken(GRAPH_SCOPE);
     const headers: Record<string, string> = { authorization: `Bearer ${token}`, accept: "application/json" };

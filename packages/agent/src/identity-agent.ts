@@ -2,7 +2,7 @@
  * The identity agent. SPRINT1.md, Component 5.
  *
  * Runs on the Claude Agent SDK with every built-in tool disabled (`tools: []`) and exactly
- * the three identity-gateway tools allowed. That is the whole point of using this SDK here
+ * the identity-gateway tools allowed. That is the whole point of using this SDK here
  * rather than Claude Code directly: Claude Code ships Bash, file write and web access by
  * default, and turning those off one at a time is a subtraction problem that needs
  * maintenance every release. `tools: []` plus a closed `allowedTools` list is the addition
@@ -30,7 +30,12 @@ import { ensureEnvLoaded } from "./env.js";
 import { SessionAudit } from "./session-audit.js";
 
 const GATEWAY_SERVER_NAME = "identity-gateway";
-const GATEWAY_TOOLS = ["list_user_groups", "list_managed_groups", "add_user_to_group"] as const;
+const GATEWAY_TOOLS = [
+  "list_user_groups",
+  "list_managed_groups",
+  "add_user_to_group",
+  "remove_user_from_group",
+] as const;
 
 const SYSTEM_PROMPT = [
   "You are the identity helpdesk agent. Your only job is to answer questions about a user's",
