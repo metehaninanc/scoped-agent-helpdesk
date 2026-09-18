@@ -1,12 +1,14 @@
-Sprint 2: gateway isolation, Graph-level (Stage A, Component 2) and gateway-level (Stage B, Component 4)
-Run at: 2026-09-17T20:30:23.502Z
+Sprint 2: gateway isolation, Graph-level (Stage A, Component 2) and gateway-level (Stage B, Components 3-4)
+Run at: 2026-09-18T08:15:30.700Z
 Tenant: f5590adf-b4c2-43c0-a656-5fb76451a2b7
 
 The first four checks prove Microsoft enforces the separation between the identity and MDM
-gateways' Graph permissions. The last two prove this codebase's own token validation refuses
-a token minted for the wrong gateway, with a 401 naming the audience mismatch. Neither set
-proves a gateway process cannot read the other gateway's certificate from disk; that is a
-host-level concern (separate users or separate hosts), out of scope here.
+gateways' Graph permissions. Checks five and six prove this codebase's own token validation
+refuses a token minted for the wrong gateway, with a 401 naming the audience mismatch. Check
+seven proves that same validation covers the identity gateway's approval-decision endpoint,
+not just its MCP endpoint: a bare request with no token at all is refused the same way.
+None of this proves a gateway process cannot read the other gateway's certificate from disk;
+that is a host-level concern (separate users or separate hosts), out of scope here.
 
 An empty result set is still a 200: the tenant has no devices, and the check is the status
 code Graph returns, not how many rows come back.
@@ -19,5 +21,6 @@ mdm token -> GET /devices                 200         200       Device.Read.All 
 mdm token -> GET /users                   403         403       Device.Read.All                     Authorization_RequestDenied
 identity agent token -> MDM gateway       401         401       Gateway.Invoke                      token_audience_mismatch
 MDM agent token -> identity gateway       401         401       Gateway.Invoke                      token_audience_mismatch
+no token -> POST /approvals/decide        401         401       (none)                              token_missing_token
 
-PASS: all 6 checks matched their expected outcome.
+PASS: all 7 checks matched their expected outcome.

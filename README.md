@@ -387,8 +387,8 @@ script line.
 `pnpm mdm-gateway` defaults to `data/mdm-helpdesk.db`, a separate file from the identity
 gateway's `data/identity-helpdesk.db` (SPRINT2.md, Component 6: two gateways, two audit chains,
 never merged); `pnpm verify-audit` takes either path and needs no changes to work against both.
-`pnpm prove-isolation`'s last two checks need both gateways already running and reachable — see
-its own header comment.
+`pnpm prove-isolation`'s last three checks need the gateways they target already running and
+reachable — see its own header comment.
 
 ## Status
 
@@ -422,7 +422,7 @@ Stage A is complete.
 | 1. Agent credentials                    | done, live: `pnpm token-smoke`                                           |
 | 2. HTTP transport                       | done, tests first: `packages/identity-gateway/src/tools/http-listener.ts` |
 | 3. Token validation                     | done, tests first: `packages/identity-gateway/src/auth`                  |
-| 4. Cross-gateway audience-mismatch proof | done: `pnpm prove-isolation`, `evidence/isolation-run.txt`               |
+| 4. Cross-gateway and endpoint-coverage proof | done: `pnpm prove-isolation` (7 checks), `evidence/isolation-run.txt` |
 | 5. Web app loses its Graph credential    | done, tests first: `packages/identity-gateway/src/approvals/decision-listener.ts` |
 | 6. Both audit chains verify clean       | done — see the Sprint 2 verification run below                          |
 
@@ -654,14 +654,17 @@ gateway's (`User.Read.All`, `GroupMember.ReadWrite.All`). The claim worth demons
 even if our code did not." Stage B adds a second layer to the same claim: each agent's own token,
 valid for its own gateway, presented to the *other* gateway must be refused too — this time by
 this codebase's own token validation, since there is no Graph call involved to ask Microsoft to
-refuse on our behalf. `pnpm prove-isolation` (`packages/identity-gateway/src/bin/prove-isolation.ts`)
-checks both layers, six calls in total, and fails the build if any of them does not come back
-exactly as expected. The result is committed at
-[evidence/isolation-run.txt](evidence/isolation-run.txt) and reproduced here:
+refuse on our behalf. A third question sits below both: does the identity gateway's *other*
+authenticated endpoint — `/approvals/decide`, which is not an MCP tool call at all — enforce the
+same check, or did it get its own, separately written (and possibly separately wrong) one?
+`pnpm prove-isolation` (`packages/identity-gateway/src/bin/prove-isolation.ts`) checks all three
+questions, seven calls in total, and fails the build if any of them does not come back exactly as
+expected. The result is committed at [evidence/isolation-run.txt](evidence/isolation-run.txt) and
+reproduced here:
 
 ```
-Sprint 2: gateway isolation, Graph-level (Stage A, Component 2) and gateway-level (Stage B, Component 4)
-Run at: 2026-09-17T20:30:23.502Z
+Sprint 2: gateway isolation, Graph-level (Stage A, Component 2) and gateway-level (Stage B, Components 3-4)
+Run at: 2026-09-18T08:09:31.284Z
 Tenant: f5590adf-b4c2-43c0-a656-5fb76451a2b7
 
 check                                     expected    actual    roles                               error code
@@ -672,20 +675,34 @@ mdm token -> GET /devices                 200         200       Device.Read.All 
 mdm token -> GET /users                   403         403       Device.Read.All                     Authorization_RequestDenied
 identity agent token -> MDM gateway       401         401       Gateway.Invoke                      token_audience_mismatch
 MDM agent token -> identity gateway       401         401       Gateway.Invoke                      token_audience_mismatch
+no token -> POST /approvals/decide        401         401       (none)                              token_missing_token
 
-PASS: all 6 checks matched their expected outcome.
+PASS: all 7 checks matched their expected outcome.
 ```
 
 The first four checks are Stage A's: the identity gateway's own token is refused by Graph itself
 (403, `Authorization_RequestDenied`) when pointed at `/devices`, and the MDM gateway's token is
 refused the same way when pointed at `/users`. Neither refusal is enforced by anything in this
-repo; both come from Entra evaluating the `roles` claim each token actually carries. The last two
-are Stage B's: each *agent's* token — valid for its own gateway, carrying `Gateway.Invoke` — is
-refused by the *other* gateway with a 401 naming the audience mismatch (`token_audience_mismatch`),
-enforced by `TokenValidator` in this repo, and audited on the refusing gateway's own chain as
-`deny.audience_mismatch`. The script prints every token's `roles` claim so each row is checkable
-against the app registration, not just against the script's own good faith. Never logged: a
-bearer token or the client assertion used to obtain it, only decoded claims and error codes.
+repo; both come from Entra evaluating the `roles` claim each token actually carries. Checks five
+and six are Stage B's cross-gateway proof: each *agent's* token — valid for its own gateway,
+carrying `Gateway.Invoke` — is refused by the *other* gateway with a 401 naming the audience
+mismatch (`token_audience_mismatch`), enforced by `TokenValidator` in this repo, and audited on
+the refusing gateway's own chain as `deny.audience_mismatch`. Check seven is the endpoint-coverage
+proof: `bin/gateway.ts` constructs exactly one `TokenValidator` and hands the same instance to
+both `createRequestListener` (the MCP endpoint) and `createDecisionListener` (the approval
+endpoint) — confirmed by reading the source, then confirmed live rather than left as a
+code-reading claim, since it is exactly the kind of thing a future refactor could quietly break
+by giving the second listener its own, independently-written check that drifts from the first. A
+bare request to `/approvals/decide` with no `Authorization` header at all comes back `401
+token_missing_token`, audited as `deny.missing_token` with `actor: "unknown"`. Manually confirmed
+further while building this check, though not itself part of the automated script: a request
+bearing a *validly signed, currently valid* token — the MDM agent's own — presented to the
+identity gateway's decision endpoint is refused with `token_audience_mismatch`, the same as check
+six, proving the endpoint checks the full claim set (signature, issuer, audience, role) and not
+merely "is a bearer header present." The script prints every token's `roles` claim so each row is
+checkable against the app registration, not just against the script's own good faith. Never
+logged: a bearer token or the client assertion used to obtain it, only decoded claims and error
+codes.
 
 **What this proves, and what it does not.** It proves that Microsoft enforces the Graph-level
 separation between the two app registrations' permissions, and that this codebase's own token
@@ -860,11 +877,11 @@ domain, object ids) are from the same disposable test tenant used throughout thi
    (403) against `/users`.
 2. **Both gateways run over HTTP and validate a bearer token on every request.** Confirmed by
    every check below succeeding only with a valid, correctly-scoped token attached, and by the
-   two `deny.audience_mismatch` refusals immediately after.
+   `deny.audience_mismatch` and `deny.missing_token` refusals immediately after.
 3. **An agent holding an identity gateway token is refused by the MDM gateway with a 401 naming
-   audience mismatch, and the refusal is audited.** `pnpm prove-isolation`'s last two checks,
+   audience mismatch, and the refusal is audited.** `pnpm prove-isolation`'s checks five and six,
    above: both directions, both `401 token_audience_mismatch`, both audited on the refusing
-   gateway's own chain as `deny.audience_mismatch` (record 20 on the identity chain, record 1 on
+   gateway's own chain as `deny.audience_mismatch` (record 20 on the identity chain, record 4 on
    the MDM chain, below).
 4. **The identity gateway's own token, pointed at a Graph device endpoint, returns 403.** Row 2
    of `pnpm prove-isolation`'s output, above, and committed at
@@ -882,31 +899,38 @@ domain, object ids) are from the same disposable test tenant used throughout thi
    verify-audit data/identity-helpdesk.db` and `pnpm verify-audit data/mdm-helpdesk.db`, both
    reproduced below, both report every record intact.
 
-### The identity gateway's chain (20 records)
+Also confirmed in this session, beyond Sprint 2's original seven: **the approval-decision
+endpoint enforces the same token validation as the MCP endpoint**, not a separately written check
+that could drift from it. `pnpm prove-isolation`'s seventh check, above: a bare request to
+`/approvals/decide` with no bearer token at all comes back `401 token_missing_token`, audited as
+record 21 on the identity chain below.
+
+### The identity gateway's chain (21 records)
 
 ```
-   1  2026-09-17T20:26:58.185Z  e9c64fa2-...  helpdesk.operator@...  request        -
-   2  2026-09-17T20:27:03.464Z  e9c64fa2-...  helpdesk.operator@...  autonomous     list_user_groups
-   3  2026-09-17T20:27:03.626Z  e9c64fa2-...  helpdesk.operator@...  autonomous     list_user_groups => result
-   4  2026-09-17T20:27:30.486Z  a5ba9edf-...  helpdesk.operator@...  request        -
-   5  2026-09-17T20:27:34.783Z  a5ba9edf-...  helpdesk.operator@...  autonomous     list_managed_groups
-   6  2026-09-17T20:27:34.787Z  a5ba9edf-...  helpdesk.operator@...  autonomous     list_managed_groups => result
-   7  2026-09-17T20:27:36.738Z  a5ba9edf-...  helpdesk.operator@...  approval       add_user_to_group [approval.add_user_to_group]
-   8  2026-09-17T20:27:42.468Z  a5ba9edf-...  helpdesk.operator@...  rationale      add_user_to_group => result
-   9  2026-09-17T20:28:24.631Z  a5ba9edf-...  it.manager@...         approved       add_user_to_group [approval.add_user_to_group] => result
-  10  2026-09-17T20:28:24.919Z  a5ba9edf-...  it.manager@...         approved       add_user_to_group [approval.add_user_to_group] => result
-  11  2026-09-17T20:28:52.068Z  c0e3112c-...  helpdesk.operator@...  request        -
-  12  2026-09-17T20:28:58.750Z  c0e3112c-...  helpdesk.operator@...  no_tool_called - => result
-  13  2026-09-17T20:29:15.898Z  a71577fd-...  helpdesk.operator@...  request        -
-  14  2026-09-17T20:29:19.036Z  a71577fd-...  helpdesk.operator@...  autonomous     list_managed_groups
-  15  2026-09-17T20:29:19.040Z  a71577fd-...  helpdesk.operator@...  autonomous     list_managed_groups => result
-  16  2026-09-17T20:29:21.531Z  a71577fd-...  helpdesk.operator@...  approval       remove_user_from_group [approval.remove_user_from_group]
-  17  2026-09-17T20:29:27.602Z  a71577fd-...  helpdesk.operator@...  rationale      remove_user_from_group => result
-  18  2026-09-17T20:30:05.270Z  a71577fd-...  it.manager@...         approved       remove_user_from_group [approval.remove_user_from_group] => result
-  19  2026-09-17T20:30:05.551Z  a71577fd-...  it.manager@...         approved       remove_user_from_group [approval.remove_user_from_group] => result
-  20  2026-09-17T20:30:23.498Z  prove-isolation-69ee5d11-...  prove-isolation@local  denied  - [deny.audience_mismatch]
+   1  2026-09-18T08:12:39.550Z  59e721fe-...  helpdesk.operator@...  request        -
+   2  2026-09-18T08:12:43.603Z  59e721fe-...  helpdesk.operator@...  autonomous     list_user_groups
+   3  2026-09-18T08:12:43.770Z  59e721fe-...  helpdesk.operator@...  autonomous     list_user_groups => result
+   4  2026-09-18T08:12:59.003Z  15df504f-...  helpdesk.operator@...  request        -
+   5  2026-09-18T08:13:02.901Z  15df504f-...  helpdesk.operator@...  autonomous     list_managed_groups
+   6  2026-09-18T08:13:02.903Z  15df504f-...  helpdesk.operator@...  autonomous     list_managed_groups => result
+   7  2026-09-18T08:13:04.717Z  15df504f-...  helpdesk.operator@...  approval       add_user_to_group [approval.add_user_to_group]
+   8  2026-09-18T08:13:10.971Z  15df504f-...  helpdesk.operator@...  rationale      add_user_to_group => result
+   9  2026-09-18T08:13:32.198Z  15df504f-...  it.manager@...         approved       add_user_to_group [approval.add_user_to_group] => result
+  10  2026-09-18T08:13:32.495Z  15df504f-...  it.manager@...         approved       add_user_to_group [approval.add_user_to_group] => result
+  11  2026-09-18T08:13:54.927Z  b94fa282-...  helpdesk.operator@...  request        -
+  12  2026-09-18T08:14:02.668Z  b94fa282-...  helpdesk.operator@...  no_tool_called - => result
+  13  2026-09-18T08:14:24.046Z  38b873cd-...  helpdesk.operator@...  request        -
+  14  2026-09-18T08:14:28.018Z  38b873cd-...  helpdesk.operator@...  autonomous     list_managed_groups
+  15  2026-09-18T08:14:28.022Z  38b873cd-...  helpdesk.operator@...  autonomous     list_managed_groups => result
+  16  2026-09-18T08:14:29.631Z  38b873cd-...  helpdesk.operator@...  approval       remove_user_from_group [approval.remove_user_from_group]
+  17  2026-09-18T08:14:35.405Z  38b873cd-...  helpdesk.operator@...  rationale      remove_user_from_group => result
+  18  2026-09-18T08:14:56.349Z  38b873cd-...  it.manager@...         approved       remove_user_from_group [approval.remove_user_from_group] => result
+  19  2026-09-18T08:14:56.654Z  38b873cd-...  it.manager@...         approved       remove_user_from_group [approval.remove_user_from_group] => result
+  20  2026-09-18T08:15:30.693Z  prove-isolation-b35761bd-...  prove-isolation@local  denied  - [deny.audience_mismatch]
+  21  2026-09-18T08:15:30.698Z  7871abd8-...            unknown                       denied  - [deny.missing_token]
 
-Chain intact: 20 record(s), data/identity-helpdesk.db
+Chain intact: 21 record(s), data/identity-helpdesk.db
 ```
 
 Reading it: records 1–3 are "which groups is alexdesouza@... in", asked through the request page
@@ -921,24 +945,28 @@ marcoasensio@... from the Finance group", same approval screen, same audited pat
 this time. Record 20 is `pnpm prove-isolation`'s identity-agent-token-against-MDM-gateway check
 landing on *this* chain — the MDM gateway refused it, and audited the refusal here, on the
 identity gateway's own chain, since that is where the (refused) attempt actually originated.
+Record 21 is the new seventh check: a request to this gateway's own `/approvals/decide` with no
+token at all, refused and audited here, `actor: "unknown"` since there was no header to read one
+from.
 
 ### The MDM gateway's chain (4 records)
 
 ```
-   1  2026-09-17T20:30:23.381Z  prove-isolation-8af2fb11-...  prove-isolation@local          denied      - [deny.audience_mismatch]
-   2  2026-09-17T20:30:37.334Z  5e0025a9-...                  helpdesk.operator@...          request     -
-   3  2026-09-17T20:30:41.190Z  5e0025a9-...                  helpdesk.operator@...          autonomous  list_devices
-   4  2026-09-17T20:30:41.652Z  5e0025a9-...                  helpdesk.operator@...          autonomous  list_devices => result
+   1  2026-09-18T08:15:12.798Z  92724ff0-...  helpdesk.operator@...  request     -
+   2  2026-09-18T08:15:16.586Z  92724ff0-...  helpdesk.operator@...  autonomous  list_devices
+   3  2026-09-18T08:15:16.896Z  92724ff0-...  helpdesk.operator@...  autonomous  list_devices => result
+   4  2026-09-18T08:15:30.601Z  prove-isolation-62f83cbf-...  prove-isolation@local  denied  - [deny.audience_mismatch]
 
 Chain intact: 4 record(s), data/mdm-helpdesk.db
 ```
 
-Record 1 is the mirror image of the identity chain's record 20: the MDM agent's token, presented
-to the identity gateway, refused there and audited on *this* chain. Records 2–4 are "list the
-devices in the tenant", asked through the real MDM agent (`pnpm mdm-agent`) — the web app has no
-route to the MDM gateway at all, since Sprint 2 deliberately leaves triage between agents as a
-placeholder (see "What is still open after Sprint 2"). The tenant has no devices registered, and
-an empty list is exactly the successful result SPRINT2.md's Component 1 describes.
+Records 1–3 are "list the devices in the tenant", asked through the real MDM agent
+(`pnpm mdm-agent`) — the web app has no route to the MDM gateway at all, since Sprint 2
+deliberately leaves triage between agents as a placeholder (see "What is still open after Sprint
+2"). The tenant has no devices registered, and an empty list is exactly the successful result
+SPRINT2.md's Component 1 describes. Record 4 is the mirror image of the identity chain's record
+20: the MDM agent's token, presented to the identity gateway, refused there and audited on *this*
+chain, since that is where the (refused) attempt actually originated.
 
 Both chains verify intact, independently, on two separate database files that were never merged
 — the last of Sprint 2's definition of done, and the same property Sprint 1 closed on.
