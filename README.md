@@ -24,9 +24,10 @@ making this way, then records the evidence for it.
 
 ```mermaid
 flowchart TD
-    U["User request"] --> W["Web app<br/>request form and approval screen"]
-    W --> A["Identity agent<br/>Agent SDK, no built-in tools<br/>holds no credentials"]
-    A -->|"tool call"| G["Identity gateway<br/>MCP server<br/>policy engine and certificate"]
+    U["User request"] --> W["Web app<br/>request form and approval screen<br/>holds no Graph credential"]
+    W --> A["Identity agent<br/>Agent SDK, no built-in tools<br/>holds no Graph credential"]
+    A -->|"tool call, HTTP + bearer token"| G["Identity gateway<br/>MCP server<br/>policy engine and certificate"]
+    W -->|"approve/reject, HTTP + bearer token"| G
 
     G -->|"autonomous"| MG["Microsoft Graph"]
     G -->|"approval gated"| Q["Approval queue<br/>human decides, note required"]
@@ -35,14 +36,14 @@ flowchart TD
 
     A --> L["Audit log<br/>append only, hash chained"]
     G --> L
-    Q --> L
 ```
 
-The certificate sits in the gateway, never on the agent side. An agent that is talked into
-something still has no way to reach Graph on its own, and every decision reaches the audit log
-before anything executes. In Sprint 1 the approval executor holds its own Graph credential
-rather than calling back through the gateway, which is the one place this diagram simplifies.
-That is listed as a Sprint 2 item.
+The certificate sits in the gateway, never on the agent side and, as of Sprint 2 Stage B, never
+on the web app's side either. An agent that is talked into something still has no way to reach
+Graph on its own, and every decision reaches the audit log before anything executes. Through
+Stage A the approval executor held its own Graph credential in the web app rather than calling
+back through the gateway, the one place this diagram simplified; Stage B closed that (see "Stage
+B: the web app becomes a gateway client" below), and the diagram above reflects the closed state.
 
 ## Action classes
 
@@ -99,23 +100,32 @@ does carry real weight, understanding an ambiguous request and asking a clarifyi
 instead of guessing, is exactly where judgment is appropriate: before a tool is ever called, on
 a request that has not yet touched policy or Graph.
 
-## Identity is a spawn argument, never a tool parameter
+## Identity is bound outside the model's reach, never a tool parameter
 
-The identity of the person on whose behalf a request is being made (the actor) is set once, when
-the agent process and the gateway process for that session are started, as a command line
-argument: `--actor alice@contoso.com`. It is never a field the model fills in, never something
-read from the request text, and there is no tool parameter named anything like `userId` or
-`onBehalfOf` that a prompt could persuade the model to set.
+The identity of the person on whose behalf a request is being made (the actor) is read once, at
+the start of a request, from a place the model's context window never contains, and carried
+through every layer as a parameter rather than re-derived from anything downstream. In Sprint 1
+that place was a command-line argument the agent process passed straight through to the gateway
+subprocess it spawned: `--actor alice@contoso.com`, bound once per session because the gateway
+itself was one process per session. Stage B's gateways are long-running HTTP servers with no
+per-session process to bind an argument to, so the actor now travels as an `x-actor` HTTP header
+the agent process sets on every request — the mechanism changed, the property did not: it is
+still something the agent's own code sets from its own caller, never a field the model fills in,
+never something read from the request text, and there is no tool parameter named anything like
+`userId` or `onBehalfOf` that a prompt could persuade the model to set.
 
 This matters because a tool parameter is something the conversation can influence. If identity
 were a parameter, a sufficiently creative prompt could potentially get the model to pass a
 different identity than the one actually asking, and the policy engine and audit log would
-faithfully record the wrong actor. By binding identity at the process boundary instead, outside
-anything the model's context window ever contains, there is no text the model could produce that
-changes who the system believes is asking. The web form's identity field is a plain text input
-in Sprint 1 (Entra login replaces it in Sprint 2), but it is still read once, at the start of the
-request, and passed down through every layer as a parameter rather than being re-derived from
-anything downstream.
+faithfully record the wrong actor. By binding identity outside the model's reach instead —
+a spawn argument in Sprint 1, a header the agent process sets in Stage B — there is no text the
+model could produce that changes who the system believes is asking. The web form's identity
+field is a plain text input in Sprint 1 (Entra login replaces it in a later sprint), but it is
+still read once, at the start of the request, the same way.
+
+Stage B adds a second identity alongside the actor: which *agent* is calling, taken from the
+validated bearer token's own client id rather than a matching `--agent` CLI flag nothing verified
+before. See "Stage B: HTTP transport and token validation" below for the detail.
 
 ## Nothing is rejected before it is audited
 
@@ -217,15 +227,16 @@ second agent type. There is no ledger anchoring for the audit chain (see above) 
 injection test suite. None of this is an oversight; each is a named line SPRINT1.md draws on
 purpose, so that Sprint 1 stays small enough to actually finish and be evaluated as a whole.
 
-### Two known gaps carried forward
+### Two known gaps carried forward from Sprint 1 — both now closed
 
-**The web app holds Microsoft Graph credentials directly.** When an approver approves a request,
-something has to actually call Graph, and Sprint 1 has no HTTP transport on the gateway for the
-web app to call into instead. So `packages/web/src/bin/web.ts` builds its own certificate
-credential and Graph client and calls Graph itself. This is the same trust boundary as the
-gateway process (a human only interface, never reachable by the model), not a new one, but it is
-still a second process on disk with access to the private key. Sprint 2's HTTP transport should
-let the web app reach the gateway instead of duplicating its credential handling.
+**The web app held Microsoft Graph credentials directly. Closed in Sprint 2, Stage B.** When an
+approver approved a request, something had to actually call Graph, and Sprint 1 had no HTTP
+transport on the gateway for the web app to call into instead. So `packages/web/src/bin/web.ts`
+built its own certificate credential and Graph client and called Graph itself. Stage B's HTTP
+transport removed that entirely: the web app now holds no Graph credential and no `GraphClient`
+at all, and reaches Graph only by asking the identity gateway (which still holds the one Graph
+credential) to execute an already-decided approval — see "Stage B: the web app becomes a gateway
+client" below.
 
 **There was no `remove_user_from_group` tool. Closed in Sprint 2, Stage A.** `add_user_to_group`
 was the only write Sprint 1 built, so every live demonstration in this document that changed
@@ -234,8 +245,9 @@ codebase. `remove_user_from_group` now exists on the identity gateway (Component
 gated, the same class as the addition with no exceptions. It needed no new deny rule: extending
 the existing rules' notion of "target group" to cover this tool as well as `add_user_to_group`
 was enough for the directory-role and managed-allowlist deny rules to apply to it automatically,
-confirmed in `policy/decide.test.ts` rather than assumed. The demo revert can now run through
-the same audited, approved path as the change itself, instead of a manual escape hatch.
+confirmed in `policy/decide.test.ts` rather than assumed. The demo revert now runs through the
+same audited, approved path as the change itself, instead of a manual escape hatch — exercised
+live in the Sprint 2 verification run below.
 
 ### What Sprint 2, Stage A adds
 
@@ -250,41 +262,65 @@ prove today). `pnpm prove-isolation`, committed evidence that Microsoft — not 
 refuses a credential pointed at the other gateway's resource. And `remove_user_from_group`,
 above.
 
-### What Sprint 2, Stage B still has to add
+### What Sprint 2, Stage B adds
 
-HTTP transport and OAuth on both gateways, with audience-bound tokens issued per agent, so each
-agent runs under its own service principal instead of sharing its gateway's, and the agent-level
-tool boundary the previous section describes as "our own code" becomes something Entra itself
-enforces; the web app losing its Graph credential entirely, reaching Graph only through the
-identity gateway; a merged, read-only view across the two gateways' separate audit chains.
-Carried forward unchanged from Sprint 1: Entra login on the web app, replacing the plain identity
-field; the triage logic to route between the two agents that now exist (the seam for this
-already exists as a placeholder function, unused by either agent so far); ledger anchoring, to
-close the tail truncation gap the hash chain leaves open; and a prompt injection test suite.
+HTTP transport on both gateways (`StreamableHTTPServerTransport`, stateless), replacing stdio,
+with a bearer token validated on every request: signature against the tenant's published keys,
+audience equal to that gateway's own Application ID URI, the `Gateway.Invoke` app role present.
+Each agent gets its own app registration and certificate for the first time, scoped to its own
+gateway's audience and carrying no Graph permission at all, so the agent-level tool boundary
+Stage A's own README section called "our own code" becomes something Entra enforces instead —
+`pnpm prove-isolation` grew two checks that prove exactly that, live. The web app losing its
+Graph credential (above). `remove_user_from_group`'s demo revert exercised through the real web
+UI with no manual Graph call, also above. See "Stage B: HTTP transport and token validation" and
+"Stage B: the web app becomes a gateway client" below for the detail, and the Sprint 2
+verification run for all of it exercised together in one session.
+
+### What is still open after Sprint 2
+
+A merged, read-only view across the two gateways' separate audit chains (SPRINT2.md, Component 6
+describes this as a small reader that verifies each chain independently before merging by
+`requestId`; not built, since nothing in this sprint's definition of done requires it — each
+chain already verifies clean on its own, which is what Component 6's actual requirement asks
+for). The MCP authorization specification describes a fuller model than Stage B implements:
+discovery metadata, dynamic client registration, resource indicators. This sprint stops at
+audience-bound tokens against Entra; see "Stage B: HTTP transport and token validation" below for
+what that gap means in practice. Carried forward unchanged from Sprint 1: Entra login on the web
+app, replacing the plain identity field; the triage logic to route between the two agents that
+now exist (the seam for this already exists as a placeholder function, unused by either agent so
+far); ledger anchoring, to close the tail truncation gap the hash chain leaves open; and a prompt
+injection test suite.
 
 ## Repo layout
 
 ```
 packages/audit             the audit record format and its hash chain, shared, standalone
-packages/identity-gateway  identity gateway: MCP server, policy engine, Graph client, audit log
-                           (holds the identity gateway's credential; the web app also holds one,
-                           see "Scope" above; the Graph client's HTTP/auth code is shared with
-                           packages/mdm-gateway, see the header comment in graph/client.ts)
-packages/mdm-gateway       MDM gateway: its own MCP server, policy engine and audit chain,
-                           disjoint Graph permission and certificate from the identity gateway
-                           (SPRINT2.md)
+packages/identity-gateway  identity gateway: MCP-over-HTTP server, policy engine, Graph client,
+                           audit log, token validation (auth/), the approval decision endpoint
+                           (approvals/decision-listener.ts) — the only package that holds a Graph
+                           credential; the Graph and auth plumbing is shared with
+                           packages/mdm-gateway, see the header comments in graph/client.ts and
+                           index.ts
+packages/mdm-gateway       MDM gateway: its own MCP-over-HTTP server, policy engine and audit
+                           chain, disjoint Graph permission and certificate from the identity
+                           gateway (SPRINT2.md)
 packages/agent             two agents, one file each (identity-agent.ts, mdm-agent.ts), on the
                            Claude Agent SDK; deliberately not one parameterized implementation
-                           (see mdm-agent.ts's header comment)
-packages/web               request form and approval screen, server rendered
+                           (see mdm-agent.ts's header comment); each holds its own certificate,
+                           scoped to its own gateway's audience, with no Graph permission
+packages/web               request form and approval screen, server rendered; holds no Graph
+                           credential (SPRINT2.md, Stage B) — reaches Graph only by asking the
+                           identity gateway to execute an already-decided approval
 data/                      SQLite, gitignored
 ```
 
-`packages/identity-gateway/src/index.ts` documents two different rules for two different
-consumers. The agent package may import only type definitions from the identity gateway package;
-it reaches the gateway's actual behaviour over a spawned MCP connection it does not otherwise
-trust. The web app, a human only interface, imports the gateway's runtime code directly, for the
-reason given under "Scope" above.
+`packages/identity-gateway/src/index.ts` documents the rules for its three consumers (the agent
+package, the MDM gateway package, and the web app) in detail — see that file for exactly which
+runtime values each may import and why. The short version: everyone gets type definitions freely;
+the one shared runtime credential class (`CertificateCredential`) is a deliberate, narrow
+exception for the agent package and the web app, both of which use it only to authenticate to a
+gateway, never to Graph; nothing outside `packages/identity-gateway` imports `GraphClient`,
+the policy engine, or `ApprovalWorkflow`.
 
 ## Running it
 
@@ -308,29 +344,38 @@ pnpm typecheck
 pnpm build
 ```
 
-Copy `.env.example` to `.env` and fill it in. `AZURE_TENANT_ID` is shared, one directory; the
-identity and MDM gateways each get their own client id, certificate thumbprint, and PEM private
-key path (kept outside the repo): `AZURE_IDENTITY_CLIENT_ID` / `AZURE_IDENTITY_CERT_THUMBPRINT` /
-`AZURE_IDENTITY_CERT_PATH` for `helpdesk-identity-gateway`, and `AZURE_MDM_CLIENT_ID` /
-`AZURE_MDM_CERT_THUMBPRINT` / `AZURE_MDM_CERT_PATH` for `helpdesk-mdm-gateway` (SPRINT2.md, Stage
-A). All six are required for any Graph access. `ANTHROPIC_API_KEY` is optional; without it, approvals are still
-created, just without a generated rationale, and the gateway says so at startup. Real
+Copy `.env.example` to `.env` and fill it in. `AZURE_TENANT_ID` is shared, one directory; each
+gateway and each agent gets its own client id, certificate thumbprint and PEM private key path
+(kept outside the repo) — the identity and MDM gateways' own Graph-scoped credentials
+(`AZURE_IDENTITY_*` / `AZURE_MDM_*`), each gateway's own Application ID URI
+(`IDENTITY_GATEWAY_AUDIENCE` / `MDM_GATEWAY_AUDIENCE`), and each agent's own certificate, scoped
+to its gateway's audience and carrying no Graph permission (`AZURE_IDENTITY_AGENT_*` /
+`AZURE_MDM_AGENT_*`, SPRINT2.md Stage B). `ANTHROPIC_API_KEY` is optional; without it, approvals
+are still created, just without a generated rationale, and the gateway says so at startup. Real
 environment variables always take precedence over `.env`. Both agents' own model turns also
 need `ANTHROPIC_API_KEY` to resolve, but through a separate mechanism: the Agent SDK's own
 Claude Code subprocess, which can authenticate from the same `.env` (the agent package loads it
 independently at its own startup), a real environment variable, or an `ant auth login` profile.
 
-Each package can be run directly once built:
+**Both gateways are long-running HTTP servers as of Stage B, not one process per agent session.**
+Start them first, in their own terminals, before running an agent or the web app — there is
+nothing left for either to spawn:
 
 ```
-pnpm identity-gateway --actor alice@contoso.com --request-id test-1
-pnpm mdm-gateway --actor alice@contoso.com --request-id test-1
+pnpm identity-gateway [--port 3001] [--db data/identity-helpdesk.db]
+pnpm mdm-gateway [--port 3002] [--db data/mdm-helpdesk.db]
+```
+
+With both running, everything else can be run directly once built:
+
+```
 pnpm agent --actor alice@contoso.com --request "which groups is alice@contoso.com in"
 pnpm mdm-agent --actor alice@contoso.com --request "list the devices in the tenant"
 pnpm web
 pnpm verify-audit [path/to/identity-helpdesk.db]
 pnpm graph-smoke
 pnpm mdm-graph-smoke
+pnpm token-smoke
 pnpm prove-isolation
 ```
 
@@ -342,6 +387,8 @@ script line.
 `pnpm mdm-gateway` defaults to `data/mdm-helpdesk.db`, a separate file from the identity
 gateway's `data/identity-helpdesk.db` (SPRINT2.md, Component 6: two gateways, two audit chains,
 never merged); `pnpm verify-audit` takes either path and needs no changes to work against both.
+`pnpm prove-isolation`'s last two checks need both gateways already running and reachable — see
+its own header comment.
 
 ## Status
 
@@ -359,18 +406,31 @@ commit this document was written against.
 
 ### Sprint 2, Stage A status
 
-| Component                            | State                                                          |
-| ------------------------------------- | --------------------------------------------------------------- |
-| 1. MDM gateway                        | done, tests first: `packages/mdm-gateway`                        |
-| 2. Isolation evidence                 | done: `pnpm prove-isolation`, `evidence/isolation-run.txt`        |
-| 3. `remove_user_from_group`           | done, tests first: `packages/identity-gateway/src/policy`, `src/tools` |
-| 4. MDM agent                          | done, tests first: `packages/agent/src/mdm-agent.ts`             |
-| 5. HTTP transport, token validation   | not started (Stage B)                                            |
-| 6. Web app loses its Graph credential | not started (Stage B)                                            |
-| 7. Merged audit-chain reader          | not started (Stage B)                                            |
+| Component                    | State                                                                  |
+| ----------------------------- | ------------------------------------------------------------------------ |
+| 1. MDM gateway                | done, tests first: `packages/mdm-gateway`                                 |
+| 2. Isolation evidence         | done: `pnpm prove-isolation`, `evidence/isolation-run.txt`                 |
+| 3. `remove_user_from_group`   | done, tests first: `packages/identity-gateway/src/policy`, `src/tools`    |
+| 4. MDM agent                  | done, tests first: `packages/agent/src/mdm-agent.ts`                      |
 
-371 tests across six packages, all passing; `pnpm typecheck` and `pnpm build` clean, at the
-commit this document was written against. Stage A is complete.
+Stage A is complete.
+
+### Sprint 2, Stage B status
+
+| Component                             | State                                                                 |
+| --------------------------------------- | ------------------------------------------------------------------------ |
+| 1. Agent credentials                    | done, live: `pnpm token-smoke`                                           |
+| 2. HTTP transport                       | done, tests first: `packages/identity-gateway/src/tools/http-listener.ts` |
+| 3. Token validation                     | done, tests first: `packages/identity-gateway/src/auth`                  |
+| 4. Cross-gateway audience-mismatch proof | done: `pnpm prove-isolation`, `evidence/isolation-run.txt`               |
+| 5. Web app loses its Graph credential    | done, tests first: `packages/identity-gateway/src/approvals/decision-listener.ts` |
+| 6. Both audit chains verify clean       | done — see the Sprint 2 verification run below                          |
+
+Stage B is complete. Sprint 2's full definition of done is exercised end to end in the
+verification run below.
+
+427 tests across six packages, all passing; `pnpm typecheck` and `pnpm build` clean, at the
+commit this document was written against.
 
 ### Policy engine notes
 
@@ -388,8 +448,11 @@ malformed UPN or group id throws at startup rather than silently denying every r
 ### Audit core notes
 
 `packages/audit` (`@helpdesk/audit-core`) is a standalone workspace package holding only the
-append only record format and its hash chain, used by both the gateway and the identity agent.
-It deliberately carries no identity, no policy, no credentials, and no opinion on how or where
+append only record format and its hash chain, used by all four writers as of Stage B: both
+gateways and both agents (each agent still writes its own `request` and `no_tool_called` records
+directly, for the reason below; each gateway writes everything else, including — as of Stage B —
+a rejected token, and the identity gateway's approval decisions). It deliberately carries no
+identity, no policy, no credentials, and no opinion on how or where
 the underlying database file is opened; a caller passes in an already open connection. This
 exists because there are two real writers (the gateway, and the identity agent, which writes its
 own `request` and `no_tool_called` records because it is the only process that ever sees the
@@ -430,32 +493,52 @@ calls `list_managed_groups` to resolve a group name, and that call is itself aud
 "the agent asked what groups exist" is on the record. The MCP server is built on the SDK's low
 level `Server` rather than the higher level tool registration helper, because the latter
 validates arguments before a handler runs, and a call rejected there would never reach the audit
-log. One gateway process runs per agent session, with identity bound at spawn as described
-above. `packages/mdm-gateway` repeats this shape independently — its own `tools/`, its own
-policy engine, its own MCP server identifying as `helpdesk-mdm-gateway` — rather than
-parameterizing this package to serve both gateways, so that the two remain two things a reviewer
-can reason about separately, the same argument SPRINT2.md's Component 6 makes for the audit
-chains.
+log. As of Stage B, one gateway process is a long-running HTTP server, not one process per agent
+session: `sessionFromExtra()` in `tools/server.ts` derives a fresh `SessionContext` for every
+tool call from the validated token (`agent`, the token's own client id) and from the
+`x-actor`/`x-request-id` headers the calling agent sets itself (`actor`, `requestId`) — never
+from the tool call's own arguments. A stateless `StreamableHTTPServerTransport` cannot be reused
+across requests, so `bin/gateway.ts` builds a fresh `Server` and transport pair per request over
+the same shared dependencies (the audit log, the Graph client, ...), which is cheap: it only
+registers handlers, it does not reopen anything. `packages/mdm-gateway` repeats this shape
+independently — its own `tools/`, its own policy engine, its own MCP server identifying as
+`helpdesk-mdm-gateway` — rather than parameterizing this package to serve both gateways, so that
+the two remain two things a reviewer can reason about separately, the same argument SPRINT2.md's
+Component 6 makes for the audit chains.
 
 ### Approval store and rationale notes
 
 The rationale generator is a single Messages API call, with a frozen system prompt asking for
 the three sections described above and forbidding a recommendation either way. The approve and
-reject path validates the approver's identity and the decision note, refuses and audits an
-attempt where the approver and the original requester are the same person, records the human's
-verdict, and only for an approval calls Graph and audits the result. All of this lives in the
-gateway package; the web app calls into it and adds no rules of its own.
+reject path (`ApprovalWorkflow`) validates the approver's identity and the decision note, refuses
+and audits an attempt where the approver and the original requester are the same person, records
+the human's verdict, and only for an approval calls Graph and audits the result. `ApprovalWorkflow`
+itself has not changed since Sprint 1; what changed in Stage B is where it runs. Through Stage A
+the web app instantiated it directly, in its own process, with its own `GraphClient`. As of Stage
+B it runs only inside the identity gateway process, reached through a non-MCP HTTP endpoint,
+`approvals/decision-listener.ts` (`POST /approvals/decide`) — deliberately not an MCP tool, since
+approving or rejecting is a human-only action and putting it on the MCP surface would put it
+within an agent's potential reach. Authenticated the same way as the MCP endpoint (bearer token,
+`Gateway.Invoke`), on its own path, since the JSON body here (`approvalId`, `decidedBy`,
+`decision`, `note`) is a genuine payload from a human-only UI, not a concern the MCP path's
+header-based identity has to guard against. The web app calls into it over HTTP and adds no rules
+of its own, same as it always has.
 
 ### Identity agent notes
 
 The agent is one file, `packages/agent/src/identity-agent.ts`, running on the Claude Agent SDK
-with every built in tool turned off and the allowed tool list naming exactly the three gateway
+with every built in tool turned off and the allowed tool list naming exactly the four gateway
 tools, so that nothing runs unless it is explicitly named rather than everything running unless
-explicitly turned off. The gateway subprocess for a session is located by resolving the gateway
-package's own `package.json`, never imported directly. The agent writes its own `request` and
-`no_tool_called` audit records, using the shared audit package described above, since it is the
-only process positioned to see whether the model ever called a tool and what it said if it did
-not.
+explicitly turned off. Through Stage A the gateway ran as a subprocess this file spawned and
+located by resolving the gateway package's own `package.json`, never imported directly. As of
+Stage B there is no subprocess: the gateway is a long-running HTTP server, and this file connects
+to it as an ordinary MCP-over-HTTP client, minting its own bearer token first
+(`CertificateCredential`, scoped to `IDENTITY_GATEWAY_AUDIENCE`, the one runtime import this
+package takes from the gateway package — see that package's `index.ts` for why this specific
+class is safe to share) and sending `x-actor`/`x-request-id` as headers the model never sees or
+sets. The agent writes its own `request` and `no_tool_called` audit records, using the shared
+audit package described above, since it is the only process positioned to see whether the model
+ever called a tool and what it said if it did not.
 
 ### Web app notes
 
@@ -464,7 +547,14 @@ value that ever came from a user, an agent, or a model is passed through an HTML
 function before it reaches a page. Route handling logic is written as plain functions
 independent of HTTP and tested without starting a server; the HTTP layer itself is a thin
 routing and body parsing wrapper, tested separately against a real server on an ephemeral port.
-A missing rationale is rendered as an explicit sentence, never as a blank section.
+A missing rationale is rendered as an explicit sentence, never as a blank section. As of Stage B
+this package holds no Graph credential: `decideApproval()` in `approvals-page.ts` is unchanged
+(it still just calls `deps.decide(input)` and catches `ApprovalError`), but `web.ts`'s
+composition root now backs `decide` with an HTTP call to the identity gateway's decision
+endpoint rather than an in-process `ApprovalWorkflow`, reconstructing an `ApprovalError` from the
+gateway's JSON error response so that unchanged catch block keeps working. `ApprovalStore` stays
+a direct read against the shared SQLite file for listing and displaying approvals — a read needs
+no credential and was never the gap Stage B closes.
 
 ## Sprint 1 verification run
 
@@ -555,73 +645,300 @@ Reading the records against the five items:
 5. All of the above, including the refusal, are in the one audit trail shown above, and
    `verifyChain()` reports the chain intact across all twelve records.
 
-## Sprint 2, Stage A: gateway credential isolation
+## Sprint 2: gateway isolation, at two layers
 
 [SPRINT2.md](SPRINT2.md) opens a second app registration, `helpdesk-mdm-gateway`, with exactly
 one Graph permission (`Device.Read.All`) and its own certificate, disjoint from the identity
 gateway's (`User.Read.All`, `GroupMember.ReadWrite.All`). The claim worth demonstrating is not
 "our code keeps these separate" but "Microsoft keeps these separate, and would refuse a mistake
-even if our code did not." `pnpm prove-isolation` (`packages/identity-gateway/src/bin/prove-isolation.ts`)
-mints a token from each credential and points it at both the other gateway's endpoint and its
-own, four calls in total, and fails the build if any of them does not come back exactly as
-expected. The result is committed at [evidence/isolation-run.txt](evidence/isolation-run.txt) and
-reproduced here:
+even if our code did not." Stage B adds a second layer to the same claim: each agent's own token,
+valid for its own gateway, presented to the *other* gateway must be refused too — this time by
+this codebase's own token validation, since there is no Graph call involved to ask Microsoft to
+refuse on our behalf. `pnpm prove-isolation` (`packages/identity-gateway/src/bin/prove-isolation.ts`)
+checks both layers, six calls in total, and fails the build if any of them does not come back
+exactly as expected. The result is committed at
+[evidence/isolation-run.txt](evidence/isolation-run.txt) and reproduced here:
 
 ```
-Sprint 2, Stage A: gateway credential isolation (SPRINT2.md, Component 2)
-Run at: 2026-09-17T08:55:24.593Z
+Sprint 2: gateway isolation, Graph-level (Stage A, Component 2) and gateway-level (Stage B, Component 4)
+Run at: 2026-09-17T20:30:23.502Z
 Tenant: f5590adf-b4c2-43c0-a656-5fb76451a2b7
 
-check                               expected    actual    roles                               graph error
---------------------------------------------------------------------------------------------------------------
-identity token -> GET /users        200         200       User.Read.All, GroupMember.ReadWrite.All  -
-identity token -> GET /devices      403         403       User.Read.All, GroupMember.ReadWrite.All  Authorization_RequestDenied
-mdm token -> GET /devices           200         200       Device.Read.All                     -
-mdm token -> GET /users             403         403       Device.Read.All                     Authorization_RequestDenied
+check                                     expected    actual    roles                               error code
+--------------------------------------------------------------------------------------------------------------------
+identity token -> GET /users              200         200       User.Read.All, GroupMember.ReadWrite.All  -
+identity token -> GET /devices            403         403       User.Read.All, GroupMember.ReadWrite.All  Authorization_RequestDenied
+mdm token -> GET /devices                 200         200       Device.Read.All                     -
+mdm token -> GET /users                   403         403       Device.Read.All                     Authorization_RequestDenied
+identity agent token -> MDM gateway       401         401       Gateway.Invoke                      token_audience_mismatch
+MDM agent token -> identity gateway       401         401       Gateway.Invoke                      token_audience_mismatch
 
-PASS: all 4 checks matched their expected status.
+PASS: all 6 checks matched their expected outcome.
 ```
 
-The identity gateway's token is refused by Graph itself (403, `Authorization_RequestDenied`)
-when pointed at `/devices`, and the MDM gateway's token is refused the same way when pointed at
-`/users`. Neither refusal is enforced by anything in this repo; both come from Entra evaluating
-the `roles` claim each token actually carries, which the script prints so the row is checkable
-against the app registration, not just against this script's own good faith. Never logged: the
-bearer token or the client assertion used to obtain it, only the decoded `roles` claim and
-Graph's own error code.
+The first four checks are Stage A's: the identity gateway's own token is refused by Graph itself
+(403, `Authorization_RequestDenied`) when pointed at `/devices`, and the MDM gateway's token is
+refused the same way when pointed at `/users`. Neither refusal is enforced by anything in this
+repo; both come from Entra evaluating the `roles` claim each token actually carries. The last two
+are Stage B's: each *agent's* token — valid for its own gateway, carrying `Gateway.Invoke` — is
+refused by the *other* gateway with a 401 naming the audience mismatch (`token_audience_mismatch`),
+enforced by `TokenValidator` in this repo, and audited on the refusing gateway's own chain as
+`deny.audience_mismatch`. The script prints every token's `roles` claim so each row is checkable
+against the app registration, not just against the script's own good faith. Never logged: a
+bearer token or the client assertion used to obtain it, only decoded claims and error codes.
 
-**What this proves, and what it does not.** It proves that Microsoft enforces the separation
-between the two app registrations' Graph permissions: an agent holding one gateway's credential
-cannot use it to act as the other, no matter what the model producing the tool call intended. It
-does **not** prove that the MDM gateway's process cannot read the identity gateway's certificate
-off disk, or vice versa; that is a host-level concern, not a Graph-level one, and Sprint 2
-addresses it only by naming it: run the two gateways under separate OS users, or on separate
-hosts, so that a compromise of one process's filesystem access does not hand over the other's
-private key. That separation is not exercised by this script or by anything else in this repo
-yet.
+**What this proves, and what it does not.** It proves that Microsoft enforces the Graph-level
+separation between the two app registrations' permissions, and that this codebase's own token
+validation enforces the gateway-level separation between the two agents' credentials: an agent
+holding one gateway's token cannot use it to act as the other, and neither credential can reach
+Graph directly at all. It does **not** prove that the MDM gateway's process cannot read the
+identity gateway's certificate off disk, or vice versa; that is a host-level concern, not a
+Graph- or token-level one, and Sprint 2 addresses it only by naming it: run the two gateways
+under separate OS users, or on separate hosts, so that a compromise of one process's filesystem
+access does not hand over the other's private key. That separation is not exercised by this
+script or by anything else in this repo yet.
 
-### The MDM agent, and the weaker boundary above the gateways
+### The MDM agent, and the boundary above the gateways
 
 `packages/agent/src/mdm-agent.ts` is the device-lookup counterpart to `identity-agent.ts`: same
-shape, zero built-in tools, `allowedTools` naming exactly the two `mdm-gateway` tools, identity
-bound at spawn as a command-line argument, its own `request` and `no_tool_called` audit records
-written into the MDM gateway's own database. It is a separate file with its own system prompt
-text, not a parameterized copy of the identity agent sharing a constant with it — see the file's
-own header comment for why: a shared allowlist or prompt constant would quietly become the thing
-that defines the boundary between the two agents, and the boundary is supposed to come from
-credentials.
+shape, zero built-in tools, `allowedTools` naming exactly the two `mdm-gateway` tools, its own
+`request` and `no_tool_called` audit records written into the MDM gateway's own database. It is a
+separate file with its own system prompt text, not a parameterized copy of the identity agent
+sharing a constant with it — see the file's own header comment for why: a shared allowlist or
+prompt constant would quietly become the thing that defines the boundary between the two agents,
+and the boundary is supposed to come from credentials.
 
 `agent-boundary.test.ts` checks the two agents' `allowedTools` never intersect and that each
-names only its own gateway's MCP server. **This is a real check, but a weaker one than
-`prove-isolation.ts` above, and it is worth being honest about the difference.** The isolation
-evidence proves something an attacker cannot talk their way around: Entra itself refuses a token
-minted for the wrong gateway, regardless of what code runs on either side of that call. The
-agent-boundary test proves something a *reviewer* cannot easily miss: today, nothing stops a
-future edit to `mdm-agent.ts` from adding `"mcp__identity-gateway__add_user_to_group"` to its own
-`allowedTools` by mistake, except this test catching it and a reviewer reading the diff. Stage B
-closes that gap at the layer where it actually matters: each agent gets its own app registration,
-holding a credential that authenticates it to its own gateway's HTTP endpoint and to no other,
-verified by signature and audience by Entra on every call. At that point an agent naming the
-wrong tool fails not because a test caught it in CI, but because the gateway it would have to
-reach refuses the token outright — the same class of proof `prove-isolation.ts` already
-demonstrates one layer down, extended to cover the agent layer too.
+names only its own gateway's MCP server. **This is a real check, but through Stage A it was a
+weaker one than `prove-isolation.ts` above, and it was worth being honest about the difference at
+the time.** The Stage A isolation evidence proved something an attacker could not talk their way
+around: Entra refuses a Graph call made with the wrong gateway's credential, regardless of what
+code ran on either side of it. The agent-boundary test only proved something a *reviewer* could
+not easily miss: that nothing stopped a future edit to `mdm-agent.ts` from adding
+`"mcp__identity-gateway__add_user_to_group"` to its own `allowedTools` by mistake, except this
+test catching it and a reviewer reading the diff. Stage B closed that gap at the layer where it
+actually matters: each agent now holds its own app registration and certificate, authenticating
+it to its own gateway's HTTP endpoint and to no other, verified by signature and audience by
+Entra on every call — the two checks `prove-isolation.ts` added above. An agent naming the wrong
+tool today fails not because a test caught it in CI, but because the gateway it would have to
+reach refuses the token outright, live, the same class of proof the Graph-level checks already
+demonstrated one layer down. `agent-boundary.test.ts` still runs, and still earns its place: it
+catches the mistake in seconds during development, before anyone needs a live tenant to notice.
+
+## Stage B: agents get a credential
+
+Sprint 1 deliberately avoided giving the agent process a credential of any kind — "the actor
+identity is a spawn-time parameter... nothing the model produces can set or change it" depended
+on the gateway, not the agent, holding anything worth protecting. Stage B changes that, and the
+change is safe for a specific, checkable reason: each agent's certificate is scoped to exactly
+one Application ID URI (its own gateway's), obtained via the ordinary OAuth client-credentials
+flow, and the app registration behind it has **zero Graph permissions** — confirmed live, not
+assumed, by `pnpm token-smoke` (`packages/agent/src/bin/token-smoke.ts`), which mints a real
+token for each agent and asserts its `roles` claim is exactly `["Gateway.Invoke"]`, nothing more.
+A credential that cannot reach Graph cannot be used to bypass the gateway even if it were stolen
+outright; the worst it can do is call tools the gateway itself would still run through `decide()`
+and the audit log, exactly as if the agent had called them normally.
+
+`CertificateCredential` (`packages/identity-gateway/src/graph/certificate-credential.ts`) is
+reused for this, unchanged: it was already generic — tenant, client id, thumbprint and a private
+key as constructor parameters, no embedded knowledge of Graph or of any specific credential. That
+genericity is what makes reusing it safe: SPRINT1.md's rule that the agent package may import
+only type definitions from the gateway package held throughout Sprint 1 and Stage A because
+nothing the agent could import was safe to run with the agent's own trust level. `CertificateCredential`
+is the one narrow, deliberate exception — the agent uses it only to authenticate itself to its
+own gateway, never to Graph, so importing it does not reopen the door the original rule closed.
+The agent package still imports nothing else from the gateway package's runtime surface: no
+`GraphClient`, no policy engine, no Graph credential.
+
+## Stage B: HTTP transport and token validation
+
+Both gateways now run `StreamableHTTPServerTransport` in stateless mode (no `sessionIdGenerator`)
+instead of stdio. Stateless mode has one hard constraint worth naming because it shapes
+`bin/gateway.ts` directly: a stateless transport throws if `handleRequest` runs on it twice, and
+an MCP `Server` already connected to one transport refuses to connect to a second. So each
+gateway builds a fresh `Server` and transport pair **per HTTP request**, over the same shared,
+already-open dependencies (the audit log, the Graph client, the policy config) — cheap, since
+building the pair only registers a few JSON-RPC handlers, it does not reopen anything.
+
+Token validation (`packages/identity-gateway/src/auth/`) is hand-rolled claims plumbing around
+`node:crypto`'s own primitives, not a JWT library: `JwksClient` fetches and caches a tenant's RSA
+signing keys from Entra's discovery endpoint, converting each JWK straight into a `KeyObject` via
+`crypto.createPublicKey({ key: jwk, format: "jwk" })`; `TokenValidator` then checks, in order,
+that the header names `RS256` and a known `kid`, that `crypto.verify("RSA-SHA256", ...)` confirms
+the signature against that key, that the token is not expired or not-yet-valid, that the issuer
+names this tenant, that the audience equals this gateway's own Application ID URI, and that
+`Gateway.Invoke` is present in the `roles` claim. The actual cryptographic verification is
+`node:crypto`'s own, already vetted; nothing here reimplements RSA. Every one of those checks is
+exercised with a real, freshly generated RSA keypair and a hand-signed test JWT in
+`verify-token.test.ts` — including a deliberately tampered payload against an unchanged signature,
+and a token signed by a key the tenant never published — not just asserted as intended behaviour.
+
+A rejected token is checked and audited **before** `transport.handleRequest` ever runs
+(`tools/http-listener.ts`, shared by both gateways): by the time a request would reach the MCP
+layer, there is no HTTP status code left to return, so the refusal has to happen one layer out.
+401 for a bad token (naming the specific reason — `deny.audience_mismatch`, `deny.expired`,
+`deny.missing_role`, and so on — as its own audit rule), 400 for a token that validates but is
+missing the `x-actor` or `x-request-id` header the calling agent must set itself. Both are
+audited before the response is written, the same audit-before-action ordering Sprint 1 already
+established for tool calls. Once a request passes both checks, `agent` in the resulting audit
+record is the token's own validated client id — a real change in kind, not just mechanism: over
+stdio, `--agent identity-agent` was a free-text CLI flag nothing verified; over HTTP, it is an
+Entra-issued application id that Microsoft, not this repo, vouches for.
+
+**A real-world discovery, not merely a documented possibility.** Verifying this live surfaced
+that Entra issues a **v1.0** token (`iss: https://sts.windows.net/{tenant}/`) for a custom API
+resource unless that resource's own app manifest sets `accessTokenAcceptedVersion: 2`, in which
+case it issues a v2.0 token (`iss: https://login.microsoftonline.com/{tenant}/v2.0`) instead.
+Neither app registration here has that manifest setting, so both gateways see v1.0 tokens in
+practice. `TokenValidator` accepts either issuer shape for the configured tenant — both are
+equally verifiable, and which one Entra happens to issue is a token-format detail, not a
+security relaxation. This is exactly the kind of thing a live tenant catches that a design
+document cannot.
+
+**Gateways never forward the incoming token to Graph, on purpose.** Each gateway keeps minting
+its own Graph token from its own certificate, exactly as it always has; the bearer token a
+request arrives with is used only to authenticate that request to *this* gateway, and is
+discarded once `sessionFromExtra()` has read the client id off it. Forwarding a caller's token
+upstream is the pattern the MCP authorization specification explicitly warns against, and for
+good reason: it would make this gateway's Graph access only as narrow as whatever the caller's
+token happened to be scoped to, which defeats the entire point of a gateway minting its own,
+independently-scoped credential.
+
+**Known gap, named rather than solved.** The MCP authorization specification describes a fuller
+model than Stage B implements: discovery metadata so a client can find out how to authenticate
+without being told out of band, dynamic client registration, RFC 8707 resource indicators tying
+a token to a specific resource at request time. This sprint implements audience-bound tokens
+issued by Entra and stops there — `x-actor`/`x-request-id` as plain headers rather than a richer
+identity-propagation mechanism is part of the same deliberate stop. A reader who knows the
+specification will recognise the gap; naming it here is more honest than an overstated claim.
+
+## Stage B: the web app becomes a gateway client
+
+Through Stage A, `packages/web/src/bin/web.ts` built its own `CertificateCredential` and
+`GraphClient` and called Graph directly whenever an approver approved a request — the last place
+in the system where a Graph write happened outside the audited, gateway-mediated path, carried
+forward from Sprint 1 because there was no HTTP transport yet for it to call into instead. Stage
+B deletes both entirely: no flag, no fallback, no code path left in the web app that can construct
+a Graph credential.
+
+`ApprovalWorkflow` did not change; where it runs did. It now lives inside the identity gateway
+process, which already holds the Graph client, reached through a new endpoint,
+`approvals/decision-listener.ts` (`POST /approvals/decide`), authenticated the same way as the
+MCP endpoint — a bearer token, `Gateway.Invoke` required — but deliberately **not** an MCP tool:
+approving or rejecting a request is a human-only action, and putting it on the model-facing MCP
+surface would put it within an agent's potential reach, undoing the separation of requester and
+approver the rest of this document argues for. The JSON body this endpoint reads
+(`approvalId`, `decidedBy`, `decision`, `note`) is a genuine request payload from a human filling
+in a form on a human-only interface, not a model — so, unlike the MCP path, there is no "identity
+from the body" concern to guard against here, and `decidedBy` is read from the body rather than a
+header on purpose.
+
+The web app authenticates to this endpoint by **reusing the identity agent's own app
+registration** (`AZURE_IDENTITY_AGENT_*`) rather than requesting a third identity: it already
+holds `Gateway.Invoke` on the identity gateway and nothing else, which is exactly the footing a
+human-only caller of this one gateway needs, and a separate app registration here would add an
+Azure identity without adding a real boundary. `approvals-page.ts` and `server.ts` did not need
+to change at all: `decideApproval()` still just calls `deps.decide(input)` and catches
+`ApprovalError` by `instanceof`, and `web.ts`'s new HTTP client reconstructs an `ApprovalError`
+from the gateway's JSON error response so that unchanged code keeps working, unaware whether the
+answer came from an in-process call or over HTTP. `ApprovalStore` stays a direct read against the
+shared SQLite file for listing and displaying approvals: a read needs no credential and was never
+the gap this component closes.
+
+## Sprint 2 verification run
+
+This section records a live run of Sprint 2's full definition of done against the same Entra
+tenant Sprint 1 was verified against, both gateways running as long-running HTTP servers on
+their default ports, the web app holding no Graph credential. Identifying details (tenant
+domain, object ids) are from the same disposable test tenant used throughout this document.
+
+### The full definition of done, in one session
+
+1. **Two app registrations with disjoint Graph permissions.** `pnpm prove-isolation`'s first
+   four checks, above: the identity gateway's token succeeds against `/users` and is refused
+   (403) against `/devices`; the MDM gateway's token succeeds against `/devices` and is refused
+   (403) against `/users`.
+2. **Both gateways run over HTTP and validate a bearer token on every request.** Confirmed by
+   every check below succeeding only with a valid, correctly-scoped token attached, and by the
+   two `deny.audience_mismatch` refusals immediately after.
+3. **An agent holding an identity gateway token is refused by the MDM gateway with a 401 naming
+   audience mismatch, and the refusal is audited.** `pnpm prove-isolation`'s last two checks,
+   above: both directions, both `401 token_audience_mismatch`, both audited on the refusing
+   gateway's own chain as `deny.audience_mismatch` (record 20 on the identity chain, record 1 on
+   the MDM chain, below).
+4. **The identity gateway's own token, pointed at a Graph device endpoint, returns 403.** Row 2
+   of `pnpm prove-isolation`'s output, above, and committed at
+   [evidence/isolation-run.txt](evidence/isolation-run.txt).
+5. **The web app no longer holds a Graph credential.** Verified structurally (`CertificateCredential`
+   and `GraphClient` are not imported anywhere in `packages/web`) and behaviourally: records 4–10
+   below show an approval submitted, rationale-generated, and **executed against the real
+   tenant** entirely through `http://localhost:3000`, the real web form and the real approval
+   screen, with the web process holding nothing that could call Graph directly.
+6. **`remove_user_from_group` exists, approval gated, and the demo revert needs no manual Graph
+   call.** Records 11–19 below: the same add was reverted through the same web UI, same audited,
+   approved path, `remove_user_from_group` this time. No Graph call was made outside this
+   codebase for either direction.
+7. **Each gateway owns its own audit chain, and both verify clean after a full run.** `pnpm
+   verify-audit data/identity-helpdesk.db` and `pnpm verify-audit data/mdm-helpdesk.db`, both
+   reproduced below, both report every record intact.
+
+### The identity gateway's chain (20 records)
+
+```
+   1  2026-09-17T20:26:58.185Z  e9c64fa2-...  helpdesk.operator@...  request        -
+   2  2026-09-17T20:27:03.464Z  e9c64fa2-...  helpdesk.operator@...  autonomous     list_user_groups
+   3  2026-09-17T20:27:03.626Z  e9c64fa2-...  helpdesk.operator@...  autonomous     list_user_groups => result
+   4  2026-09-17T20:27:30.486Z  a5ba9edf-...  helpdesk.operator@...  request        -
+   5  2026-09-17T20:27:34.783Z  a5ba9edf-...  helpdesk.operator@...  autonomous     list_managed_groups
+   6  2026-09-17T20:27:34.787Z  a5ba9edf-...  helpdesk.operator@...  autonomous     list_managed_groups => result
+   7  2026-09-17T20:27:36.738Z  a5ba9edf-...  helpdesk.operator@...  approval       add_user_to_group [approval.add_user_to_group]
+   8  2026-09-17T20:27:42.468Z  a5ba9edf-...  helpdesk.operator@...  rationale      add_user_to_group => result
+   9  2026-09-17T20:28:24.631Z  a5ba9edf-...  it.manager@...         approved       add_user_to_group [approval.add_user_to_group] => result
+  10  2026-09-17T20:28:24.919Z  a5ba9edf-...  it.manager@...         approved       add_user_to_group [approval.add_user_to_group] => result
+  11  2026-09-17T20:28:52.068Z  c0e3112c-...  helpdesk.operator@...  request        -
+  12  2026-09-17T20:28:58.750Z  c0e3112c-...  helpdesk.operator@...  no_tool_called - => result
+  13  2026-09-17T20:29:15.898Z  a71577fd-...  helpdesk.operator@...  request        -
+  14  2026-09-17T20:29:19.036Z  a71577fd-...  helpdesk.operator@...  autonomous     list_managed_groups
+  15  2026-09-17T20:29:19.040Z  a71577fd-...  helpdesk.operator@...  autonomous     list_managed_groups => result
+  16  2026-09-17T20:29:21.531Z  a71577fd-...  helpdesk.operator@...  approval       remove_user_from_group [approval.remove_user_from_group]
+  17  2026-09-17T20:29:27.602Z  a71577fd-...  helpdesk.operator@...  rationale      remove_user_from_group => result
+  18  2026-09-17T20:30:05.270Z  a71577fd-...  it.manager@...         approved       remove_user_from_group [approval.remove_user_from_group] => result
+  19  2026-09-17T20:30:05.551Z  a71577fd-...  it.manager@...         approved       remove_user_from_group [approval.remove_user_from_group] => result
+  20  2026-09-17T20:30:23.498Z  prove-isolation-69ee5d11-...  prove-isolation@local  denied  - [deny.audience_mismatch]
+
+Chain intact: 20 record(s), data/identity-helpdesk.db
+```
+
+Reading it: records 1–3 are "which groups is alexdesouza@... in", asked through the request page
+— an autonomous read, no approval involved. Records 4–10 are "add marcoasensio@... to the
+Finance group", asked through the request page, approved by a different identity
+(`it.manager@...`) through the real approval screen, and **executed against the real tenant** —
+record 10 is the Graph result, written by the identity gateway process, which is the only
+process in this run that ever held a Graph credential. Records 11–12 are "assign alexdesouza@...
+the Global Administrator role", declined by the model without calling any tool — `no_tool_called`,
+not a policy denial, and still on the record either way. Records 13–19 are the revert: "remove
+marcoasensio@... from the Finance group", same approval screen, same audited path, `remove_user_from_group`
+this time. Record 20 is `pnpm prove-isolation`'s identity-agent-token-against-MDM-gateway check
+landing on *this* chain — the MDM gateway refused it, and audited the refusal here, on the
+identity gateway's own chain, since that is where the (refused) attempt actually originated.
+
+### The MDM gateway's chain (4 records)
+
+```
+   1  2026-09-17T20:30:23.381Z  prove-isolation-8af2fb11-...  prove-isolation@local          denied      - [deny.audience_mismatch]
+   2  2026-09-17T20:30:37.334Z  5e0025a9-...                  helpdesk.operator@...          request     -
+   3  2026-09-17T20:30:41.190Z  5e0025a9-...                  helpdesk.operator@...          autonomous  list_devices
+   4  2026-09-17T20:30:41.652Z  5e0025a9-...                  helpdesk.operator@...          autonomous  list_devices => result
+
+Chain intact: 4 record(s), data/mdm-helpdesk.db
+```
+
+Record 1 is the mirror image of the identity chain's record 20: the MDM agent's token, presented
+to the identity gateway, refused there and audited on *this* chain. Records 2–4 are "list the
+devices in the tenant", asked through the real MDM agent (`pnpm mdm-agent`) — the web app has no
+route to the MDM gateway at all, since Sprint 2 deliberately leaves triage between agents as a
+placeholder (see "What is still open after Sprint 2"). The tenant has no devices registered, and
+an empty list is exactly the successful result SPRINT2.md's Component 1 describes.
+
+Both chains verify intact, independently, on two separate database files that were never merged
+— the last of Sprint 2's definition of done, and the same property Sprint 1 closed on.

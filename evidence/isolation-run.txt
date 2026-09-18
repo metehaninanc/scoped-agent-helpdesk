@@ -1,5 +1,5 @@
 Sprint 2: gateway isolation, Graph-level (Stage A, Component 2) and gateway-level (Stage B, Component 4)
-Run at: 2026-09-17T20:12:29.312Z
+Run at: 2026-09-17T20:30:23.502Z
 Tenant: f5590adf-b4c2-43c0-a656-5fb76451a2b7
 
 The first four checks prove Microsoft enforces the separation between the identity and MDM
