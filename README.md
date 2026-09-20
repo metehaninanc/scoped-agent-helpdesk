@@ -31,37 +31,37 @@ down for what backs every number on it.
 
 ```mermaid
 flowchart TD
-    U["User request"] --> W["Web app<br/>request form and approval screen<br/>holds no Graph credential"]
-    W --> T["Triage + orchestrator<br/>classification only: no gateway, no Entra registration, no tools"]
-    T -->|"identity"| A["Identity agent<br/>Agent SDK, no built-in tools<br/>holds no Graph credential"]
-    T -->|"mdm"| AM["MDM agent<br/>Agent SDK, no built-in tools<br/>holds no Graph credential"]
-    T -->|"knowledge"| AK["Knowledge agent<br/>Agent SDK, no built-in tools<br/>holds no Graph permission at all"]
-    T -->|"endpoint"| AE["Endpoint agent<br/>Agent SDK, no built-in tools<br/>holds no Graph permission at all"]
+    U["User request"] --> W["Web app: request form and approval screen, holds no Graph credential"]
+    W --> T["Triage + orchestrator: classification only, no gateway, no Entra registration, no tools"]
+    T -->|"identity"| A["Identity agent: Agent SDK, no built-in tools, holds no Graph credential"]
+    T -->|"mdm"| AM["MDM agent: Agent SDK, no built-in tools, holds no Graph credential"]
+    T -->|"knowledge"| AK["Knowledge agent: Agent SDK, no built-in tools, holds no Graph permission at all"]
+    T -->|"endpoint"| AE["Endpoint agent: Agent SDK, no built-in tools, holds no Graph permission at all"]
     T -->|"unsupported, or triage itself failed"| R["Refused before any agent runs"]
-    A -->|"tool call, HTTP + bearer token"| G["Identity gateway<br/>MCP server<br/>policy engine and certificate"]
-    AM -->|"tool call, HTTP + bearer token"| GM["MDM gateway<br/>MCP server<br/>policy engine and certificate"]
-    AK -->|"tool call, HTTP + bearer token"| GK["Knowledge gateway<br/>MCP server<br/>no credential, no backend client"]
-    AE -->|"tool call, HTTP + bearer token"| GE["Endpoint gateway<br/>MCP server<br/>no credential, no backend client"]
+    A -->|"tool call, HTTP + bearer token"| G["Identity gateway: MCP server, policy engine and certificate"]
+    AM -->|"tool call, HTTP + bearer token"| GM["MDM gateway: MCP server, policy engine and certificate"]
+    AK -->|"tool call, HTTP + bearer token"| GK["Knowledge gateway: MCP server, no credential, no backend client"]
+    AE -->|"tool call, HTTP + bearer token"| GE["Endpoint gateway: MCP server, no credential, no backend client"]
     W -->|"approve/reject, HTTP + bearer token"| G
     W -->|"approve/reject, HTTP + bearer token"| GE
 
     G -->|"autonomous"| MG["Microsoft Graph"]
-    G -->|"approval gated"| Q["Identity's own approval queue<br/>human decides, note required"]
+    G -->|"approval gated"| Q["Identity's own approval queue: human decides, note required"]
     Q -->|"approved"| MG
-    G -->|"denied"| D["Refusal returned<br/>Graph is never called"]
+    G -->|"denied"| D["Refusal returned, Graph is never called"]
     GM -->|"autonomous"| MG
-    GK -->|"autonomous"| KC["Local documentation corpus<br/>Entra + Intune docs, lexical search only"]
-    GE -->|"autonomous / approval gated"| ES["Local stub endpoint service<br/>reboot needs its own human approval"]
-    GE -->|"reset_password: denied, unconditionally"| DP["Refusal returned, named and audited<br/>points to SSPR, then the manager"]
+    GK -->|"autonomous"| KC["Local documentation corpus: Entra + Intune docs, lexical search only"]
+    GE -->|"autonomous / approval gated"| ES["Local stub endpoint service: reboot needs its own human approval"]
+    GE -->|"reset_password: denied, unconditionally"| DP["Refusal returned, named and audited, points to SSPR, then the manager"]
 
-    T --> LT["Orchestrator's own audit chain<br/>append only, hash chained"]
-    A --> L["Identity gateway's audit chain<br/>append only, hash chained"]
+    T --> LT["Orchestrator's own audit chain: append only, hash chained"]
+    A --> L["Identity gateway's audit chain: append only, hash chained"]
     G --> L
-    AM --> LM["MDM gateway's audit chain<br/>append only, hash chained"]
+    AM --> LM["MDM gateway's audit chain: append only, hash chained"]
     GM --> LM
-    AK --> LK["Knowledge gateway's audit chain<br/>append only, hash chained"]
+    AK --> LK["Knowledge gateway's audit chain: append only, hash chained"]
     GK --> LK
-    AE --> LE["Endpoint gateway's audit chain<br/>append only, hash chained"]
+    AE --> LE["Endpoint gateway's audit chain: append only, hash chained"]
     GE --> LE
 ```
 
