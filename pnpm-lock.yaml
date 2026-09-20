@@ -181,17 +181,53 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.3.273
         version: 0.3.273(@anthropic-ai/sdk@0.125.0(zod@4.6.5))(@modelcontextprotocol/sdk@1.30.0(zod@4.6.5))(zod@4.6.5)
+      '@anthropic-ai/sdk':
+        specifier: ^0.125.0
+        version: 0.125.0(zod@4.6.5)
       '@helpdesk/audit-core':
         specifier: workspace:*
         version: link:../audit
       '@helpdesk/identity-gateway':
         specifier: workspace:*
         version: link:../identity-gateway
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.30.0
+        version: 1.30.0(zod@4.6.5)
       zod:
         specifier: ^4.6.5
         version: 4.6.5
 
   packages/audit: {}
+
+  packages/endpoint-gateway:
+    dependencies:
+      '@helpdesk/audit-core':
+        specifier: workspace:*
+        version: link:../audit
+      '@helpdesk/gateway-core':
+        specifier: workspace:*
+        version: link:../gateway-core
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.30.0
+        version: 1.30.0(zod@4.6.5)
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+
+  packages/gateway-core:
+    dependencies:
+      '@helpdesk/audit-core':
+        specifier: workspace:*
+        version: link:../audit
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.30.0
+        version: 1.30.0(zod@4.6.5)
+      vitest:
+        specifier: ^4.0.0
+        version: 4.1.11(@types/node@22.20.2)(vite@8.3.0(@types/node@22.20.2))
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/identity-gateway:
     dependencies:
@@ -201,6 +237,24 @@ importers:
       '@helpdesk/audit-core':
         specifier: workspace:*
         version: link:../audit
+      '@helpdesk/gateway-core':
+        specifier: workspace:*
+        version: link:../gateway-core
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.30.0
+        version: 1.30.0(zod@4.6.5)
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+
+  packages/knowledge-gateway:
+    dependencies:
+      '@helpdesk/audit-core':
+        specifier: workspace:*
+        version: link:../audit
+      '@helpdesk/gateway-core':
+        specifier: workspace:*
+        version: link:../gateway-core
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
         version: 1.30.0(zod@4.6.5)
@@ -213,6 +267,9 @@ importers:
       '@helpdesk/audit-core':
         specifier: workspace:*
         version: link:../audit
+      '@helpdesk/gateway-core':
+        specifier: workspace:*
+        version: link:../gateway-core
       '@helpdesk/identity-gateway':
         specifier: workspace:*
         version: link:../identity-gateway
@@ -228,6 +285,12 @@ importers:
       '@helpdesk/agent':
         specifier: workspace:*
         version: link:../agent
+      '@helpdesk/audit-core':
+        specifier: workspace:*
+        version: link:../audit
+      '@helpdesk/gateway-core':
+        specifier: workspace:*
+        version: link:../gateway-core
       '@helpdesk/identity-gateway':
         specifier: workspace:*
         version: link:../identity-gateway

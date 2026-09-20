@@ -40,6 +40,7 @@ import { z } from "zod";
 import { CertificateCredential } from "@helpdesk/identity-gateway";
 
 import { ensureEnvLoaded } from "./env.js";
+import { DEFAULT_AGENT_MODEL } from "./models.js";
 import { SessionAudit } from "./session-audit.js";
 
 const GATEWAY_SERVER_NAME = "mdm-gateway";
@@ -140,6 +141,7 @@ export async function runMdmAgent(options: MdmAgentOptions): Promise<MdmAgentRes
   const stream = runQuery({
     prompt: options.requestText,
     options: {
+      model: process.env.HELPDESK_AGENT_MODEL ?? DEFAULT_AGENT_MODEL,
       systemPrompt: SYSTEM_PROMPT,
       mcpServers,
       tools: [],
@@ -151,20 +153,31 @@ export async function runMdmAgent(options: MdmAgentOptions): Promise<MdmAgentRes
 
   let toolWasCalled = false;
   let reply = "";
+  let modelUsage: Record<string, { inputTokens: number; outputTokens: number }> = {};
   for await (const message of stream) {
     if (message.type === "assistant" && message.message.content.some((block) => block.type === "tool_use")) {
       toolWasCalled = true;
     }
-    if (message.type === "result" && message.subtype === "success") {
-      reply = message.result;
+    if (message.type === "result") {
+      // The SDK's own type has modelUsage as required, but this is a fake-able external
+      // boundary (an older SDK version, or a test double built before this field existed): a
+      // missing usage report should mean "record nothing", never a crash.
+      modelUsage = message.modelUsage ?? {};
+      if (message.subtype === "success") reply = message.result;
     }
   }
 
+  // Usage is a property of the model turn, not of whether it called a tool, so it is recorded
+  // every time — unlike no_tool_called, which only applies when nothing else already covers the
+  // outcome (see identity-agent.ts for the same reasoning, not repeated per file on purpose).
+  const closing = new SessionAudit(dbPath);
   if (!toolWasCalled) {
-    const closing = new SessionAudit(dbPath);
     closing.append({ requestId, actor: options.actor, agent: "mdm-agent", decision: "no_tool_called", content: reply });
-    closing.close();
   }
+  for (const [model, usage] of Object.entries(modelUsage)) {
+    closing.appendUsage({ requestId, actor: options.actor, agent: "mdm-agent", model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens });
+  }
+  closing.close();
 
   return { requestId, toolWasCalled, reply };
 }

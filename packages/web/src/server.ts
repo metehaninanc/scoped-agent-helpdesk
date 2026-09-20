@@ -5,15 +5,21 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
-import type { ApprovalDecisionInput, ApprovalRecord } from "@helpdesk/identity-gateway";
+import type { ApprovalDecisionInput, ApprovalRecord } from "@helpdesk/gateway-core";
 
 import { decideApproval, renderApprovalDetail, renderApprovalsList, type DecideDeps } from "./approvals-page.js";
+import type { DashboardData } from "./dashboard-metrics.js";
+import { renderDashboard } from "./dashboard-page.js";
 import { page } from "./html.js";
 import { renderRequestForm, submitRequest, type SubmitRequestDeps } from "./request-page.js";
 
 export interface WebDeps extends SubmitRequestDeps, DecideDeps {
   listPendingApprovals: () => ApprovalRecord[];
   getApproval: (id: string) => ApprovalRecord | null;
+  /** Re-reads and re-verifies all five chains and recomputes every number — see
+   * dashboard-metrics.ts's header comment for why this is called fresh on every request rather
+   * than cached. */
+  getDashboardData: () => DashboardData;
 }
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -66,6 +72,11 @@ async function handle(req: IncomingMessage, res: ServerResponse, deps: WebDeps):
 
   if (method === "GET" && url.pathname === "/approvals") {
     send(res, 200, page("Approvals", renderApprovalsList(deps.listPendingApprovals())));
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/dashboard") {
+    send(res, 200, page("Dashboard", renderDashboard(deps.getDashboardData())));
     return;
   }
 

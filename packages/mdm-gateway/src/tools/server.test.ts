@@ -3,11 +3,14 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuditLog } from "@helpdesk/audit-core";
-import { openDatabase } from "@helpdesk/identity-gateway";
+import { openDatabase } from "@helpdesk/gateway-core";
 
 import { Rule, type PolicyConfig } from "../policy/types.js";
 import type { GatewayDeps } from "./handler.js";
-import { GATEWAY_NAME, createGatewayServer, sessionFromExtra, type ToolCallExtra } from "./server.js";
+import { GATEWAY_NAME, createGatewayServer } from "./server.js";
+
+// sessionFromExtra() itself is generic MCP wiring, tested once in @helpdesk/gateway-core
+// (SPRINT3.md, 3.2); this file tests only what is this gateway's own.
 
 const DEVICE = "11111111-1111-4111-8111-111111111111";
 const config: PolicyConfig = {};
@@ -16,24 +19,6 @@ const textOf = (result: Awaited<ReturnType<Client["callTool"]>>): Record<string,
   const [first] = result.content as { type: string; text: string }[];
   return JSON.parse(first!.text) as Record<string, unknown>;
 };
-
-describe("sessionFromExtra()", () => {
-  const extra = (over: Partial<ToolCallExtra>): ToolCallExtra => ({ signal: new AbortController().signal, ...over }) as ToolCallExtra;
-
-  it("takes the agent identity from the validated token's client id, never a header", () => {
-    const session = sessionFromExtra(
-      extra({
-        authInfo: { token: "x", clientId: "33333333-3333-4333-8333-333333333333", scopes: ["Gateway.Invoke"] },
-        requestInfo: { headers: { "x-actor": "alice@contoso.com", "x-request-id": "req-1" } },
-      }),
-    );
-    expect(session).toEqual({ actor: "alice@contoso.com", agent: "33333333-3333-4333-8333-333333333333", requestId: "req-1" });
-  });
-
-  it("falls back to a placeholder when authInfo or requestInfo is absent, rather than throwing", () => {
-    expect(sessionFromExtra(extra({}))).toEqual({ actor: "unknown", agent: "unknown", requestId: "unknown" });
-  });
-});
 
 describe("MDM gateway MCP server", () => {
   let audit: AuditLog;

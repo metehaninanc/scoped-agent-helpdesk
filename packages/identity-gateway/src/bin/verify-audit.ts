@@ -10,7 +10,7 @@ import { resolve } from "node:path";
 
 import { AuditLog } from "@helpdesk/audit-core";
 
-import { openDatabase } from "../db.js";
+import { openDatabase } from "@helpdesk/gateway-core";
 
 const path = resolve(process.argv[2] ?? "data/identity-helpdesk.db");
 

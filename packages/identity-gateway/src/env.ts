@@ -1,32 +1,22 @@
 /**
- * Gateway environment. This is the only place in the repo that reads the certificate path.
- * SPRINT1.md: "Never let the agent package read the certificate path from the environment.
- * If that import becomes convenient, the architecture has drifted."
+ * This gateway's own environment. This is the only place in the repo that reads its
+ * certificate path. SPRINT1.md: "Never let the agent package read the certificate path from the
+ * environment. If that import becomes convenient, the architecture has drifted."
  *
- * Loading order: real environment variables win, then `.env` fills the gaps. That is
- * process.loadEnvFile()'s own rule, and it is what lets a one-off override such as
- * `AZURE_IDENTITY_CERT_PATH=... node ...` work without editing the file.
- *
- * Two app registrations, two certificates, one shared tenant (SPRINT2.md, Stage A): the
- * `AZURE_TENANT_ID` variable stays shared, one directory, but the client id, cert path and
- * thumbprint are gateway-scoped (`_IDENTITY_` / `_MDM_`) so that reading the wrong one is a
- * typo caught by a missing variable, not a silent cross-wire between two credentials that are
- * deliberately supposed to be separate identities.
- *
- * Stage B adds each gateway's own Application ID URI (`IDENTITY_GATEWAY_AUDIENCE` /
- * `MDM_GATEWAY_AUDIENCE`), the value a bearer token's `aud` claim must equal before this
- * gateway will honour it. This file does not read either agent's own certificate: a gateway
- * validates tokens against Entra's public keys, it does not mint one for itself, so it never
- * needs an agent's private key. Agent credentials live in the agent package's own env module.
+ * SPRINT3.md, 3.2: before this phase, one schema here also declared the MDM gateway's own
+ * `AZURE_MDM_*` fields and `MDM_GATEWAY_AUDIENCE`, so that the MDM gateway could import this same
+ * schema rather than write its own. That does not survive a third gateway with different fields
+ * again (a credential-less one, from 3.3, has none of these at all) — see
+ * @helpdesk/gateway-core's env.ts for the generic find/load/validate mechanics this file now
+ * uses. What is left here is only what this gateway itself needs: `AZURE_TENANT_ID` is the one
+ * field every gateway on this tenant happens to share, not a reason to share the whole schema.
  */
-import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
+
+import { loadEnv, optionalString, type LoadEnvOptions } from "@helpdesk/gateway-core";
 
 const guid = z.guid();
 const thumbprint = z.string().regex(/^[0-9a-f]{40}$/i, "must be a 40-character hex SHA-1 thumbprint");
-/** `.env` lines like `X=` arrive as empty strings; treat those as unset. */
-const optionalString = z.preprocess((v) => (v === "" ? undefined : v), z.string().optional());
 
 export const gatewayEnvSchema = z.object({
   AZURE_TENANT_ID: guid,
@@ -35,15 +25,8 @@ export const gatewayEnvSchema = z.object({
   AZURE_IDENTITY_CERT_PATH: z.string().min(1),
   /** SHA-1 thumbprint, 40 hex characters, as the portal shows it. */
   AZURE_IDENTITY_CERT_THUMBPRINT: thumbprint,
-  AZURE_MDM_CLIENT_ID: guid,
-  /** Path to the PEM private key. Lives outside the repo. */
-  AZURE_MDM_CERT_PATH: z.string().min(1),
-  /** SHA-1 thumbprint, 40 hex characters, as the portal shows it. */
-  AZURE_MDM_CERT_THUMBPRINT: thumbprint,
-  /** The identity gateway's own Application ID URI, e.g. api://helpdesk-identity-gateway. */
+  /** This gateway's own Application ID URI, e.g. api://helpdesk-identity-gateway. */
   IDENTITY_GATEWAY_AUDIENCE: z.string().min(1),
-  /** The MDM gateway's own Application ID URI, e.g. api://helpdesk-mdm-gateway. */
-  MDM_GATEWAY_AUDIENCE: z.string().min(1),
   /** Optional. SQLite file for the audit log and approvals. Default: data/identity-helpdesk.db. */
   HELPDESK_DB_PATH: optionalString,
   /**
@@ -57,33 +40,7 @@ export const gatewayEnvSchema = z.object({
 
 export type GatewayEnv = z.infer<typeof gatewayEnvSchema>;
 
-/** Walk up from `start` looking for a `.env`. Returns undefined if none is found. */
-export function findEnvFile(start: string = process.cwd()): string | undefined {
-  let dir = resolve(start);
-  for (;;) {
-    const candidate = join(dir, ".env");
-    if (existsSync(candidate)) return candidate;
-    const parent = dirname(dir);
-    if (parent === dir) return undefined;
-    dir = parent;
-  }
-}
-
-export interface LoadEnvOptions {
-  /** Explicit `.env` path. Default: the nearest `.env` above the working directory, if any. */
-  envFile?: string;
-  /** Source of variables, for tests. Default: process.env after loading the file. */
-  env?: NodeJS.ProcessEnv;
-}
-
 export function loadGatewayEnv(options: LoadEnvOptions = {}): GatewayEnv {
-  if (options.env === undefined) {
-    const file = options.envFile ?? findEnvFile();
-    if (file !== undefined) process.loadEnvFile(file);
-  }
-  const parsed = gatewayEnvSchema.safeParse(options.env ?? process.env);
-  if (!parsed.success) {
-    throw new Error(`Gateway environment is incomplete or malformed:\n${z.prettifyError(parsed.error)}`);
-  }
-  return parsed.data;
+  return loadEnv(gatewayEnvSchema, options);
 }
+

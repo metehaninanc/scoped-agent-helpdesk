@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuditLog } from "@helpdesk/audit-core";
+
 import { openDatabase } from "../db.js";
-import { GraphError, type AddMemberResult } from "../graph/client.js";
 import { ApprovalStore, type ApprovalRecord } from "./store.js";
-import { APPROVER_AGENT, ApprovalError, ApprovalWorkflow, DENY_SELF_APPROVAL } from "./workflow.js";
+import { APPROVER_AGENT, ApprovalError, ApprovalWorkflow, DENY_SELF_APPROVAL, type ExecutionOutcome } from "./workflow.js";
 
 const MARKETING = "20a26e53-1cbd-48e3-8cc4-8d86cece7a6a";
 const ALICE = "alice@contoso.com";
@@ -14,8 +14,7 @@ const APPROVER = "it.manager@contoso.com";
 describe("ApprovalWorkflow", () => {
   let audit: AuditLog;
   let approvals: ApprovalStore;
-  let addUserToGroup: ReturnType<typeof vi.fn<(upn: string, groupId: string) => Promise<AddMemberResult>>>;
-  let removeUserFromGroup: ReturnType<typeof vi.fn<(upn: string, groupId: string) => Promise<void>>>;
+  let execute: ReturnType<typeof vi.fn<(approval: ApprovalRecord) => Promise<ExecutionOutcome>>>;
   let workflow: ApprovalWorkflow;
   let pending: ApprovalRecord;
 
@@ -25,9 +24,8 @@ describe("ApprovalWorkflow", () => {
     const now = () => new Date((t += 1000));
     audit = new AuditLog(db, { now });
     approvals = new ApprovalStore(db, { now });
-    addUserToGroup = vi.fn<(upn: string, groupId: string) => Promise<AddMemberResult>>(async () => ({ alreadyMember: false }));
-    removeUserFromGroup = vi.fn<(upn: string, groupId: string) => Promise<void>>(async () => undefined);
-    workflow = new ApprovalWorkflow({ approvals, audit, graph: { addUserToGroup, removeUserFromGroup } });
+    execute = vi.fn<(approval: ApprovalRecord) => Promise<ExecutionOutcome>>(async () => ({ status: "executed" }));
+    workflow = new ApprovalWorkflow({ approvals, audit, execute });
 
     pending = approvals.create({
       requestId: "req-1",
@@ -46,11 +44,11 @@ describe("ApprovalWorkflow", () => {
   // -------------------------------------------------------------------------
 
   describe("approve", () => {
-    it("audits the verdict, records it, executes the change, and audits the result, in that order", async () => {
+    it("audits the verdict, records it, calls execute() with the decided record, and audits the result, in that order", async () => {
       const seen: { auditKinds: string[]; status: string | undefined }[] = [];
-      addUserToGroup.mockImplementation(async () => {
-        seen.push({ auditKinds: audit.list().map((r) => r.decision), status: approvals.get(pending.id)?.status });
-        return { alreadyMember: false };
+      execute.mockImplementation(async (approval) => {
+        seen.push({ auditKinds: audit.list().map((r) => r.decision), status: approvals.get(approval.id)?.status });
+        return { status: "executed" };
       });
 
       const outcome = await workflow.decide({
@@ -60,12 +58,12 @@ describe("ApprovalWorkflow", () => {
         note: "Confirmed with the team lead.",
       });
 
-      // When Graph ran, the verdict was already on disk in both places.
+      // When execute() ran, the verdict was already on disk in both places.
       expect(seen).toEqual([{ auditKinds: ["approved"], status: "approved" }]);
-      expect(addUserToGroup).toHaveBeenCalledWith(ALICE, MARKETING);
+      expect(execute).toHaveBeenCalledWith(expect.objectContaining({ id: pending.id, status: "approved" }));
 
       expect(outcome.approval).toMatchObject({ status: "approved", decidedBy: APPROVER, decisionNote: "Confirmed with the team lead." });
-      expect(outcome.execution).toEqual({ status: "executed", alreadyMember: false });
+      expect(outcome.execution).toEqual({ status: "executed" });
 
       const records = audit.list();
       expect(records).toHaveLength(2);
@@ -83,61 +81,46 @@ describe("ApprovalWorkflow", () => {
         requestId: "req-1",
         actor: APPROVER,
         decision: "approved",
-        result: { approvalId: pending.id, status: "executed", alreadyMember: false },
+        result: { approvalId: pending.id, status: "executed" },
       });
     });
 
-    it("keeps the approval approved and records the failure when Graph fails", async () => {
-      addUserToGroup.mockRejectedValue(new GraphError(404, "Request_ResourceNotFound", "Resource does not exist.", "req-x"));
-
-      const outcome = await workflow.decide({ approvalId: pending.id, decidedBy: APPROVER, decision: "approved", note: "ok" });
-
-      expect(outcome.approval.status).toBe("approved");
-      expect(outcome.execution).toMatchObject({ status: "error", code: "Request_ResourceNotFound" });
-      expect(audit.list()[1]).toMatchObject({
-        decision: "approved",
-        result: { approvalId: pending.id, status: "error", code: "Request_ResourceNotFound", requestId: "req-x" },
-      });
-    });
-
-    it("reports an already-member outcome as executed", async () => {
-      addUserToGroup.mockResolvedValue({ alreadyMember: true });
+    it("reports whatever execute() returns, unchanged", async () => {
+      execute.mockResolvedValue({ status: "executed", alreadyMember: true });
       const outcome = await workflow.decide({ approvalId: pending.id, decidedBy: APPROVER, decision: "approved", note: "ok" });
       expect(outcome.execution).toEqual({ status: "executed", alreadyMember: true });
     });
-  });
 
-  describe("approve: remove_user_from_group", () => {
-    beforeEach(() => {
-      pending = approvals.create({
-        requestId: "req-2",
-        actor: REQUESTER,
-        tool: "remove_user_from_group",
-        params: { userPrincipalName: ALICE, groupId: MARKETING },
-        rules: ["approval.remove_user_from_group"],
-      });
-    });
-
-    it("calls removeUserFromGroup, not addUserToGroup, and reports executed with no alreadyMember field", async () => {
-      const outcome = await workflow.decide({ approvalId: pending.id, decidedBy: APPROVER, decision: "approved", note: "ok" });
-
-      expect(removeUserFromGroup).toHaveBeenCalledWith(ALICE, MARKETING);
-      expect(addUserToGroup).not.toHaveBeenCalled();
-      expect(outcome.execution).toEqual({ status: "executed" });
-    });
-
-    it("keeps the approval approved and records the failure when Graph fails", async () => {
-      removeUserFromGroup.mockRejectedValue(new GraphError(404, "Request_ResourceNotFound", "Resource does not exist.", "req-x"));
+    it("keeps the approval approved and records the failure when execute() rejects", async () => {
+      execute.mockRejectedValue(new Error("Resource does not exist."));
 
       const outcome = await workflow.decide({ approvalId: pending.id, decidedBy: APPROVER, decision: "approved", note: "ok" });
 
       expect(outcome.approval.status).toBe("approved");
-      expect(outcome.execution).toMatchObject({ status: "error", code: "Request_ResourceNotFound" });
+      expect(outcome.execution).toMatchObject({ status: "error", code: "unknown", message: "Resource does not exist." });
+      expect(audit.list()[1]).toMatchObject({
+        decision: "approved",
+        result: { approvalId: pending.id, status: "error", code: "unknown", message: "Resource does not exist." },
+      });
+    });
+
+    it("uses a supplied describeError to shape a thrown execute() error, instead of the default", async () => {
+      execute.mockRejectedValue({ status: 404, code: "Request_ResourceNotFound" });
+      const describeError = vi.fn((error: unknown) => {
+        const e = error as { status: number; code: string };
+        return { status: "error" as const, code: e.code, message: "Resource does not exist.", requestId: "req-x" };
+      });
+      const custom = new ApprovalWorkflow({ approvals, audit, execute, describeError });
+
+      const outcome = await custom.decide({ approvalId: pending.id, decidedBy: APPROVER, decision: "approved", note: "ok" });
+
+      expect(describeError).toHaveBeenCalledWith({ status: 404, code: "Request_ResourceNotFound" });
+      expect(outcome.execution).toEqual({ status: "error", code: "Request_ResourceNotFound", message: "Resource does not exist.", requestId: "req-x" });
     });
   });
 
   describe("reject", () => {
-    it("audits and records the verdict and calls nothing", async () => {
+    it("audits and records the verdict and calls execute() with nothing", async () => {
       const outcome = await workflow.decide({
         approvalId: pending.id,
         decidedBy: APPROVER,
@@ -147,7 +130,7 @@ describe("ApprovalWorkflow", () => {
 
       expect(outcome.approval).toMatchObject({ status: "rejected", decidedBy: APPROVER, decisionNote: "Not justified by role." });
       expect(outcome.execution).toBeNull();
-      expect(addUserToGroup).not.toHaveBeenCalled();
+      expect(execute).not.toHaveBeenCalled();
       expect(audit.list()).toHaveLength(1);
       expect(audit.list()[0]).toMatchObject({ decision: "rejected", actor: APPROVER, result: { approvalId: pending.id } });
     });
@@ -164,7 +147,7 @@ describe("ApprovalWorkflow", () => {
       expect(failure).toBeInstanceOf(ApprovalError);
       expect((failure as ApprovalError).code).toBe("self_approval");
       expect(approvals.get(pending.id)?.status).toBe("pending");
-      expect(addUserToGroup).not.toHaveBeenCalled();
+      expect(execute).not.toHaveBeenCalled();
     });
 
     it("leaves evidence of the attempt", async () => {
@@ -202,7 +185,7 @@ describe("ApprovalWorkflow", () => {
       expect((failure as ApprovalError).code).toBe("note_required");
       expect(approvals.get(pending.id)?.status).toBe("pending");
       expect(audit.list()).toEqual([]);
-      expect(addUserToGroup).not.toHaveBeenCalled();
+      expect(execute).not.toHaveBeenCalled();
     });
 
     it("stores the note trimmed", async () => {
@@ -233,7 +216,7 @@ describe("ApprovalWorkflow", () => {
         workflow.decide({ approvalId: pending.id, decidedBy: "other@contoso.com", decision: "approved", note: "yes" }),
       ).rejects.toMatchObject({ code: "not_pending" });
       expect(audit.list()).toHaveLength(before);
-      expect(addUserToGroup).not.toHaveBeenCalled();
+      expect(execute).not.toHaveBeenCalled();
     });
 
     it("rejects a decision value that is neither approved nor rejected", async () => {
@@ -243,7 +226,7 @@ describe("ApprovalWorkflow", () => {
     });
   });
 
-  it("does not touch the record or Graph if the audit record cannot be written", async () => {
+  it("does not touch the record or call execute() if the audit record cannot be written", async () => {
     const broken = new ApprovalWorkflow({
       approvals,
       audit: {
@@ -251,13 +234,13 @@ describe("ApprovalWorkflow", () => {
           throw new Error("disk full");
         },
       },
-      graph: { addUserToGroup, removeUserFromGroup },
+      execute,
     });
 
     await expect(broken.decide({ approvalId: pending.id, decidedBy: APPROVER, decision: "approved", note: "ok" })).rejects.toThrow(
       "disk full",
     );
     expect(approvals.get(pending.id)?.status).toBe("pending");
-    expect(addUserToGroup).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
   });
 });

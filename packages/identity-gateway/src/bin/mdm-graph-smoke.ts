@@ -10,6 +10,8 @@
  */
 import { readFileSync } from "node:fs";
 
+import { z } from "zod";
+
 import { loadGatewayEnv } from "../env.js";
 import { CertificateCredential, TokenError } from "../graph/certificate-credential.js";
 import { decodeJwtClaims } from "../graph/jwt.js";
@@ -17,18 +19,29 @@ import { decodeJwtClaims } from "../graph/jwt.js";
 const GRAPH = "https://graph.microsoft.com";
 const EXPECTED_ROLES = ["Device.Read.All"];
 
+/** SPRINT3.md, 3.2: the MDM gateway's own credential belongs to its own env.ts, not to
+ * loadGatewayEnv() (the identity gateway's own). This diagnostic lives here anyway (Graph
+ * plumbing is identity-gateway's package), so it reads the MDM gateway's fields directly rather
+ * than importing @helpdesk/mdm-gateway, which would be a circular dependency. */
+const mdmGatewayCredentialEnv = z.object({
+  AZURE_MDM_CLIENT_ID: z.guid(),
+  AZURE_MDM_CERT_PATH: z.string().min(1),
+  AZURE_MDM_CERT_THUMBPRINT: z.string().regex(/^[0-9a-f]{40}$/i),
+});
+
 async function main(): Promise<void> {
   const env = loadGatewayEnv();
+  const mdmEnv = mdmGatewayCredentialEnv.parse(process.env);
   console.log(`tenant     ${env.AZURE_TENANT_ID}`);
-  console.log(`client     ${env.AZURE_MDM_CLIENT_ID}`);
-  console.log(`thumbprint ${env.AZURE_MDM_CERT_THUMBPRINT}`);
-  console.log(`key file   ${env.AZURE_MDM_CERT_PATH}`);
+  console.log(`client     ${mdmEnv.AZURE_MDM_CLIENT_ID}`);
+  console.log(`thumbprint ${mdmEnv.AZURE_MDM_CERT_THUMBPRINT}`);
+  console.log(`key file   ${mdmEnv.AZURE_MDM_CERT_PATH}`);
 
   const credential = new CertificateCredential({
     tenantId: env.AZURE_TENANT_ID,
-    clientId: env.AZURE_MDM_CLIENT_ID,
-    thumbprint: env.AZURE_MDM_CERT_THUMBPRINT,
-    privateKeyPem: readFileSync(env.AZURE_MDM_CERT_PATH),
+    clientId: mdmEnv.AZURE_MDM_CLIENT_ID,
+    thumbprint: mdmEnv.AZURE_MDM_CERT_THUMBPRINT,
+    privateKeyPem: readFileSync(mdmEnv.AZURE_MDM_CERT_PATH),
   });
 
   const { token, expiresAt } = await credential.getToken(`${GRAPH}/.default`);

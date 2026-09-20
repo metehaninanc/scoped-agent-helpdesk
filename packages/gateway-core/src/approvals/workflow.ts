@@ -1,5 +1,10 @@
 /**
- * The approver's decision path. SPRINT1.md, Component 4 and Component 6:
+ * The approver's decision path. Originally SPRINT1.md, Component 4 and Component 6, built inside
+ * the identity gateway with a private, Graph-shaped `execute()`; moved here in SPRINT3.md, 3.4 and
+ * generalized the same way `runToolCall()` already was in 3.2 — `execute` is now a callback each
+ * gateway supplies for its own backend, not a hardcoded `addUserToGroup`/`removeUserFromGroup`
+ * dispatch. The identity gateway's own execute callback (graph/execute.ts) reproduces its
+ * original behavior exactly; nothing about what it does changed, only where the dispatch lives.
  *
  *   - the decision note is required on both approve and reject
  *   - reject any decision where decidedBy equals actor (server side; "one line" that is a real
@@ -10,14 +15,13 @@
  *   1. validate the input; nothing is written for a malformed request
  *   2. audit the verdict (actor = the approver)
  *   3. record the verdict on the approval (decided at most once, enforced by the store)
- *   4. approved only: call Graph, then audit the result
+ *   4. approved only: call this gateway's own execute(), then audit the result
  *
  * A self-approval attempt is refused at step 1 but still audited, as a denial: someone trying
  * to approve their own request is exactly the kind of thing the log exists to show.
  */
 import type { AuditInput, AuditRecord } from "@helpdesk/audit-core";
-import { GraphError, type AddMemberResult } from "../graph/client.js";
-import { userPrincipalName } from "../policy/schemas.js";
+import { userPrincipalName } from "../upn.js";
 import type { ApprovalRecord, ApprovalStore } from "./store.js";
 
 /** The `agent` recorded on audit records written on behalf of a human approver. */
@@ -63,11 +67,18 @@ export interface ApprovalOutcome {
 export interface ApprovalWorkflowDeps {
   approvals: Pick<ApprovalStore, "get" | "recordVerdict">;
   audit: { append(input: AuditInput): AuditRecord };
-  graph: {
-    addUserToGroup(userPrincipalName: string, groupId: string): Promise<AddMemberResult>;
-    removeUserFromGroup(userPrincipalName: string, groupId: string): Promise<void>;
-  };
+  /** Performs the approved action against this gateway's own backend. May throw; a throw is
+   * converted via describeError, mirroring runToolCall()'s own execute/describeError pairing. */
+  execute: (approval: ApprovalRecord) => Promise<ExecutionOutcome>;
+  /** Default: `{ status: "error", code: "unknown", message: <the thrown error's message> }`. */
+  describeError?: (error: unknown) => ExecutionOutcome;
 }
+
+const defaultDescribeError = (error: unknown): ExecutionOutcome => ({
+  status: "error",
+  code: "unknown",
+  message: error instanceof Error ? error.message : String(error),
+});
 
 const sameUser = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 
@@ -135,29 +146,10 @@ export class ApprovalWorkflow {
   }
 
   private async execute(approval: ApprovalRecord): Promise<ExecutionOutcome> {
-    const params = approval.params as { userPrincipalName?: unknown; groupId?: unknown };
-    if (
-      (approval.tool !== "add_user_to_group" && approval.tool !== "remove_user_from_group") ||
-      typeof params.userPrincipalName !== "string" ||
-      typeof params.groupId !== "string"
-    ) {
-      return { status: "error", code: "unsupported_tool", message: `cannot execute ${approval.tool}` };
-    }
     try {
-      if (approval.tool === "add_user_to_group") {
-        const { alreadyMember } = await this.deps.graph.addUserToGroup(params.userPrincipalName, params.groupId);
-        return { status: "executed", alreadyMember };
-      }
-      await this.deps.graph.removeUserFromGroup(params.userPrincipalName, params.groupId);
-      return { status: "executed" };
+      return await this.deps.execute(approval);
     } catch (error) {
-      if (error instanceof GraphError) {
-        const message = error.message.replace(/^Graph \d+ \S+: /, "");
-        return error.requestId === undefined
-          ? { status: "error", code: error.code, message }
-          : { status: "error", code: error.code, message, requestId: error.requestId };
-      }
-      return { status: "error", code: "unknown", message: error instanceof Error ? error.message : String(error) };
+      return (this.deps.describeError ?? defaultDescribeError)(error);
     }
   }
 }

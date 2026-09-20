@@ -12,6 +12,14 @@
  *                               result = the text it returned, verbatim
  *   approved, rejected          a human approver's verdict; actor is the approver. A second
  *                               approved record with a non-null result marks execution
+ *   routed                      the orchestration layer dispatched a request to an agent, after
+ *                               triage classified it (SPRINT3.md, 3.1). tool is null; parameters
+ *                               carries the request text and the chosen category, result names
+ *                               the agent invoked. Written to the orchestrator's own chain, never
+ *                               to the invoked agent's
+ *   model_usage                 token usage for one model call: an agent's own turn, a rationale
+ *                               generation, or a triage classification. Never a decision.
+ *                               parameters is null, result = { model, inputTokens, outputTokens }
  */
 export const AUDIT_DECISIONS = [
   "request",
@@ -22,6 +30,8 @@ export const AUDIT_DECISIONS = [
   "rationale",
   "approved",
   "rejected",
+  "routed",
+  "model_usage",
 ] as const;
 export type AuditDecision = (typeof AUDIT_DECISIONS)[number];
 

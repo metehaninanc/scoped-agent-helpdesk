@@ -19,8 +19,14 @@
  * does not reopen anything.
  *
  * The identity comes from the validated token's own client id and from headers the agent
- * process sets, exactly as documented in tools/server.ts's sessionFromExtra() — never from
- * anything in the JSON-RPC body, which this file never parses at all.
+ * process sets, exactly as documented in session.ts's sessionFromExtra() — never from anything
+ * in the JSON-RPC body, which this file never parses at all.
+ *
+ * SPRINT3.md, 3.2: before this phase, the MDM gateway ran this same file by importing it from
+ * the identity gateway package, which meant its own 401/400 refusals were logged under the
+ * identity gateway's `[gateway]` prefix — a real, if harmless, misattribution. `log` is now an
+ * injected dependency (default: a neutral core logger) so each gateway can pass its own, the
+ * same way it already supplies its own `validator` and `audit`.
  */
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -29,8 +35,10 @@ import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 
 import type { AuditInput, AuditRecord } from "@helpdesk/audit-core";
 
-import type { TokenValidator } from "../auth/verify-token.js";
-import { log } from "../log.js";
+import type { TokenValidator } from "./auth/verify-token.js";
+import { createLogger, type Logger } from "./log.js";
+
+const defaultLog = createLogger("gateway-core");
 
 export interface RequestTransport {
   handleRequest(req: IncomingMessage & { auth?: AuthInfo }, res: ServerResponse): Promise<void>;
@@ -43,6 +51,8 @@ export interface HttpGatewayDeps {
   audit: { append(input: AuditInput): AuditRecord };
   /** The path the MCP endpoint is served on. Default: "/mcp". */
   path?: string;
+  /** Injectable so a refusal logs under this gateway's own prefix. Default: a neutral one. */
+  log?: Logger;
 }
 
 function firstHeader(value: string | string[] | undefined): string | undefined {
@@ -52,6 +62,7 @@ function firstHeader(value: string | string[] | undefined): string | undefined {
 /** A request listener for node:http's createServer(), auditing every refusal before it happens. */
 export function createRequestListener(deps: HttpGatewayDeps): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   const path = deps.path ?? "/mcp";
+  const log = deps.log ?? defaultLog;
 
   return async (req, res) => {
     if (req.url !== path) {

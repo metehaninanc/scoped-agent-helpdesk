@@ -4,8 +4,13 @@
  * parameter through every layer from day one."
  *
  * submitRequest() is the whole business logic, independent of HTTP: given an identity and a
- * request, it runs the identity agent and reports what happened. The actor is never taken
- * from anything but this explicit field.
+ * request, it routes the request (SPRINT3.md, 3.1: triage decides which agent, if any, handles
+ * it) and reports what happened. The actor is never taken from anything but this explicit field.
+ *
+ * RouteResult mirrors @helpdesk/agent's RouteRequestResult structurally rather than importing
+ * it, the same deliberate decoupling this file already used for the single-agent result before
+ * triage existed: this file needs a duck-typed shape, not a compile-time dependency on the
+ * orchestrator's own types.
  */
 import { escapeHtml } from "./html.js";
 
@@ -14,20 +19,24 @@ export interface SubmitRequestInput {
   requestText: string;
 }
 
-export interface AgentRunResult {
-  requestId: string;
-  toolWasCalled: boolean;
-  reply: string;
-}
+export type RouteResult =
+  | {
+      status: "routed";
+      category: "identity" | "mdm" | "knowledge" | "endpoint";
+      agent: string;
+      requestId: string;
+      toolWasCalled: boolean;
+      reply: string;
+      note?: string;
+    }
+  | { status: "unsupported"; requestId: string; message: string; note?: string }
+  | { status: "triage_failed"; requestId: string; message: string };
 
 export interface SubmitRequestDeps {
-  runIdentityAgent: (input: SubmitRequestInput) => Promise<AgentRunResult>;
+  routeRequest: (input: SubmitRequestInput) => Promise<RouteResult>;
 }
 
-export type SubmitRequestResult =
-  | ({ status: "ok" } & AgentRunResult)
-  | { status: "invalid"; message: string }
-  | { status: "error"; message: string };
+export type SubmitRequestResult = RouteResult | { status: "invalid"; message: string } | { status: "error"; message: string };
 
 export async function submitRequest(input: SubmitRequestInput, deps: SubmitRequestDeps): Promise<SubmitRequestResult> {
   const actor = input.actor.trim();
@@ -37,8 +46,7 @@ export async function submitRequest(input: SubmitRequestInput, deps: SubmitReque
   if (requestText.length === 0) return { status: "invalid", message: "Enter a request." };
 
   try {
-    const result = await deps.runIdentityAgent({ actor, requestText });
-    return { status: "ok", ...result };
+    return await deps.routeRequest({ actor, requestText });
   } catch (error) {
     return { status: "error", message: error instanceof Error ? error.message : String(error) };
   }
@@ -49,14 +57,37 @@ function renderResult(result: SubmitRequestResult): string {
     case "invalid":
     case "error":
       return `<p class="error">${escapeHtml(result.message)}</p>`;
-    case "ok":
+    case "triage_failed":
+      return `
+        <div class="error">
+          <p><strong>Request id:</strong> <span class="status">${escapeHtml(result.requestId)}</span></p>
+          <p>${escapeHtml(result.message)}</p>
+        </div>`;
+    case "unsupported":
+      return `
+        <div class="info">
+          <p><strong>Request id:</strong> <span class="status">${escapeHtml(result.requestId)}</span></p>
+          <p>${escapeHtml(result.message)}</p>
+          ${renderNote(result.note)}
+        </div>`;
+    case "routed":
       return `
         <div class="ok">
           <p><strong>Request id:</strong> <span class="status">${escapeHtml(result.requestId)}</span></p>
+          <p><strong>Handled by:</strong> ${escapeHtml(result.agent)}</p>
           <p><strong>A tool was called:</strong> ${result.toolWasCalled ? "yes" : "no"}</p>
           <p>${escapeHtml(result.reply)}</p>
+          ${renderNote(result.note)}
         </div>`;
   }
+}
+
+/** SPRINT3.md, follow-up to 3.1: rendered whenever triage flagged part of the request as outside
+ * whatever category it chose — see @helpdesk/agent's orchestrator.ts for the one place the note
+ * text itself is owned. Never derived from anything but that fixed string; this file makes no
+ * judgment of its own about what "part of the request" means. */
+function renderNote(note: string | undefined): string {
+  return note ? `<p class="note">${escapeHtml(note)}</p>` : "";
 }
 
 export function renderRequestForm(

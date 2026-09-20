@@ -47,6 +47,20 @@ const CHECKS: AgentCheck[] = [
     certThumbprintVar: "AZURE_MDM_AGENT_CERT_THUMBPRINT",
     audienceVar: "MDM_GATEWAY_AUDIENCE",
   },
+  {
+    label: "knowledge agent -> knowledge gateway",
+    clientIdVar: "AZURE_KNOWLEDGE_AGENT_CLIENT_ID",
+    certPathVar: "AZURE_KNOWLEDGE_AGENT_CERT_PATH",
+    certThumbprintVar: "AZURE_KNOWLEDGE_AGENT_CERT_THUMBPRINT",
+    audienceVar: "KNOWLEDGE_GATEWAY_AUDIENCE",
+  },
+  {
+    label: "endpoint agent -> endpoint gateway",
+    clientIdVar: "AZURE_ENDPOINT_AGENT_CLIENT_ID",
+    certPathVar: "AZURE_ENDPOINT_AGENT_CERT_PATH",
+    certThumbprintVar: "AZURE_ENDPOINT_AGENT_CERT_THUMBPRINT",
+    audienceVar: "ENDPOINT_GATEWAY_AUDIENCE",
+  },
 ];
 
 function required(name: string): string {
@@ -99,7 +113,7 @@ async function main(): Promise<void> {
 
   console.log("");
   if (results.every(Boolean)) {
-    console.log(`PASS: both agent credentials mint a token scoped to their own gateway, carrying only ${REQUIRED_ROLE}.`);
+    console.log(`PASS: all four agent credentials mint a token scoped to their own gateway, carrying only ${REQUIRED_ROLE}.`);
   } else {
     console.log("FAIL: at least one agent credential did not check out.");
     process.exit(1);

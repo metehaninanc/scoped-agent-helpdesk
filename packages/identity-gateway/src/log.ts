@@ -1,13 +1,8 @@
 /**
- * stderr-only logging. On stdio transport, stdout IS the MCP channel: a single stray
- * console.log corrupts the protocol stream. Nothing in the gateway may write to stdout.
+ * This gateway's own logger. SPRINT3.md, 3.2: the stderr-only mechanics moved to
+ * @helpdesk/gateway-core; this is just this gateway's own prefix, so a refusal or an
+ * unavailable-gateway error still logs as `[gateway]`, not a generic core label.
  */
-const write = (level: string, message: string): void => {
-  process.stderr.write(`[gateway] ${new Date().toISOString()} ${level} ${message}\n`);
-};
+import { createLogger } from "@helpdesk/gateway-core";
 
-export const log = {
-  info: (message: string): void => write("INFO", message),
-  warn: (message: string): void => write("WARN", message),
-  error: (message: string): void => write("ERROR", message),
-};
+export const log = createLogger("gateway");

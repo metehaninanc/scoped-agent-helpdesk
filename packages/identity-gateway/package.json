@@ -7,14 +7,15 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "test": "pnpm --filter @helpdesk/audit-core build && vitest run",
-    "test:watch": "pnpm --filter @helpdesk/audit-core build && vitest",
-    "typecheck": "pnpm --filter @helpdesk/audit-core build && tsc -p tsconfig.json --noEmit",
-    "build": "pnpm --filter @helpdesk/audit-core build && tsc -p tsconfig.build.json"
+    "test": "pnpm --filter @helpdesk/audit-core build && pnpm --filter @helpdesk/gateway-core build && vitest run",
+    "test:watch": "pnpm --filter @helpdesk/audit-core build && pnpm --filter @helpdesk/gateway-core build && vitest",
+    "typecheck": "pnpm --filter @helpdesk/audit-core build && pnpm --filter @helpdesk/gateway-core build && tsc -p tsconfig.json --noEmit",
+    "build": "pnpm --filter @helpdesk/audit-core build && pnpm --filter @helpdesk/gateway-core build && tsc -p tsconfig.build.json"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",
     "@helpdesk/audit-core": "workspace:*",
+    "@helpdesk/gateway-core": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "zod": "^4.6.5"
   }

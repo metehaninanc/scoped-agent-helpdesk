@@ -2,9 +2,10 @@
  * The identity gateway, as an MCP server over HTTP (SPRINT2.md, Stage B, Component 2 and 3).
  * Replaces Sprint 1's stdio transport: this is now a long-running server, started once, not one
  * process per agent session. The call order inside every tool handler is unchanged (see
- * tools/handler.ts): validate, decide, commit the audit record, then branch. What is new is
- * everything in front of that: the transport, and the bearer token every request must carry
- * (see tools/http-listener.ts, shared with the MDM gateway).
+ * tools/handler.ts): validate, decide, commit the audit record, then branch. As of SPRINT3.md,
+ * 3.2, the transport, the bearer token check every request must pass, and that call order itself
+ * all live in @helpdesk/gateway-core, shared with the MDM gateway as a real dependency now
+ * rather than an import from this package's own internals.
  *
  *   node dist/bin/gateway.js [--port <n>] [--db <path>]
  *
@@ -25,24 +26,26 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-
 import { AuditLog } from "@helpdesk/audit-core";
+import {
+  ApprovalStore,
+  ApprovalWorkflow,
+  TokenValidator,
+  createDecisionListener,
+  createRequestListener,
+  createTransportFactory,
+  openDatabase,
+} from "@helpdesk/gateway-core";
 
 import { createRationaleGenerator, type RationaleGenerator } from "../approvals/rationale.js";
-import { createDecisionListener } from "../approvals/decision-listener.js";
-import { ApprovalStore } from "../approvals/store.js";
-import { ApprovalWorkflow } from "../approvals/workflow.js";
-import { TokenValidator } from "../auth/verify-token.js";
-import { openDatabase } from "../db.js";
+import { createApprovalExecute } from "../approvals/execute.js";
 import { loadGatewayEnv } from "../env.js";
 import { CertificateCredential } from "../graph/certificate-credential.js";
 import { GraphClient } from "../graph/client.js";
 import { log } from "../log.js";
 import { policyConfig } from "../policy/config.js";
 import { formatFinding, verifyManagedGroups } from "../startup/verify-managed-groups.js";
-import { createRequestListener } from "../tools/http-listener.js";
+import { describeError } from "../tools/handler.js";
 import { createGatewayServer } from "../tools/server.js";
 
 const DECISION_PATH = "/approvals/decide";
@@ -90,24 +93,14 @@ async function main(): Promise<void> {
 
   const gatewayDeps = { audit, approvals, graph, config: policyConfig, ...(rationale === undefined ? {} : { rationale }) };
 
-  // A stateless transport (no sessionIdGenerator — omitted entirely, not set to undefined, to
-  // sidestep an exactOptionalPropertyTypes/accessor-pair quirk in the SDK's own type
-  // declarations) throws if handleRequest runs on it twice, and a Server already connected to
-  // one transport refuses a second. So: a fresh Server and transport pair per request, built
-  // over the same shared deps. See tools/http-listener.ts's header comment for why.
-  async function createTransport(): Promise<StreamableHTTPServerTransport> {
-    const transport = new StreamableHTTPServerTransport();
-    // The cast works around an exactOptionalPropertyTypes/accessor-pair mismatch between this
-    // transport's own onclose setter type and the Transport interface Server.connect() expects
-    // — a type-declaration quirk in this SDK version, not a real shape mismatch.
-    await createGatewayServer(gatewayDeps).connect(transport as unknown as Transport);
-    return transport;
-  }
+  // A fresh Server and transport pair per request: see @helpdesk/gateway-core's server.ts
+  // header comment (createTransportFactory) for why a stateless transport cannot be reused.
+  const createTransport = createTransportFactory(() => createGatewayServer(gatewayDeps));
 
   const validator = new TokenValidator({ tenantId: env.AZURE_TENANT_ID, audience: env.IDENTITY_GATEWAY_AUDIENCE, requiredRole: REQUIRED_ROLE });
-  const mcpListener = createRequestListener({ createTransport, validator, audit });
+  const mcpListener = createRequestListener({ createTransport, validator, audit, log });
 
-  const approvalWorkflow = new ApprovalWorkflow({ approvals, audit, graph });
+  const approvalWorkflow = new ApprovalWorkflow({ approvals, audit, execute: createApprovalExecute(graph), describeError });
   const decisionListener = createDecisionListener({ workflow: approvalWorkflow, validator, audit, path: DECISION_PATH });
 
   const port = args.port ?? Number.parseInt(process.env.IDENTITY_GATEWAY_PORT ?? String(DEFAULT_PORT), 10);

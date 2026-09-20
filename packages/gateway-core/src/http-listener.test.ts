@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { TokenValidationResult } from "../auth/verify-token.js";
+import type { TokenValidationResult } from "./auth/verify-token.js";
 import { createRequestListener, type HttpGatewayDeps } from "./http-listener.js";
 
 function fakeReq(overrides: { url?: string; headers?: Record<string, string | string[] | undefined> } = {}): IncomingMessage {

@@ -1,17 +1,17 @@
 /**
- * The non-MCP HTTP endpoint the web app calls to record and execute an approval decision
- * (SPRINT2.md, Stage B, Component 5). Deliberately not an MCP tool: approving or rejecting is a
- * human-only action, and putting it on the MCP tool surface would put it within an agent's
+ * The non-MCP HTTP endpoint a gateway calls to record and execute an approval decision
+ * (SPRINT2.md, Stage B, Component 5; moved here from the identity gateway in SPRINT3.md, 3.4 once
+ * a second gateway needed one of its own). Deliberately not an MCP tool: approving or rejecting is
+ * a human-only action, and putting it on the MCP tool surface would put it within an agent's
  * potential reach — exactly the separation of requester and approver the README already argues
- * for elsewhere. Authenticated the same way as the MCP endpoint (a bearer token audience-bound
- * to this gateway, Gateway.Invoke required) but on its own path and its own listener: the JSON
- * body here (approvalId, decidedBy, decision, note) is the genuine request payload, filled in by
- * a human on a human-only interface, not a model, so there is no "identity from the body"
- * concern the MCP path has to guard against.
+ * for elsewhere. Authenticated the same way as the MCP endpoint (a bearer token audience-bound to
+ * this gateway, Gateway.Invoke required) but on its own path and its own listener: the JSON body
+ * here (approvalId, decidedBy, decision, note) is the genuine request payload, filled in by a
+ * human on a human-only interface, not a model, so there is no "identity from the body" concern
+ * the MCP path has to guard against.
  *
- * ApprovalWorkflow itself is unchanged: this file only moves where it runs (inside the gateway
- * process, which already holds the Graph client) and how it is reached (an authenticated HTTP
- * call from the web app, which no longer holds a Graph credential of its own at all).
+ * This file never changed when it moved: it only ever depended on ApprovalWorkflow and
+ * TokenValidator, both already gateway-neutral by the time this phase generalized the former.
  */
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";

@@ -1,5 +1,9 @@
 /**
- * Approval records. See SPRINT1.md, "Component 4: approval store and rationale".
+ * Approval records. Originally SPRINT1.md, "Component 4: approval store and rationale", built
+ * inside the identity gateway; moved here unchanged in SPRINT3.md, 3.4 once a second gateway
+ * (the endpoint gateway) needed its own approval-gated write and its own approval chain, not
+ * identity's. Nothing here ever depended on Graph, a UPN, or a group — it was already generic,
+ * which is exactly why it moved verbatim rather than being rewritten.
  *
  * Plain persistence. The rules of the approval flow (a required note, requester may not
  * approve their own request, audit before action) live in workflow.ts; this file only makes

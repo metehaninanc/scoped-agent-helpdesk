@@ -15,9 +15,15 @@
     "prove-isolation": "pnpm --filter @helpdesk/identity-gateway build && node --no-warnings=ExperimentalWarning packages/identity-gateway/dist/bin/prove-isolation.js",
     "identity-gateway": "pnpm --filter @helpdesk/identity-gateway build && node --no-warnings=ExperimentalWarning packages/identity-gateway/dist/bin/gateway.js",
     "mdm-gateway": "pnpm --filter @helpdesk/mdm-gateway build && node --no-warnings=ExperimentalWarning packages/mdm-gateway/dist/bin/gateway.js",
+    "knowledge-gateway": "pnpm --filter @helpdesk/knowledge-gateway build && node --no-warnings=ExperimentalWarning packages/knowledge-gateway/dist/bin/gateway.js",
+    "endpoint-gateway": "pnpm --filter @helpdesk/endpoint-gateway build && node --no-warnings=ExperimentalWarning packages/endpoint-gateway/dist/bin/gateway.js",
     "agent": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/identity-agent.js",
     "mdm-agent": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/mdm-agent.js",
+    "knowledge-agent": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/knowledge-agent.js",
+    "endpoint-agent": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/endpoint-agent.js",
+    "route": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/orchestrator.js",
     "token-smoke": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/bin/token-smoke.js",
+    "reset-password-smoke": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/bin/reset-password-smoke.js",
     "web": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/web.js"
   },
   "devDependencies": {

@@ -7,19 +7,15 @@
  */
 import { z } from "zod";
 
+import { userPrincipalName } from "@helpdesk/gateway-core";
+
 import type { PolicyConfig, ToolRequest } from "./types.js";
 
-/**
- * Entra UPN: local part @ dotted domain. Guest UPNs look like
- * `bob_gmail.com#EXT#@contoso.onmicrosoft.com`, so `#` must be allowed in the local part.
- * Whitespace and path separators are rejected outright: the UPN ends up in a Graph URL path.
- */
-const UPN_PATTERN = /^[^\s@\\/]{1,64}@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
-
-export const userPrincipalName = z
-  .string()
-  .max(113, "UPN exceeds the Entra maximum of 113 characters")
-  .regex(UPN_PATTERN, "must be a user principal name such as alice@contoso.com");
+// SPRINT3.md, 3.4: the UPN shape check moved to @helpdesk/gateway-core once the endpoint
+// gateway's reset_password schema (never executed, but still validated the same way) needed the
+// exact same shape, and the approval workflow's own approver check needed it too — re-exported
+// here so every existing import of this file keeps working unchanged.
+export { userPrincipalName };
 
 /** Entra group object id. `z.guid()` is deliberately looser than `z.uuid()` on version bits. */
 export const groupId = z.guid("must be an Entra group object id");

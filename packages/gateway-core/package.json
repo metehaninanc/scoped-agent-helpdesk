@@ -1,0 +1,21 @@
+{
+  "name": "@helpdesk/gateway-core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The shared spine every gateway is built from (SPRINT3.md, 3.2): HTTP transport, MCP server wiring, token validation, the validate/decide/audit/branch call order, and the refusal shapes. Carries no policy rules, no tool schemas, and no credential of its own — a gateway with neither is a first-class case, not a workaround, because the knowledge gateway (SPRINT3.md, 3.3) needs exactly that.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "test": "pnpm --filter @helpdesk/audit-core build && vitest run",
+    "test:watch": "pnpm --filter @helpdesk/audit-core build && vitest",
+    "typecheck": "pnpm --filter @helpdesk/audit-core build && tsc -p tsconfig.json --noEmit",
+    "build": "pnpm --filter @helpdesk/audit-core build && tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@helpdesk/audit-core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "vitest": "^4.0.0",
+    "zod": "^4.6.5"
+  }
+}

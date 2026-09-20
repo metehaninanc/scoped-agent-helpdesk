@@ -1,6 +1,9 @@
 /**
- * One SQLite connection opener for the gateway. Approvals and audit records share a file
- * (SPRINT1.md: "SQLite. Approvals and audit records both live there").
+ * One SQLite connection opener, shared by every gateway (SPRINT3.md, 3.2 — moved here from the
+ * identity gateway, which the MDM gateway imported it from before this phase; see log.ts's
+ * header comment for why that asymmetry is exactly what this package exists to remove).
+ * Approvals and audit records share a file where a gateway has approvals at all (SPRINT1.md:
+ * "SQLite. Approvals and audit records both live there").
  *
  * node:sqlite is synchronous, which is exactly what the audit log needs: the record for a
  * decision is on disk before the handler moves on to act on it.
@@ -23,7 +26,7 @@ export function assertNodeSupportsSqlite(version: string = process.versions.node
   const ok = major > needMajor || (major === needMajor && minor >= needMinor);
   if (!ok) {
     throw new Error(
-      `Node ${version} is too old: the gateway needs Node ${MIN_NODE_VERSION} or newer for the built-in node:sqlite module (see README, Prerequisites).`,
+      `Node ${version} is too old: a gateway needs Node ${MIN_NODE_VERSION} or newer for the built-in node:sqlite module (see README, Prerequisites).`,
     );
   }
 }

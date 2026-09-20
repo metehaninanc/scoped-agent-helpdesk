@@ -28,6 +28,21 @@ export interface SessionAuditInput {
   content: unknown;
 }
 
+/**
+ * Token usage for this agent's own model turn — SPRINT3.md, 3.1: "every model call in the
+ * system must record its token usage in the audit record." Written once per model named in the
+ * SDK result message's `modelUsage` (almost always exactly one), regardless of whether the
+ * session called a tool: usage is a property of the turn, not of what it decided to do.
+ */
+export interface SessionUsageInput {
+  requestId: string;
+  actor: string;
+  agent: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export class SessionAudit {
   private readonly log: AuditLog;
 
@@ -45,6 +60,19 @@ export class SessionAudit {
       parameters: input.decision === "request" ? input.content : null,
       rules: [],
       result: input.decision === "no_tool_called" ? input.content : null,
+    });
+  }
+
+  appendUsage(input: SessionUsageInput): void {
+    this.log.append({
+      requestId: input.requestId,
+      actor: input.actor,
+      agent: input.agent,
+      tool: null,
+      decision: "model_usage",
+      parameters: null,
+      rules: [],
+      result: { model: input.model, inputTokens: input.inputTokens, outputTokens: input.outputTokens },
     });
   }
 

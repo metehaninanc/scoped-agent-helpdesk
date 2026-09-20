@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { DEFAULT_AGENT_MODEL } from "./models.js";
 import { runMdmAgent, type RunQuery } from "./mdm-agent.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -16,7 +17,11 @@ const assistantToolUse = (name: string): SDKMessage =>
   ({ type: "assistant", message: { content: [{ type: "tool_use", id: "t1", name, input: {} }] } }) as unknown as SDKMessage;
 const assistantText = (text: string): SDKMessage =>
   ({ type: "assistant", message: { content: [{ type: "text", text }] } }) as unknown as SDKMessage;
-const resultSuccess = (text: string): SDKMessage => ({ type: "result", subtype: "success", result: text }) as unknown as SDKMessage;
+const DEFAULT_MODEL_USAGE = { "claude-sonnet-5": { inputTokens: 120, outputTokens: 40 } };
+const resultSuccess = (
+  text: string,
+  modelUsage: Record<string, { inputTokens: number; outputTokens: number }> = DEFAULT_MODEL_USAGE,
+): SDKMessage => ({ type: "result", subtype: "success", result: text, modelUsage }) as unknown as SDKMessage;
 
 async function* stream(messages: SDKMessage[]): AsyncGenerator<SDKMessage, void> {
   for (const message of messages) yield message;
@@ -94,6 +99,14 @@ describe("runMdmAgent()", () => {
     expect(options.permissionMode).toBe("dontAsk");
   });
 
+  it("pins the model rather than letting the CLI resolve its own default", async () => {
+    const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
+
+    await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery, getAccessToken });
+
+    expect(runQuery.mock.calls[0]![0].options.model).toBe(DEFAULT_AGENT_MODEL);
+  });
+
   it("gives the model no other way to act: the system prompt names the narrow role and forbids retry or an alternative route", async () => {
     const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 
@@ -118,7 +131,7 @@ describe("runMdmAgent()", () => {
     expect(result.toolWasCalled).toBe(false);
     expect(result.reply).toBe("I can only look up devices, not that.");
     const written = rows(dbPath);
-    expect(written).toHaveLength(2);
+    expect(written.map((r) => r.decision)).toEqual(["request", "no_tool_called", "model_usage"]);
     expect(written[1]).toMatchObject({ decision: "no_tool_called", result: JSON.stringify("I can only look up devices, not that.") });
   });
 
@@ -130,8 +143,7 @@ describe("runMdmAgent()", () => {
     const result = await runMdmAgent({ actor: "alice@contoso.com", requestText: "look up device x", dbPath, runQuery, getAccessToken });
 
     expect(result.toolWasCalled).toBe(true);
-    expect(rows(dbPath)).toHaveLength(1);
-    expect(rows(dbPath)[0]?.decision).toBe("request");
+    expect(rows(dbPath).map((r) => r.decision)).toEqual(["request", "model_usage"]);
   });
 
   it("connects to the gateway over HTTP with a bearer token, never a spawned subprocess", async () => {
@@ -163,5 +175,60 @@ describe("runMdmAgent()", () => {
     await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery, getAccessToken: trackedGetAccessToken });
 
     expect(order).toEqual(["token", "query"]);
+  });
+
+  describe("token usage", () => {
+    it("records the model's token usage after a session that called a tool", async () => {
+      const runQuery = vi.fn<RunQuery>().mockImplementation(() =>
+        stream([
+          assistantToolUse("mcp__mdm-gateway__list_devices"),
+          resultSuccess("There are no devices registered.", { "claude-sonnet-5": { inputTokens: 500, outputTokens: 80 } }),
+        ]),
+      );
+
+      await runMdmAgent({ actor: "alice@contoso.com", requestText: "list the devices in the tenant", dbPath, runQuery, getAccessToken });
+
+      const usageRow = rows(dbPath).find((r) => r.decision === "model_usage");
+      expect(usageRow).toMatchObject({ result: JSON.stringify({ model: "claude-sonnet-5", inputTokens: 500, outputTokens: 80 }) });
+    });
+
+    it("records usage alongside no_tool_called when the session ends without a tool call", async () => {
+      const runQuery = vi.fn<RunQuery>().mockImplementation(() =>
+        stream([resultSuccess("I can only look up devices.", { "claude-sonnet-5": { inputTokens: 300, outputTokens: 20 } })]),
+      );
+
+      await runMdmAgent({ actor: "alice@contoso.com", requestText: "wipe alice's laptop", dbPath, runQuery, getAccessToken });
+
+      expect(rows(dbPath).map((r) => r.decision)).toEqual(["request", "no_tool_called", "model_usage"]);
+    });
+
+    it("writes one usage record per model when the session used more than one", async () => {
+      const runQuery = vi.fn<RunQuery>().mockImplementation(() =>
+        stream([
+          resultSuccess("ok", {
+            "claude-sonnet-5": { inputTokens: 100, outputTokens: 10 },
+            "claude-haiku-4-5-20251001": { inputTokens: 50, outputTokens: 5 },
+          }),
+        ]),
+      );
+
+      await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery, getAccessToken });
+
+      const usageRows = rows(dbPath).filter((r) => r.decision === "model_usage");
+      expect(usageRows.map((r) => JSON.parse(r.result!))).toEqual(
+        expect.arrayContaining([
+          { model: "claude-sonnet-5", inputTokens: 100, outputTokens: 10 },
+          { model: "claude-haiku-4-5-20251001", inputTokens: 50, outputTokens: 5 },
+        ]),
+      );
+    });
+
+    it("writes no usage record when the result carried none", async () => {
+      const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok", {})]));
+
+      await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery, getAccessToken });
+
+      expect(rows(dbPath).some((r) => r.decision === "model_usage")).toBe(false);
+    });
   });
 });

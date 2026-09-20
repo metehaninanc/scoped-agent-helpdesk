@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RationaleGenerator } from "../approvals/rationale.js";
-import { ApprovalStore } from "../approvals/store.js";
 import { AuditLog } from "@helpdesk/audit-core";
-import { openDatabase } from "../db.js";
+import { ApprovalStore, openDatabase } from "@helpdesk/gateway-core";
 import { GraphError, type AddMemberResult, type GroupSummary } from "../graph/client.js";
 import { Rule, type PolicyConfig } from "../policy/types.js";
 import { handleToolCall, type GatewayDeps, type SessionContext } from "./handler.js";

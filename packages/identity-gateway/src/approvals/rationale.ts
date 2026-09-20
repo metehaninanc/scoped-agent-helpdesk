@@ -13,6 +13,12 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 
+/** The strongest of the three pinned tiers: runs rarely (once per approval-gated request, not
+ * once per request) and its output is weighed directly in a human's decision to change a
+ * production identity system. See packages/agent/src/models.ts for the other two tiers and the
+ * full reasoning gathered in one place — not re-exported there or to packages/web: this
+ * package's public surface (index.ts) deliberately exposes no runtime value beyond
+ * CertificateCredential to either consumer. */
 export const DEFAULT_RATIONALE_MODEL = "claude-opus-5";
 
 /** Deliberately short: three sections, under 150 words. */

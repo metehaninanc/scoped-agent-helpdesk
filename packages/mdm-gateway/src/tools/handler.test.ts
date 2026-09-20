@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuditLog } from "@helpdesk/audit-core";
-import { openDatabase, GraphError, type DeviceSummary } from "@helpdesk/identity-gateway";
+import { openDatabase } from "@helpdesk/gateway-core";
+import { GraphError, type DeviceSummary } from "@helpdesk/identity-gateway";
 
 import { Rule, type PolicyConfig } from "../policy/types.js";
 import { handleToolCall, type GatewayDeps, type SessionContext } from "./handler.js";

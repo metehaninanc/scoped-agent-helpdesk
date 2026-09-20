@@ -1,10 +1,43 @@
 import type { AddressInfo } from "node:net";
 
-import { ApprovalError, type ApprovalDecisionInput, type ApprovalOutcome, type ApprovalRecord } from "@helpdesk/identity-gateway";
+import { ApprovalError, type ApprovalDecisionInput, type ApprovalOutcome, type ApprovalRecord } from "@helpdesk/gateway-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AgentRunResult, SubmitRequestInput } from "./request-page.js";
+import type { DashboardData } from "./dashboard-metrics.js";
+import type { RouteResult, SubmitRequestInput } from "./request-page.js";
 import { createWebServer, type WebDeps } from "./server.js";
+
+const emptyDashboardData = (): DashboardData => ({
+  trust: {
+    chains: (["orchestrator", "identity", "mdm", "knowledge", "endpoint"] as const).map((name) => ({
+      name,
+      totalRecords: 0,
+      intact: true,
+      break: null,
+    })),
+    verifiedAt: "2026-09-16T12:00:00.000Z",
+  },
+  volume: { requestsByDay: [], split: { autonomous: 0, approvalGated: 0, refused: 0, modelDeclined: 0 }, classifierFailures: 0 },
+  humans: {
+    gateways: [
+      { gateway: "identity", pendingCount: 0, oldestPendingAgeMs: null, resolvedCount: 0, medianTimeToDecisionMs: null },
+      { gateway: "endpoint", pendingCount: 0, oldestPendingAgeMs: null, resolvedCount: 0, medianTimeToDecisionMs: null },
+    ],
+    totalPending: 0,
+    oldestPendingAgeMs: null,
+    medianTimeToDecisionMs: null,
+  },
+  stopped: { refusalReasons: [], classifierFailures: [], passwordReset: { count: 0, note: "note" } },
+  cost: {
+    components: [],
+    totalCostUsd: 0,
+    totalRequests: 0,
+    averageCostPerRequestUsd: null,
+    observedDays: 0,
+    estimatedMonthlyCostUsd: null,
+    noModelCallShare: null,
+  },
+});
 
 const approval = (overrides: Partial<ApprovalRecord> = {}): ApprovalRecord => ({
   id: "app-1",
@@ -26,7 +59,7 @@ describe("web server", () => {
   let server: ReturnType<typeof createWebServer>;
   let baseUrl: string;
   let deps: WebDeps;
-  let runIdentityAgent: ReturnType<typeof vi.fn<(input: SubmitRequestInput) => Promise<AgentRunResult>>>;
+  let routeRequest: ReturnType<typeof vi.fn<(input: SubmitRequestInput) => Promise<RouteResult>>>;
   let decide: ReturnType<typeof vi.fn<(input: ApprovalDecisionInput) => Promise<ApprovalOutcome>>>;
   let approvals: Map<string, ApprovalRecord>;
 
@@ -39,15 +72,16 @@ describe("web server", () => {
 
   beforeEach(async () => {
     approvals = new Map([["app-1", approval()]]);
-    runIdentityAgent = vi
-      .fn<(input: SubmitRequestInput) => Promise<AgentRunResult>>()
-      .mockResolvedValue({ requestId: "req-9", toolWasCalled: true, reply: "Alice is in Marketing." });
+    routeRequest = vi
+      .fn<(input: SubmitRequestInput) => Promise<RouteResult>>()
+      .mockResolvedValue({ status: "routed", category: "identity", agent: "identity-agent", requestId: "req-9", toolWasCalled: true, reply: "Alice is in Marketing." });
     decide = vi.fn<(input: ApprovalDecisionInput) => Promise<ApprovalOutcome>>();
     deps = {
-      runIdentityAgent,
+      routeRequest,
       decide,
       listPendingApprovals: () => [...approvals.values()].filter((a) => a.status === "pending"),
       getApproval: (id) => approvals.get(id) ?? null,
+      getDashboardData: () => emptyDashboardData(),
     };
     server = createWebServer(deps);
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -72,17 +106,17 @@ describe("web server", () => {
       const res = await post("/", { actor: "alice@contoso.com", requestText: "which groups is alice in" });
 
       expect(res.status).toBe(200);
-      expect(runIdentityAgent).toHaveBeenCalledWith({ actor: "alice@contoso.com", requestText: "which groups is alice in" });
+      expect(routeRequest).toHaveBeenCalledWith({ actor: "alice@contoso.com", requestText: "which groups is alice in" });
       const text = await res.text();
       expect(text).toContain("Alice is in Marketing.");
       expect(text).toContain("req-9");
     });
 
-    it("rejects an empty identity without calling the agent", async () => {
+    it("rejects an empty identity without routing the request", async () => {
       const res = await post("/", { actor: "", requestText: "hi" });
 
       expect(res.status).toBe(200);
-      expect(runIdentityAgent).not.toHaveBeenCalled();
+      expect(routeRequest).not.toHaveBeenCalled();
       expect(await res.text()).toContain("Your identity is required.");
     });
   });
@@ -160,6 +194,16 @@ describe("web server", () => {
     it("404s when deciding an unknown approval", async () => {
       const res = await post("/approvals/does-not-exist/decide", { decidedBy: "it.manager@contoso.com", decision: "approved", note: "x" });
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe("GET /dashboard", () => {
+    it("renders the dashboard from getDashboardData()", async () => {
+      const res = await fetch(baseUrl + "/dashboard");
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      expect(text).toContain("<h1>Dashboard</h1>");
+      expect(text).toContain("orchestrator");
     });
   });
 

@@ -1,0 +1,21 @@
+{
+  "name": "@helpdesk/endpoint-gateway",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Endpoint gateway: MCP server on @helpdesk/gateway-core. Two reads and one approval-gated write against a small local stub endpoint service (SPRINT3.md, 3.4) — every organisation runs different endpoint tooling, so this stands in for one rather than pretending to integrate with a specific product. Also holds reset_password: registered as a tool so the refusal is nameable and auditable, but never executed — the policy engine denies it unconditionally, and this gateway holds no password-reset permission in Entra at all (SPRINT3.md, 3.4: password reset moved to the never-automated class before this phase began).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "test": "pnpm --filter @helpdesk/audit-core build && pnpm --filter @helpdesk/gateway-core build && vitest run",
+    "test:watch": "pnpm --filter @helpdesk/audit-core build && pnpm --filter @helpdesk/gateway-core build && vitest",
+    "typecheck": "pnpm --filter @helpdesk/audit-core build && pnpm --filter @helpdesk/gateway-core build && tsc -p tsconfig.json --noEmit",
+    "build": "pnpm --filter @helpdesk/audit-core build && pnpm --filter @helpdesk/gateway-core build && tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@helpdesk/audit-core": "workspace:*",
+    "@helpdesk/gateway-core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.6.5"
+  }
+}
