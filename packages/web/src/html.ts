@@ -39,6 +39,8 @@ const STYLE = `
   .rationale-missing { font-style: italic; color: #555; }
   .error { color: #a40000; border: 1px solid #a40000; padding: 0.5rem 0.75rem; background: #fff4f4; }
   .ok { color: #175c17; border: 1px solid #175c17; padding: 0.5rem 0.75rem; background: #f3fff3; }
+  .info { color: #444; border: 1px solid #999; padding: 0.5rem 0.75rem; background: #f4f4f4; }
+  .note { font-style: italic; color: #666; font-size: 0.9rem; margin-top: 0.5rem; }
   .status { font-family: monospace; }
   table { border-collapse: collapse; width: 100%; }
   th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #ddd; }
@@ -56,7 +58,7 @@ export function page(title: string, body: string): string {
 <style>${STYLE}</style>
 </head>
 <body>
-<nav><a href="/">Request</a><a href="/approvals">Approvals</a></nav>
+<nav><a href="/">Request</a><a href="/approvals">Approvals</a><a href="/dashboard">Dashboard</a></nav>
 ${body}
 </body>
 </html>`;

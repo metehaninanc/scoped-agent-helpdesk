@@ -1,0 +1,22 @@
+{
+  "name": "@helpdesk/mdm-gateway",
+  "version": "0.0.0",
+  "private": true,
+  "description": "MDM gateway: MCP server, its own policy engine and audit chain, device reads only. Disjoint Graph permissions and certificate from the identity gateway (SPRINT2.md, Stage A).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "test": "pnpm --filter @helpdesk/audit-core build && pnpm --filter @helpdesk/gateway-core build && pnpm --filter @helpdesk/identity-gateway build && vitest run",
+    "test:watch": "pnpm --filter @helpdesk/audit-core build && pnpm --filter @helpdesk/gateway-core build && pnpm --filter @helpdesk/identity-gateway build && vitest",
+    "typecheck": "pnpm --filter @helpdesk/audit-core build && pnpm --filter @helpdesk/gateway-core build && pnpm --filter @helpdesk/identity-gateway build && tsc -p tsconfig.json --noEmit",
+    "build": "pnpm --filter @helpdesk/audit-core build && pnpm --filter @helpdesk/gateway-core build && pnpm --filter @helpdesk/identity-gateway build && tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@helpdesk/audit-core": "workspace:*",
+    "@helpdesk/gateway-core": "workspace:*",
+    "@helpdesk/identity-gateway": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.6.5"
+  }
+}

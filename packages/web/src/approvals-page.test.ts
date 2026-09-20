@@ -1,4 +1,4 @@
-import { ApprovalError, type ApprovalOutcome, type ApprovalRecord } from "@helpdesk/gateway";
+import { ApprovalError, type ApprovalOutcome, type ApprovalRecord } from "@helpdesk/gateway-core";
 import { describe, expect, it, vi } from "vitest";
 
 import { decideApproval, renderApprovalDetail, renderApprovalsList, type DecideDeps } from "./approvals-page.js";

@@ -74,6 +74,33 @@ describe("SessionAudit", () => {
     log.close();
   });
 
+  it("writes a model_usage record with the model, input and output tokens", () => {
+    const audit = new SessionAudit(dbPath);
+    audit.appendUsage({
+      requestId: "req-1",
+      actor: "alice@contoso.com",
+      agent: "identity-agent",
+      model: "claude-sonnet-5",
+      inputTokens: 120,
+      outputTokens: 40,
+    });
+    audit.close();
+
+    const log = new AuditLog(openDatabase(dbPath));
+    const [record] = log.list();
+    expect(record).toMatchObject({
+      requestId: "req-1",
+      actor: "alice@contoso.com",
+      agent: "identity-agent",
+      tool: null,
+      decision: "model_usage",
+      parameters: null,
+      rules: [],
+      result: { model: "claude-sonnet-5", inputTokens: 120, outputTokens: 40 },
+    });
+    log.close();
+  });
+
   it("chains multiple records from this writer alone", () => {
     const audit = new SessionAudit(dbPath);
     audit.append({ requestId: "req-1", actor: "alice@contoso.com", agent: "identity-agent", decision: "request", content: "x" });

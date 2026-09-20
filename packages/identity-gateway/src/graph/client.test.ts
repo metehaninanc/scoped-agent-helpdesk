@@ -1,0 +1,367 @@
+import { describe, expect, it, vi } from "vitest";
+
+import { GRAPH_SCOPE, GraphClient, GraphError } from "./client.js";
+
+// ---------------------------------------------------------------------------
+// Fixtures: a fake fetch keyed by "METHOD url", recording every call.
+// ---------------------------------------------------------------------------
+
+const BASE = "https://graph.microsoft.com/v1.0";
+const ALICE = "alice@contoso.com";
+const ALICE_ID = "a9992a37-c017-46f6-a5dc-dbae7e1ea1b2";
+const MARKETING = "88981a1a-1f6b-438c-9475-26b7c619dce0";
+const DEVICE_ID = "d4e5f6a7-1234-4abc-8def-0123456789ab";
+
+type Handler = (init: RequestInit | undefined) => Response;
+
+const json = (status: number, body: unknown, headers: Record<string, string> = {}): Response =>
+  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
+
+const graphError = (status: number, code: string, message: string): Response =>
+  json(status, { error: { code, message, innerError: { "request-id": "req-abc", date: "2026-09-15T12:00:00" } } });
+
+function fakeGraph(routes: Record<string, Handler>) {
+  const calls: { method: string; url: string; init: RequestInit | undefined }[] = [];
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input, init) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    calls.push({ method, url, init });
+    const handler = routes[`${method} ${url}`];
+    if (!handler) throw new Error(`unexpected request: ${method} ${url}`);
+    return handler(init);
+  });
+  const credential = { getToken: vi.fn(async (_scope: string) => ({ token: "tok", expiresAt: 0 })) };
+  const client = new GraphClient({ credential, fetch });
+  return { client, fetch, calls, credential };
+}
+
+const memberOfUrl = (upn: string) =>
+  `${BASE}/users/${encodeURIComponent(upn)}/memberOf/microsoft.graph.group?$select=id,displayName`;
+
+// ---------------------------------------------------------------------------
+
+describe("GraphClient", () => {
+  describe("listUserGroups()", () => {
+    it("reads the user's group memberships with a bearer token and maps id and displayName", async () => {
+      const { client, calls, credential } = fakeGraph({
+        [`GET ${memberOfUrl(ALICE)}`]: () =>
+          json(200, {
+            value: [
+              { "@odata.type": "#microsoft.graph.group", id: MARKETING, displayName: "Marketing", extra: "ignored" },
+              { "@odata.type": "#microsoft.graph.group", id: "g2", displayName: "Finance" },
+            ],
+          }),
+      });
+
+      const groups = await client.listUserGroups(ALICE);
+
+      expect(groups).toEqual([
+        { id: MARKETING, displayName: "Marketing" },
+        { id: "g2", displayName: "Finance" },
+      ]);
+      expect(credential.getToken).toHaveBeenCalledWith(GRAPH_SCOPE);
+      const headers = new Headers(calls[0]?.init?.headers);
+      expect(headers.get("authorization")).toBe("Bearer tok");
+      expect(headers.get("accept")).toBe("application/json");
+    });
+
+    it("follows @odata.nextLink until the collection is exhausted", async () => {
+      const next = `${BASE}/users/x/memberOf/microsoft.graph.group?$skiptoken=abc`;
+      const { client, calls } = fakeGraph({
+        [`GET ${memberOfUrl(ALICE)}`]: () => json(200, { value: [{ id: "g1", displayName: "One" }], "@odata.nextLink": next }),
+        [`GET ${next}`]: () => json(200, { value: [{ id: "g2", displayName: "Two" }] }),
+      });
+
+      const groups = await client.listUserGroups(ALICE);
+
+      expect(groups.map((g) => g.id)).toEqual(["g1", "g2"]);
+      expect(calls).toHaveLength(2);
+    });
+
+    it("returns an empty list for a user in no groups", async () => {
+      const { client } = fakeGraph({ [`GET ${memberOfUrl(ALICE)}`]: () => json(200, { value: [] }) });
+      expect(await client.listUserGroups(ALICE)).toEqual([]);
+    });
+
+    it("percent-encodes the UPN, including the # in guest UPNs", async () => {
+      const guest = "bob_gmail.com#EXT#@contoso.onmicrosoft.com";
+      const { client, calls } = fakeGraph({ [`GET ${memberOfUrl(guest)}`]: () => json(200, { value: [] }) });
+
+      await client.listUserGroups(guest);
+
+      expect(calls[0]?.url).toContain("/users/bob_gmail.com%23EXT%23%40contoso.onmicrosoft.com/");
+    });
+
+    it("refuses a malformed UPN before touching the network", async () => {
+      const { client, fetch } = fakeGraph({});
+      await expect(client.listUserGroups("../admin")).rejects.toThrow(/user principal name/i);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("throws a GraphError with status, code and request id when the user does not exist", async () => {
+      const { client } = fakeGraph({
+        [`GET ${memberOfUrl(ALICE)}`]: () =>
+          graphError(404, "Request_ResourceNotFound", "Resource 'alice@contoso.com' does not exist."),
+      });
+
+      const failure = await client.listUserGroups(ALICE).catch((e: unknown) => e);
+
+      expect(failure).toBeInstanceOf(GraphError);
+      const err = failure as GraphError;
+      expect(err.status).toBe(404);
+      expect(err.code).toBe("Request_ResourceNotFound");
+      expect(err.requestId).toBe("req-abc");
+      expect(err.message).toContain("does not exist");
+    });
+
+    it("throws a GraphError even when the error body is not JSON", async () => {
+      const { client } = fakeGraph({
+        [`GET ${memberOfUrl(ALICE)}`]: () => new Response("<html>gateway timeout</html>", { status: 504 }),
+      });
+
+      const failure = await client.listUserGroups(ALICE).catch((e: unknown) => e);
+      expect(failure).toBeInstanceOf(GraphError);
+      expect((failure as GraphError).status).toBe(504);
+    });
+  });
+
+  describe("getGroup()", () => {
+    const url = `GET ${BASE}/groups/${MARKETING}?$select=id,displayName`;
+
+    it("returns id and displayName for an existing group", async () => {
+      const { client } = fakeGraph({ [url]: () => json(200, { id: MARKETING, displayName: "Marketing" }) });
+      expect(await client.getGroup(MARKETING)).toEqual({ id: MARKETING, displayName: "Marketing" });
+    });
+
+    it("returns null, not an error, when the group does not exist", async () => {
+      const { client } = fakeGraph({
+        [url]: () => graphError(404, "Request_ResourceNotFound", "Resource does not exist."),
+      });
+      expect(await client.getGroup(MARKETING)).toBeNull();
+    });
+
+    it("still throws on anything other than 404", async () => {
+      const { client } = fakeGraph({
+        [url]: () => graphError(403, "Authorization_RequestDenied", "Insufficient privileges."),
+      });
+      await expect(client.getGroup(MARKETING)).rejects.toMatchObject({ status: 403 });
+    });
+
+    it("refuses a group id that is not a GUID before touching the network", async () => {
+      const { client, fetch } = fakeGraph({});
+      await expect(client.getGroup("Marketing")).rejects.toThrow(/group object id/i);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("getUserId()", () => {
+    it("resolves a UPN to the user's object id", async () => {
+      const { client } = fakeGraph({
+        [`GET ${BASE}/users/${encodeURIComponent(ALICE)}?$select=id`]: () => json(200, { id: ALICE_ID }),
+      });
+      expect(await client.getUserId(ALICE)).toBe(ALICE_ID);
+    });
+  });
+
+  describe("addUserToGroup()", () => {
+    const userLookup = `GET ${BASE}/users/${encodeURIComponent(ALICE)}?$select=id`;
+    const addRef = `POST ${BASE}/groups/${MARKETING}/members/$ref`;
+
+    it("resolves the user, then posts a directoryObjects reference to the group", async () => {
+      const { client, calls } = fakeGraph({
+        [userLookup]: () => json(200, { id: ALICE_ID }),
+        [addRef]: () => new Response(null, { status: 204 }),
+      });
+
+      const result = await client.addUserToGroup(ALICE, MARKETING);
+
+      expect(result).toEqual({ alreadyMember: false });
+      expect(calls.map((c) => c.method)).toEqual(["GET", "POST"]);
+      const post = calls[1]!;
+      expect(new Headers(post.init?.headers).get("content-type")).toBe("application/json");
+      expect(JSON.parse(post.init?.body as string)).toEqual({
+        "@odata.id": `${BASE}/directoryObjects/${ALICE_ID}`,
+      });
+    });
+
+    it("treats 'already a member' as success and says so", async () => {
+      const { client } = fakeGraph({
+        [userLookup]: () => json(200, { id: ALICE_ID }),
+        [addRef]: () =>
+          graphError(
+            400,
+            "Request_BadRequest",
+            "One or more added object references already exist for the following modified properties: 'members'.",
+          ),
+      });
+
+      expect(await client.addUserToGroup(ALICE, MARKETING)).toEqual({ alreadyMember: true });
+    });
+
+    it("throws a GraphError when the group does not exist", async () => {
+      const { client } = fakeGraph({
+        [userLookup]: () => json(200, { id: ALICE_ID }),
+        [addRef]: () => graphError(404, "Request_ResourceNotFound", "Resource '88981a1a-...' does not exist."),
+      });
+
+      await expect(client.addUserToGroup(ALICE, MARKETING)).rejects.toMatchObject({ status: 404 });
+    });
+
+    it("throws a GraphError when the app lacks permission", async () => {
+      const { client } = fakeGraph({
+        [userLookup]: () => json(200, { id: ALICE_ID }),
+        [addRef]: () => graphError(403, "Authorization_RequestDenied", "Insufficient privileges to complete the operation."),
+      });
+
+      await expect(client.addUserToGroup(ALICE, MARKETING)).rejects.toMatchObject({
+        status: 403,
+        code: "Authorization_RequestDenied",
+      });
+    });
+
+    it("does not post when the user cannot be resolved", async () => {
+      const { client, calls } = fakeGraph({
+        [userLookup]: () => graphError(404, "Request_ResourceNotFound", "Resource does not exist."),
+      });
+
+      await expect(client.addUserToGroup(ALICE, MARKETING)).rejects.toBeInstanceOf(GraphError);
+      expect(calls.map((c) => c.method)).toEqual(["GET"]);
+    });
+
+    it("refuses a group id that is not a GUID before touching the network", async () => {
+      const { client, fetch } = fakeGraph({});
+      await expect(client.addUserToGroup(ALICE, "Marketing")).rejects.toThrow(/group object id/i);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("removeUserFromGroup()", () => {
+    const userLookup = `GET ${BASE}/users/${encodeURIComponent(ALICE)}?$select=id`;
+    const removeRef = `DELETE ${BASE}/groups/${MARKETING}/members/${ALICE_ID}/$ref`;
+
+    it("resolves the user, then deletes the directoryObjects reference from the group", async () => {
+      const { client, calls } = fakeGraph({
+        [userLookup]: () => json(200, { id: ALICE_ID }),
+        [removeRef]: () => new Response(null, { status: 204 }),
+      });
+
+      await client.removeUserFromGroup(ALICE, MARKETING);
+
+      expect(calls.map((c) => c.method)).toEqual(["GET", "DELETE"]);
+    });
+
+    it("throws a GraphError when the membership does not exist", async () => {
+      const { client } = fakeGraph({
+        [userLookup]: () => json(200, { id: ALICE_ID }),
+        [removeRef]: () => graphError(404, "Request_ResourceNotFound", "Resource does not exist."),
+      });
+
+      await expect(client.removeUserFromGroup(ALICE, MARKETING)).rejects.toMatchObject({ status: 404 });
+    });
+
+    it("throws a GraphError when the app lacks permission", async () => {
+      const { client } = fakeGraph({
+        [userLookup]: () => json(200, { id: ALICE_ID }),
+        [removeRef]: () => graphError(403, "Authorization_RequestDenied", "Insufficient privileges to complete the operation."),
+      });
+
+      await expect(client.removeUserFromGroup(ALICE, MARKETING)).rejects.toMatchObject({
+        status: 403,
+        code: "Authorization_RequestDenied",
+      });
+    });
+
+    it("does not delete when the user cannot be resolved", async () => {
+      const { client, calls } = fakeGraph({
+        [userLookup]: () => graphError(404, "Request_ResourceNotFound", "Resource does not exist."),
+      });
+
+      await expect(client.removeUserFromGroup(ALICE, MARKETING)).rejects.toBeInstanceOf(GraphError);
+      expect(calls.map((c) => c.method)).toEqual(["GET"]);
+    });
+
+    it("refuses a group id that is not a GUID before touching the network", async () => {
+      const { client, fetch } = fakeGraph({});
+      await expect(client.removeUserFromGroup(ALICE, "Marketing")).rejects.toThrow(/group object id/i);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("listDevices()", () => {
+    const url = `GET ${BASE}/devices?$select=id,displayName,operatingSystem,isCompliant`;
+
+    it("reads devices and maps id, displayName, operatingSystem and isCompliant", async () => {
+      const { client, credential } = fakeGraph({
+        [url]: () =>
+          json(200, {
+            value: [
+              { id: DEVICE_ID, displayName: "alice-laptop", operatingSystem: "Windows", isCompliant: true, extra: "ignored" },
+              { id: "d2", displayName: "bob-phone", operatingSystem: "iOS", isCompliant: false },
+            ],
+          }),
+      });
+
+      const devices = await client.listDevices();
+
+      expect(devices).toEqual([
+        { id: DEVICE_ID, displayName: "alice-laptop", operatingSystem: "Windows", isCompliant: true },
+        { id: "d2", displayName: "bob-phone", operatingSystem: "iOS", isCompliant: false },
+      ]);
+      expect(credential.getToken).toHaveBeenCalledWith(GRAPH_SCOPE);
+    });
+
+    it("returns an empty list when the tenant has no devices", async () => {
+      const { client } = fakeGraph({ [url]: () => json(200, { value: [] }) });
+      expect(await client.listDevices()).toEqual([]);
+    });
+
+    it("follows @odata.nextLink until the collection is exhausted", async () => {
+      const next = `${BASE}/devices?$skiptoken=abc`;
+      const { client, calls } = fakeGraph({
+        [url]: () => json(200, { value: [{ id: "d1", displayName: "One", operatingSystem: "Windows", isCompliant: null }], "@odata.nextLink": next }),
+        [`GET ${next}`]: () => json(200, { value: [{ id: "d2", displayName: "Two", operatingSystem: "macOS", isCompliant: true }] }),
+      });
+
+      const devices = await client.listDevices();
+
+      expect(devices.map((d) => d.id)).toEqual(["d1", "d2"]);
+      expect(calls).toHaveLength(2);
+    });
+
+    it("reports a missing compliance flag as null rather than false", async () => {
+      const { client } = fakeGraph({
+        [url]: () => json(200, { value: [{ id: "d1", displayName: "One", operatingSystem: "Windows" }] }),
+      });
+      expect((await client.listDevices())[0]?.isCompliant).toBeNull();
+    });
+  });
+
+  describe("getDevice()", () => {
+    const url = `GET ${BASE}/devices/${DEVICE_ID}?$select=id,displayName,operatingSystem,isCompliant`;
+
+    it("returns one device by id", async () => {
+      const { client } = fakeGraph({
+        [url]: () => json(200, { id: DEVICE_ID, displayName: "alice-laptop", operatingSystem: "Windows", isCompliant: true }),
+      });
+      expect(await client.getDevice(DEVICE_ID)).toEqual({
+        id: DEVICE_ID,
+        displayName: "alice-laptop",
+        operatingSystem: "Windows",
+        isCompliant: true,
+      });
+    });
+
+    it("throws a GraphError when the device does not exist, rather than returning null", async () => {
+      const { client } = fakeGraph({
+        [url]: () => graphError(404, "Request_ResourceNotFound", "Resource does not exist."),
+      });
+      await expect(client.getDevice(DEVICE_ID)).rejects.toMatchObject({ status: 404 });
+    });
+
+    it("refuses a device id that is not a GUID before touching the network", async () => {
+      const { client, fetch } = fakeGraph({});
+      await expect(client.getDevice("alice-laptop")).rejects.toThrow(/device object id/i);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+});
