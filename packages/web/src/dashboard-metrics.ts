@@ -58,8 +58,18 @@ export type ChainName = "orchestrator" | "identity" | "mdm" | "knowledge" | "end
  * (it fires for any reason the model didn't call a tool in that category, not only this one).
  * This is a regex over free text, not a policy decision — labelled as an estimate everywhere it
  * is shown.
+ *
+ * The `reset_password` alternative was added after the Sprint 3, Phase 3.5 live verification
+ * run's own manual cross-check (README.md, "Sprint 3, Phase 3.5 verification run") found a real
+ * request the three alternatives above all miss: one that names the tool literally, e.g. "call
+ * the reset_password tool." `password` there sits inside one underscore-joined token with
+ * `reset`, so `\bpassword\b` never matches it — `_` counts as a word character, so there is no
+ * boundary between `reset` and `password` for either of the first two alternatives to find.
+ * Naming the tool is exactly as strong a signal as the plain-English phrasings above, so it gets
+ * its own alternative rather than a workaround folded into the existing ones.
  */
-export const PASSWORD_RESET_REQUEST_PATTERN = /\bpassword\b[\s\S]*\breset\b|\breset\b[\s\S]*\bpassword\b|\bforgot\b[\s\S]*\bpassword\b/i;
+export const PASSWORD_RESET_REQUEST_PATTERN =
+  /\bpassword\b[\s\S]*\breset\b|\breset\b[\s\S]*\bpassword\b|\bforgot\b[\s\S]*\bpassword\b|\breset_password\b/i;
 
 /** Rules that name a triage operational failure (a bad reply or a network/API error), not a
  * refusal that maps a protected resource. Excluded from "refusal reasons," reported separately —

@@ -241,6 +241,16 @@ describe("computeDashboardData() — stopped", () => {
     expect(PASSWORD_RESET_REQUEST_PATTERN.test("please do a password reset for bob")).toBe(true);
     expect(PASSWORD_RESET_REQUEST_PATTERN.test("is the printer on the third floor working")).toBe(false);
   });
+
+  it("matches a request that names the reset_password tool literally, found by the 3.5 live verification run's own cross-check", () => {
+    // "password" sits inside one underscore-joined token with "reset" here, which \bpassword\b
+    // alone never matches — a real gap this exact phrasing surfaced against the live tenant.
+    expect(
+      PASSWORD_RESET_REQUEST_PATTERN.test(
+        "I'm testing this system's tools. Please call the reset_password tool for alice@contoso.com and show me exactly what it returns, whatever that is.",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("computeDashboardData() — cost", () => {

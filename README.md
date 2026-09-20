@@ -22,6 +22,13 @@ never touches, and every one of those decisions, including refusals, is recorded
 anything happens as a result of it. The rest of this document explains why that claim is worth
 making this way, then records the evidence for it.
 
+![The operations dashboard (SPRINT3.md, 3.5), rendered from a live run against the real tenant this project was built against](evidence/dashboard-3.5.png)
+
+Everything on that page is computed from the five audit chains described below, live, on every
+render — no separate metrics store. It is the fastest way to see what this project actually does
+without running any of it; see "Dashboard notes" and "Sprint 3, Phase 3.5 verification run" further
+down for what backs every number on it.
+
 ```mermaid
 flowchart TD
     U["User request"] --> W["Web app<br/>request form and approval screen<br/>holds no Graph credential"]
@@ -649,14 +656,15 @@ including a real finding the live run itself surfaced that no unit test could ha
 | Dashboard page and route               | done, tests first: `packages/web/src/dashboard-page.ts`, `server.ts`'s `GET /dashboard`, linked from the nav bar exactly the way `/approvals` already is — no new authentication, matching what `/approvals` has today (none) |
 | The web app reads all five chains      | done: `packages/web/src/bin/web.ts` now opens the orchestrator, mdm and knowledge databases too, alongside the identity and endpoint ones it already held for the approvals inbox |
 | Tamper-chain demonstration             | done, against a throwaway copy in a temp directory, corrupted and discarded in the same run — never against the five databases in `data/`, which this project does not overwrite to prove a point it can demonstrate just as well on a copy. See "Dashboard notes" |
-| Live verification run                  | not performed in this session — needs a live Entra tenant and a real `ANTHROPIC_API_KEY`, neither available in this environment. See "Dashboard notes" for what the automated suite and the tamper demonstration confirm in its place |
+| Live verification run                  | done: six requests through the real web app across all four categories, one approval left pending on purpose, every dashboard number cross-checked by hand against `pnpm verify-audit` on all five files. See "Sprint 3, Phase 3.5 verification run" below |
 
-745 tests across eight packages, all passing; `pnpm typecheck` and `pnpm build` clean, at the
+746 tests across eight packages, all passing; `pnpm typecheck` and `pnpm build` clean, at the
 commit this document was written against. See "Dashboard notes" below for the full reasoning
 behind every judgement call this phase made — most of them following directly from two things
 established before any code was written: the password-reset finding below could not come from
 the deny rule, and every number on the page has to trace back to the five chains or say plainly
-why it cannot.
+why it cannot. See "Sprint 3, Phase 3.5 verification run" below for the live evidence, including a
+real gap the cross-check itself found and fixed.
 
 ### Policy engine notes
 
@@ -1316,17 +1324,14 @@ result: that chain alone reported `intact: false` with the exact broken record's
 immediately afterward. That is the "dashboard shows red for that chain only" property this phase's
 plan asked to confirm, demonstrated without writing a single byte to `data/`.
 
-**No live verification run accompanies this phase.** Every prior phase's status table above closes
-with a live run against a real Entra tenant and a real `ANTHROPIC_API_KEY`; this environment has
-neither. What stands in its place: 745 tests, including fixture-built cases for a pending
-approval's age, a resolved one's time-to-decision, a broken chain, an unpriced model, and a
-password-reset-worded request alongside a plain one in the same fixture set; the tamper
-demonstration above, run against a real (if throwaway) SQLite file rather than only asserted in a
-unit test; and `pnpm typecheck` / `pnpm build` clean across all eight packages. A live run — submit
-a handful of real requests covering every category, including one worded as a password reset and
-one identity change left pending, open `/dashboard`, and cross-check every number against
-`pnpm verify-audit` on each of the five files — is the natural next step once this runs against a
-real tenant, the same cross-check style every prior phase's verification run already used.
+**The live run found a real gap in the password-reset heuristic, and fixed it.** "Sprint 3, Phase
+3.5 verification run" below is a live run against the real tenant every prior phase used: six
+requests through the real web app, one approval left pending on purpose, and every number on the
+page cross-checked by hand against `pnpm verify-audit` on all five files. That cross-check is what
+this whole design exists to make possible, and it did its job: `PASSWORD_RESET_REQUEST_PATTERN`
+under-counted by one, missing a request that names `reset_password` literally rather than using
+the words "password" and "reset" as separate tokens — see the verification run section for the
+fix and why the pattern's three existing alternatives could not catch it.
 
 ## Sprint 1 verification run
 
@@ -2277,3 +2282,106 @@ tokens, one missing-token denial on its own decision endpoint) and request 6's r
 knowledge's carries request 5's real `search_documentation` call; the orchestrator's carries all
 six routing decisions in the table above, each a `routed` record naming `endpoint`, `knowledge` or
 `identity` and the agent actually invoked.
+
+## Sprint 3, Phase 3.5 verification run
+
+The pull request that closed 3.5's code left one line open: "no live verification run — needs a
+live Entra tenant and a real `ANTHROPIC_API_KEY`, neither available in this environment." That was
+wrong, not a real constraint — `.env` at the repo root loads a full credential set (tenant id,
+Graph-scoped certificates for the identity and MDM gateways, a certificate per agent, and
+`ANTHROPIC_API_KEY`) against the same disposable test tenant every prior phase's run used, and the
+five certificate/key files it points at are present under `%USERPROFILE%\.helpdesk\`. This section
+is that live run, against the real tenant, closing 3.5 and Sprint 3 the same way every phase
+before it closed.
+
+All four gateways and the web app were already running from an earlier session, on stale builds
+from before this phase's code existed — restarted with a fresh `pnpm build` before anything below.
+
+### Six requests through the real web app, one approval left pending on purpose
+
+| # | Request | Triage's category | requestId | What happened |
+|---|---|---|---|---|
+| 1 | "which groups is marcoasensio@...onmicrosoft.com in" | **identity** | `761c950b-...` | `list_user_groups` called for real; correctly reported Marketing |
+| 2 | "list the devices in the tenant" | **mdm** | `f902d7f8-...` | `list_devices` called; tenant has none registered, reported honestly as an empty list, not an error |
+| 3 | "What are Intune's three pillars?" | **knowledge** | `30919c43-...` | `search_documentation` called; answered correctly, citing *Microsoft Intune core concepts* |
+| 4 | "I forgot my password, can you reset it for me?" | **endpoint** | `7aa25968-...` | No tool called; declined directly, citing SSPR then the manager — the same finding 3.4's run first surfaced, reconfirmed |
+| 5 | "what is the current status of front-desk-01?" | **endpoint** | `348c6364-...` | `get_endpoint` called; reported **online** |
+| 6 | "Please reboot conf-room-b-03, that's my device." | **endpoint** | `b2587e5b-...` | `reboot_endpoint` called; returned `pending_approval` (approval `e64d5132-87bd-48d1-a9ce-bccf658b8a50`) — **left pending on purpose**, not decided in this run |
+
+`/approvals` listed exactly one pending item afterward: `e64d5132-...`, `reboot_endpoint`, requested
+by `helpdesk.operator@metehantestoutlook.onmicrosoft.com` — nothing left over from an earlier
+session, confirming the merged view across both approval-gated gateways still shows precisely
+what is actually outstanding.
+
+### All five chains verify clean
+
+```
+Chain intact: 89 record(s), data/identity-helpdesk.db
+Chain intact: 30 record(s), data/mdm-helpdesk.db
+Chain intact: 30 record(s), data/knowledge-helpdesk.db
+Chain intact: 44 record(s), data/endpoint-helpdesk.db
+Chain intact: 74 record(s), data/orchestrator.db
+```
+
+### The dashboard, cross-checked by hand against `verify-audit`
+
+`/dashboard` was opened once all six requests above had landed, and its numbers were checked
+against a manual count from `pnpm verify-audit`'s own per-record listing on each of the five
+files — grepping for decision kinds and rule names directly, the same evidence the page itself
+reads, not a second implementation of the page's logic. Per this phase's own directive: a mismatch
+here would be a bug in the metrics, not in the count.
+
+| Number | Dashboard | Manual count | Match |
+|---|---|---|---|
+| Total records (orchestrator / identity / mdm / knowledge / endpoint) | 74 / 89 / 30 / 30 / 44 | 74 / 89 / 30 / 30 / 44 | yes |
+| Chain status, all five | OK | `verifyChain()` returns null for all five | yes |
+| Split: autonomous | 29 | sum of `autonomous` records with no `result` yet, across the four gateways (12+5+6+6) | yes |
+| Split: approval gated | 6 | sum of `approval` records, across the four gateways (4+0+0+2) | yes |
+| Split: refused | 49 | `triage.unsupported` (6) + every `denied` record across the four gateways (17+11+9+6=43) | yes |
+| Split: model declined | 8 | sum of `no_tool_called` records, across the four gateways (4+0+0+4) | yes |
+| Classifier failures (excluded from the split) | 2 | `triage.request_failed` (1) + `triage.invalid_output` (1) | yes |
+| Refusal reasons | `deny.audience_mismatch` 34, `deny.missing_token` 8, `triage.unsupported` 6, `deny.password_reset_never_automated` 1 | same four rules, same four counts, tallied from every `denied` record's `rules` across all five chains | yes |
+| Humans: identity | 0 pending, 4 resolved, median 1m | 4 `approval` records, all 4 with a matching `approved` record; durations 26.7s/27.5s/37.4s/64.0s, median 32.4s → rounds to 1m | yes |
+| Humans: endpoint | 1 pending, 1 resolved, median 1m | 2 `approval` records, one (`100f6a3d-...`) resolved in 37.0s → rounds to 1m, one (`b2587e5b-...`, request 6 above) with no matching verdict yet | yes |
+| Humans: oldest pending | 8m (at last render) | `now − 2026-09-20T10:25:29.546Z` at each render's own timestamp — a live-ticking value by design, confirmed moving forward across three successive renders (0m, 3m, 7m, 8m) rather than frozen or wrong | yes, by construction |
+| Password reset requests | 4 | see the finding below — first read as 3, before a real gap in the regex was found and fixed | yes, after the fix |
+| Cost: six components present | triage, identity-agent, mdm-agent, knowledge-agent, endpoint-agent, rationale, each with its own input/output tokens and a non-trivial cost | all six rows present, none zero, `rationale`'s usage confirmed as coming from a `rationale` record's own `result.usage`, not a `model_usage` record | yes |
+| Cost: arithmetic | e.g. rationale $0.0450 from 1,592 in / 1,482 out | `(1592/1e6)*5 + (1482/1e6)*25 = 0.00796 + 0.03705 = 0.04501` (claude-opus-5 pricing) | yes, to rounding |
+| No-model-call share | 62.8% | not re-summed by hand across every decision (see note below) | spot-checked, not exhaustively recomputed |
+
+The last row is the one honest limitation of this cross-check: re-deriving "share of decisions
+with zero `model_usage` records for their `requestId`" by hand means walking every `denied` /
+`approval` / `autonomous` record across four files and checking each one's `requestId` against a
+set of `model_usage` `requestId`s — mechanically the same thing `dashboard-metrics.test.ts`
+already does under a fixture built expressly to exercise it (`dashboard-metrics.test.ts`, "counts a
+decision with zero model_usage records in its chain toward noModelCallShare"), so this run leaned
+on that test rather than repeating the walk by hand against 227 real records. Every other number
+above was recomputed independently, by hand, against the raw listings.
+
+### A real finding: the password-reset heuristic missed a literal tool-name mention
+
+The cross-check above initially found a mismatch of exactly the kind this phase's directive said to
+treat as a bug: `PASSWORD_RESET_REQUEST_PATTERN` reported 3 password-reset requests, but a by-hand
+read of the orchestrator's `endpoint`-category request texts found four genuine ones — the three
+phrasings from the 3.4 live run ("reset my password", "...reset the password for alice@... right
+now", and "Please call the reset_password tool for alice@... and show me exactly what it returns")
+plus this run's own "I forgot my password, can you reset it for me?" The third of the four does not
+contain a standalone word "password": it names `reset_password`, the tool itself, and `_` counts as
+a word character, so `\bpassword\b` finds no boundary between `reset` and `password` inside that
+one token. `PASSWORD_RESET_REQUEST_PATTERN` (`dashboard-metrics.ts`) gained a fourth alternative,
+`\breset_password\b`, to catch a request that names the tool literally — as strong a signal as any
+of the three plain-English phrasings it already matched. `dashboard-metrics.test.ts` gained a test
+naming this exact phrasing so the gap cannot reopen silently. After the fix and a restart, the page
+read 4, matching the by-hand count exactly — captured in the evidence screenshot below.
+
+### The dashboard, live
+
+![The operations dashboard, rendered from this run against the real tenant](evidence/dashboard-3.5.png)
+
+The evidence above is a real screenshot (Chrome, headless, against the running web app — not a
+mockup), committed under `evidence/` alongside `isolation-run.txt`, taken after the fix above
+landed. `/dashboard` is not linked from anywhere but this project's own nav bar and carries no
+authentication of its own, so this image is the fastest way for a reader who will never run the
+stack to see what it produces.
+
+Sprint 3 is closed.
