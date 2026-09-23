@@ -135,6 +135,17 @@ describe("runEndpointAgent()", () => {
     expect(prompt).toContain("Never claim to have performed an action");
   });
 
+  it("tells the model to name a device only on a real match, and never to recite the fleet as a menu", async () => {
+    const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
+
+    await runEndpointAgent({ actor: "alice@contoso.com", requestText: "my laptop won't turn on", dbPath, runQuery, getAccessToken });
+
+    const prompt = String(runQuery.mock.calls[0]![0].options.systemPrompt).replace(/\s+/g, " ");
+    expect(prompt).toContain("only name a specific managed endpoint back to the requester, when what they described actually identifies one");
+    expect(prompt).toContain("tell them in one sentence that their device is not one this system manages, and stop there");
+    expect(prompt).toContain("Never read back the list of managed endpoints as a menu");
+  });
+
   it("tells the model a pending approval on reboot_endpoint is the normal, successful outcome", async () => {
     const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 

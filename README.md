@@ -1247,6 +1247,20 @@ person on the other end of the request, not the mechanism that stops the reset f
 this file's own prompt were deleted entirely, `reset_password` would still be refused exactly the
 same way, because the refusal was never here.
 
+**Sprint 4 prep: the agent no longer recites the stub fleet at people who never asked for it.**
+Phase 3.4's own verification run (below) treated "the agent asked which endpoint, rather than
+guessing" as the right behavior for an ambiguous request, and for a single hand-typed example it
+was. The 150-ticket simulation run showed what that same behavior looks like at volume:
+`list_endpoints` called 30 times, `front-desk-01`, `warehouse-printer-02` and `conf-room-b-03` read
+back to people asking about their own personal laptop — not a clarifying question so much as this
+system's internal inventory recited at anyone who mentioned a device. The system prompt now says
+plainly to name a specific managed endpoint only when what the requester described actually
+identifies one, and otherwise to say in one sentence that their device is not one this system
+manages and stop — never to read back the managed list as a menu. The tools themselves are
+unchanged (`list_endpoints`/`get_endpoint` are still exactly as available as before); what changed
+is what the agent is told to do with an ambiguous request before it decides whether calling either
+one is even useful.
+
 ### Dashboard notes
 
 SPRINT3.md, 3.5. Two things were settled before any code for this phase was written, and almost
