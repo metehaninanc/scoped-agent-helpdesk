@@ -24,7 +24,9 @@
     "route": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/orchestrator.js",
     "token-smoke": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/bin/token-smoke.js",
     "reset-password-smoke": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/bin/reset-password-smoke.js",
-    "web": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/web.js"
+    "web": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/web.js",
+    "simulate": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/simulate.js",
+    "simulate-summary": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/simulate-summary.js"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

@@ -22,12 +22,12 @@ never touches, and every one of those decisions, including refusals, is recorded
 anything happens as a result of it. The rest of this document explains why that claim is worth
 making this way, then records the evidence for it.
 
-![The operations dashboard (SPRINT3.md, 3.5), rendered from a live run against the real tenant this project was built against](evidence/dashboard-3.5.png)
+![The operations dashboard, rendered from a 150-ticket simulation run against the real tenant this project was built against](evidence/simulation-dashboard.png)
 
 Everything on that page is computed from the five audit chains described below, live, on every
 render — no separate metrics store. It is the fastest way to see what this project actually does
-without running any of it; see "Dashboard notes" and "Sprint 3, Phase 3.5 verification run" further
-down for what backs every number on it.
+without running any of it; see "Dashboard notes" and "Simulation run (Sprint 4 prep, pass one)"
+further down for what backs every number on it.
 
 ```mermaid
 flowchart TD
@@ -2385,3 +2385,146 @@ authentication of its own, so this image is the fastest way for a reader who wil
 stack to see what it produces.
 
 Sprint 3 is closed.
+
+## Simulation run (Sprint 4 prep, pass one)
+
+Sprint 4's own spec has not been written yet. This is independent of it: a runner
+(`packages/web/src/bin/simulate.ts`, `pnpm simulate`) that submits realistic synthetic tickets
+through the real entry point — `routeRequest()`, the same function the web form's own POST handler
+calls, never a shortcut that invokes an agent directly — so this project's first look at
+volume beyond a handful of hand-typed requests is exercised through triage and the orchestrator
+like anything else. What follows is that runner's first, and so far only, pass: submission only,
+nothing decided, nothing followed up. A second pass is a deliberate choice for later, once a human
+has read pass one's own results, not something this phase builds ahead of that decision.
+
+**Input, and what never leaves it.** `test/sim_records{1,2,3}.json`, 50 tickets each, 150 total,
+written by three different models so the phrasing varies. Every entry on disk carries a fourth
+field, `actualNeed` — the reference for scoring the run afterward — that must never reach a model,
+a result record, or even a variable outside the loader. `simulation-tickets.ts` enforces this by
+parsing, not by care: the on-disk shape is `.strict()` (exactly four fields; a missing
+`actualNeed`, a missing required field, or a surprise fifth field all fail loudly), and the moment
+an entry validates, the loader destructures out exactly `{ id, submittedBy, text }` into a type
+with no field that could hold `actualNeed`. Confirmed on the real output, not only in
+`simulation-tickets.test.ts`: `grep -c actualNeed evidence/simulation-results.jsonl` returns `0`
+across all 150 recorded results.
+
+**Actor mapping, checked against the real directory rather than assumed from this document.**
+`submittedBy` addresses are synthetic (`k.adams@motor.ai`, `nina.keller@example.com`, ...) — invented
+for the test data, not real tenant users, so a ticket like "add me to marketing" can never resolve
+against Microsoft Graph the way it would for an actual employee. Before mapping anything, the real
+directory was queried directly (`GET /v1.0/users`, the identity gateway's own already-permitted
+credential — the same call `graph-smoke.ts` makes) rather than trusting this document's own prior
+narrative, which turned out not to be fully reliable: the tenant holds exactly nine users, and
+`it.manager@...` — used as the approver identity in every earlier live verification run above — is
+not one of them. An actor or approver UPN is never Graph-validated, only format-checked, so nothing
+before this check would ever have caught that. The final round-robin pool of four, chosen with
+that finding in hand: `alexdesouza@`, `didierdrogba@`, `marcoasensio@`, and `helpdesk.operator@`
+(all `@metehantestoutlook.onmicrosoft.com`) — excluding the two break-glass accounts (must never be
+an ordinary actor), the tenant admin's own guest account, and the three Training User accounts,
+none of which belong to this project. `helpdesk.operator@` is kept even though it, too, is absent
+from the directory, the same way `it.manager` was not: kept on explicit instruction rather than
+excluded, since only `it.manager` was conditioned on the directory check. `simulation-actor-mapping.ts`
+assigns each of the 108 distinct synthetic addresses to one of the four, round robin, sorted first
+so the assignment does not depend on read order; the result is committed at `test/actor-mapping.json`
+so a resumed or re-run simulation always maps the same synthetic address to the same real UPN.
+
+**Five dedicated chains, never the five under `data/`.** `data/sim-{identity,mdm,knowledge,endpoint,
+orchestrator}.db` — the same five databases every other section of this document verifies, just
+this run's own copies, so 150 tickets' worth of records never bury the verification evidence
+Sprints 1 through 3 already left in the real five. Four gateways were started against the sim
+paths on their own ports, distinct from the real gateways' 3001-3004 so neither run has to stop
+for the other:
+
+```
+node packages/identity-gateway/dist/bin/gateway.js  --port 3011 --db data/sim-identity.db
+node packages/mdm-gateway/dist/bin/gateway.js       --port 3012 --db data/sim-mdm.db
+node packages/knowledge-gateway/dist/bin/gateway.js --port 3013 --db data/sim-knowledge.db
+node packages/endpoint-gateway/dist/bin/gateway.js  --port 3014 --db data/sim-endpoint.db
+```
+
+`bin/simulate.ts` itself never spawns these — the four agent files read `*_GATEWAY_URL` from their
+own process's environment once, at module load time, so the sim ports have to be set before the
+runner process even starts, not inside it:
+
+```
+IDENTITY_GATEWAY_URL=http://127.0.0.1:3011 MDM_GATEWAY_URL=http://127.0.0.1:3012 \
+KNOWLEDGE_GATEWAY_URL=http://127.0.0.1:3013 ENDPOINT_GATEWAY_URL=http://127.0.0.1:3014 \
+pnpm simulate
+```
+
+**One turn each, no shortcuts, fully resumable.** Every ticket is one `routeRequest()` call —
+exactly what the web form already does per submission, and the only turn any agent in this system
+ever gets, since nothing here loops a conversation. There was never a mechanism to add "answer the
+clarifying question" to, so pass one holding to that rule is a property of the architecture, not a
+check this runner added. Sequential, with a 1.5s delay between tickets. Every completed ticket is
+appended to `evidence/simulation-results.jsonl` the moment it finishes, and a ticket already
+present there (by `sourceFile` + `id`, since ids repeat T001-T050 across the three files) is
+skipped on the next invocation — a crash or a stop partway through costs nothing already recorded.
+A runner-level failure (a network blip, not the system's own decision) is caught, recorded with an
+`error` field and `category: "error"`, and the run moves on rather than stopping or retrying — a
+ticket the system could not complete is data, the same as one it refused.
+
+**Results: 150/150 processed, zero runner errors.**
+
+| Category | Count |
+|---|---|
+| endpoint | 50 |
+| unsupported | 41 |
+| identity | 26 |
+| knowledge | 25 |
+| mdm | 8 |
+
+| Outcome | Count |
+|---|---|
+| Reached a tool | 73 |
+| Model declined (no tool called) | 36 |
+| ...of which, looks like a clarifying question | 14 |
+| Refused by a named policy rule | 0 |
+| Runner error | 0 |
+
+**The most interesting number is the zero.** Not one of the 150 tickets triggered a gateway policy
+denial — every one of the 41 "unsupported" outcomes was triage declining to route at all, not a
+gateway refusing a routed request. That is a property of the data, not the system: these are
+ordinary "how do I..." helpdesk phrasings from three different models, not the adversarial or
+edge-case requests every prior live run in this document deliberately constructed (a break-glass
+target, an unmanaged group, "reset my password" worded three ways). A synthetic ticket set built
+for volume and a synthetic ticket set built to exercise a deny rule are different instruments; this
+run is evidence of the first kind, and says nothing new about the second. The "looks like a
+clarifying question" count is a heuristic, the same shape as `PASSWORD_RESET_REQUEST_PATTERN`: a
+no-tool-called reply counts as one when it contains a "?", nothing more sophisticated, and the raw
+36 is reported alongside it for exactly that reason.
+
+**Three approval-gated writes are pending, decided by nobody.** The identity gateway's own chain
+carries three `approval` decisions with no matching `approved`/`rejected` record — real
+`add_user_to_group`/`remove_user_from_group` requests this run reached but never acted on, because
+pass one submits and records, and nothing here decides an approval or answers a follow-up. They sit
+in `data/sim-identity.db` exactly as any other pending approval would, ready for a human to look at
+through a dashboard pointed at the sim chains, not through this one.
+
+**Cost: $0.9382 total, across all six components' real usage** (`evidence/simulation-summary.md`
+has the full per-component table) — read live from the five sim chains via the same
+`computeDashboardData()` the dashboard itself uses, not re-derived from the JSONL results.
+
+**All five sim chains verify clean:**
+
+```
+Chain intact: 300 record(s), data/sim-orchestrator.db
+Chain intact: 109 record(s), data/sim-identity.db
+Chain intact: 32 record(s), data/sim-mdm.db
+Chain intact: 119 record(s), data/sim-knowledge.db
+Chain intact: 182 record(s), data/sim-endpoint.db
+```
+
+**Evidence committed:** `test/actor-mapping.json` (the mapping), `evidence/simulation-results.jsonl`
+(all 150 per-ticket records, one JSON line each — `id`, `sourceFile`, the mapped `actor`,
+`requestId`, `category`, `partiallyOutOfScope`, which agent was invoked, whether a tool was called,
+the tool name and policy decision when one was, and the final reply text; never `actualNeed`),
+`evidence/simulation-summary.md` (the tables above, generated by `pnpm simulate-summary`), and
+`evidence/simulation-dashboard.png` (the image at the top of this document — the operations
+dashboard, pointed at the five sim chains instead of the real five, the same way this run pointed
+the gateways at them).
+
+**Not built here, deliberately:** a second pass. Which tickets are worth a follow-up — a different
+phrasing, a decided approval, a closer look at one of the 36 declines — is a call for whoever reads
+pass one's own results to make, not a decision this runner should make for them by retrying
+anything on its own.
