@@ -16,6 +16,7 @@
     "identity-gateway": "pnpm --filter @helpdesk/identity-gateway build && node --no-warnings=ExperimentalWarning packages/identity-gateway/dist/bin/gateway.js",
     "mdm-gateway": "pnpm --filter @helpdesk/mdm-gateway build && node --no-warnings=ExperimentalWarning packages/mdm-gateway/dist/bin/gateway.js",
     "knowledge-gateway": "pnpm --filter @helpdesk/knowledge-gateway build && node --no-warnings=ExperimentalWarning packages/knowledge-gateway/dist/bin/gateway.js",
+    "knowledge-reindex": "pnpm --filter @helpdesk/knowledge-gateway build && node --no-warnings=ExperimentalWarning packages/knowledge-gateway/dist/bin/reindex.js",
     "endpoint-gateway": "pnpm --filter @helpdesk/endpoint-gateway build && node --no-warnings=ExperimentalWarning packages/endpoint-gateway/dist/bin/gateway.js",
     "agent": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/identity-agent.js",
     "mdm-agent": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/mdm-agent.js",

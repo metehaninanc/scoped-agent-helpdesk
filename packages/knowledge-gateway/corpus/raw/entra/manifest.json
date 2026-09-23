@@ -1,0 +1,7 @@
+{
+  "product": "entra",
+  "repo": "MicrosoftDocs/entra-docs",
+  "commit": "a37c43ae5c2494cfc4211bb6242eb3151de6e40e",
+  "repoPathPrefix": "docs",
+  "license": "CC-BY-4.0 (content) / MIT (code samples) — see README.md, \"Knowledge gateway notes\", for the entra-docs LICENSE-vs-ThirdPartyNotices.md discrepancy this project relies on"
+}

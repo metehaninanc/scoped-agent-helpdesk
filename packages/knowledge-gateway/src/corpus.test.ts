@@ -4,7 +4,15 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { corpusRawDir, loadCorpus } from "./corpus.js";
+import { corpusRawDir, listProductDirs, loadCorpus, readManifest } from "./corpus.js";
+
+const SAMPLE_MANIFEST = {
+  product: "entra",
+  repo: "MicrosoftDocs/entra-docs",
+  commit: "a37c43ae5c2494cfc4211bb6242eb3151de6e40e",
+  repoPathPrefix: "docs",
+  license: "CC-BY-4.0",
+};
 
 const SAMPLE_DOC = `---
 title: Sample Concept Article
@@ -40,6 +48,7 @@ describe("loadCorpus()", () => {
     dir = await mkdtemp(join(tmpdir(), "helpdesk-corpus-"));
     await mkdir(join(dir, "entra"), { recursive: true });
     await writeFile(join(dir, "entra", "sample.md"), SAMPLE_DOC);
+    await writeFile(join(dir, "entra", "manifest.json"), JSON.stringify(SAMPLE_MANIFEST));
   });
 
   afterEach(async () => {
@@ -84,10 +93,56 @@ describe("loadCorpus()", () => {
     );
   });
 
-  it("skips a source directory that does not exist rather than throwing", async () => {
+  it("indexes nothing, without throwing, when no product directory is present at all", async () => {
     await rm(join(dir, "entra"), { recursive: true, force: true });
     expect(() => loadCorpus(dir)).not.toThrow();
     expect(loadCorpus(dir)).toEqual([]);
+  });
+
+  it("fails loudly on a product directory that is present but has no manifest.json — a malformed folder, not an absent one", async () => {
+    await rm(join(dir, "entra", "manifest.json"));
+    expect(() => loadCorpus(dir)).toThrow(/manifest\.json/);
+  });
+
+  it("fails loudly on a manifest.json that does not match the expected shape", async () => {
+    await writeFile(join(dir, "entra", "manifest.json"), JSON.stringify({ product: "entra" }));
+    expect(() => loadCorpus(dir)).toThrow(/does not match the expected manifest shape/);
+  });
+
+  it("discovers a second product directory generically, by no name more specific than 'a directory with a manifest'", async () => {
+    await mkdir(join(dir, "widgetworks"), { recursive: true });
+    await writeFile(
+      join(dir, "widgetworks", "manifest.json"),
+      JSON.stringify({ product: "widgetworks", repo: "example/widgetworks-docs", commit: "b".repeat(40), repoPathPrefix: "docs", license: "CC-BY-4.0" }),
+    );
+    await writeFile(join(dir, "widgetworks", "other.md"), "# Widgetworks\n\nSome widgetworks content.\n");
+
+    const chunks = loadCorpus(dir);
+
+    expect(listProductDirs(dir).sort()).toEqual(["entra", "widgetworks"]);
+    const widgetChunk = chunks.find((c) => c.id.startsWith("widgetworks/"));
+    expect(widgetChunk?.sourceUrl).toBe("https://github.com/example/widgetworks-docs/blob/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/docs/other.md");
+  });
+});
+
+describe("readManifest()", () => {
+  it("returns the parsed manifest for a well-formed file", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "helpdesk-corpus-manifest-"));
+    try {
+      await writeFile(join(dir, "manifest.json"), JSON.stringify(SAMPLE_MANIFEST));
+      expect(readManifest(dir)).toEqual(SAMPLE_MANIFEST);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws naming the file when manifest.json is missing", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "helpdesk-corpus-manifest-"));
+    try {
+      expect(() => readManifest(dir)).toThrow(/manifest\.json/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

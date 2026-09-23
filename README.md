@@ -393,7 +393,11 @@ packages/knowledge-gateway as of SPRINT3.md 3.3: one tool, search_documentation,
                            Microsoft Learn documentation for Entra and Intune at a pinned commit —
                            see "Knowledge gateway notes" below for the commits and licenses) loaded
                            and lexically indexed once at startup (corpus.ts, search.ts), never
-                           fetched at request time
+                           fetched at request time. As of Sprint 4 prep, corpus/raw/ is a folder
+                           contract, not a hardcoded list: one subdirectory per product, each with
+                           its own manifest.json naming its source repo, commit and license, and
+                           `pnpm knowledge-reindex` (bin/reindex.ts) rebuilds from whatever is
+                           present and reports what it found
 packages/endpoint-gateway  as of SPRINT3.md 3.4: two reads and one approval-gated write against a
                            small local stub endpoint service (stub/endpoint-service.ts), openly
                            marked as a stand-in rather than a real integration — see "Endpoint
@@ -1072,9 +1076,41 @@ answer can always be traced back to an exact, reproducible version of its source
 
 Both are checked into `corpus/raw/<entra|intune>/`, read from disk once at process startup
 (`corpus.ts`'s `loadCorpus()`) and never fetched again — this gateway has no network access to
-fetch them with even if it wanted to. `SOURCES` in `corpus.ts` records the exact commit and repo
-path prefix per source, which is what lets `sourceUrl` on every chunk point at the exact file and
-commit it came from, not just a document title.
+fetch them with even if it wanted to.
+
+**Sprint 4 prep: the corpus is a folder contract, not a hardcoded list.** Before this, the exact
+commit and repo path prefix per source lived in a `SOURCES` array inside `corpus.ts` itself, so
+adding a third product meant a code change to that file. `corpus.ts` no longer names "entra" or
+"intune" anywhere: `loadCorpus()` discovers whatever subdirectories exist under `corpus/raw/`
+(`listProductDirs()`) and reads each one's own `manifest.json` — the same four fields the old
+`SOURCES` entries carried, now data instead of code:
+
+```json
+{
+  "product": "entra",
+  "repo": "MicrosoftDocs/entra-docs",
+  "commit": "a37c43ae5c2494cfc4211bb6242eb3151de6e40e",
+  "repoPathPrefix": "docs",
+  "license": "CC-BY-4.0 (content) / MIT (code samples) — see this section for the full nuance"
+}
+```
+
+Widening coverage to a new product is a directory drop, not a code change: create
+`corpus/raw/<product>/`, add its `manifest.json` and its vendored Markdown, and run
+`pnpm knowledge-reindex` (`bin/reindex.ts`) to confirm it was picked up — the command reports each
+product's file and chunk counts, or fails loudly, naming the exact directory, if a manifest is
+missing or malformed. A directory present under `corpus/raw/` with no manifest is treated as a
+malformed product folder, not an absent one, and `loadCorpus()` throws rather than silently
+indexing nothing for it — the same "fail loudly on the unexpected" discipline this project already
+applies to the simulation ticket loader. There is no persisted index file anywhere: the corpus is
+small enough that every gateway process already rebuilds it from these same files at its own
+startup, so `knowledge-reindex` does that same rebuild on demand, on a schedule a maintainer
+controls, rather than needing to start the whole gateway to find out whether a new directory is
+well-formed. Reindexing is deliberately a command, not a button in the admin panel: a refresh
+control in the UI would be a write action, and would need to go through the policy engine and the
+audit log like every other write in this project does — a later piece of work, not this one.
+`sourceUrl` on every chunk is built the same way as before, from whichever manifest its directory
+carries, so it still points at the exact file and commit it came from, not just a document title.
 
 **Licenses.** Both repositories grant the same two licenses over two different kinds of content,
 stated in each repo's own `ThirdPartyNotices.md` under "Legal Notices": the documentation and
