@@ -115,6 +115,16 @@ describe("runIdentityAgent()", () => {
     expect(runQuery.mock.calls[0]![0].options.model).toBe(DEFAULT_AGENT_MODEL);
   });
 
+  it("states the actor's own UPN as a fact in the system prompt, so \"add me\" can resolve", async () => {
+    const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
+
+    await runIdentityAgent({ actor: "alice@contoso.com", requestText: "add me to marketing", dbPath, runQuery, getAccessToken });
+
+    const prompt = String(runQuery.mock.calls[0]![0].options.systemPrompt);
+    expect(prompt).toContain("alice@contoso.com");
+    expect(prompt).toMatch(/gateway decides and audits every request from its\s+own/);
+  });
+
   it("gives the model no other way to act: the system prompt names the narrow role and forbids retry or an alternative route", async () => {
     const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 

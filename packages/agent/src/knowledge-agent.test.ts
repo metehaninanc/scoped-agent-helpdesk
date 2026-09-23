@@ -107,6 +107,15 @@ describe("runKnowledgeAgent()", () => {
     expect(runQuery.mock.calls[0]![0].options.model).toBe(DEFAULT_AGENT_MODEL);
   });
 
+  it("states the actor's own UPN as a fact in the system prompt", async () => {
+    const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
+
+    await runKnowledgeAgent({ actor: "alice@contoso.com", requestText: "how do groups work", dbPath, runQuery, getAccessToken });
+
+    const prompt = String(runQuery.mock.calls[0]![0].options.systemPrompt);
+    expect(prompt).toContain("alice@contoso.com");
+  });
+
   it("gives the model no other way to act, and forbids claiming an action was performed", async () => {
     const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 

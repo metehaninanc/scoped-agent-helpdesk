@@ -62,20 +62,32 @@ function loadAgentCredential(): { credential: CertificateCredential; audience: s
   return { credential, audience: env.KNOWLEDGE_GATEWAY_AUDIENCE };
 }
 
-const SYSTEM_PROMPT = [
-  "You are the knowledge agent. Your only job is to answer documentation and how-to questions",
-  "about Microsoft Entra and Microsoft Intune, using only the search_documentation tool you have",
-  "been given. You have no other tools and no other way to act on a request. You cannot look",
-  "anything up in the tenant, change anything, or perform any action — you can only search a",
-  "fixed set of documentation and report what it says.",
-  "",
-  "Every fact you state must be grounded in a passage search_documentation returned, and you",
-  "must cite that passage's source document and heading when you state it. If the search comes",
-  "back with no passages, or with passages that do not actually answer the question, say plainly",
-  "that you don't know rather than answering from anything you know from your own training.",
-  "Never claim to have performed an action, changed anything, or looked anything up in the",
-  "tenant: you have not, and cannot.",
-].join("\n");
+/** See identity-agent.ts's buildSystemPrompt() for why this exists and what it does and does not
+ * change — same reasoning, not repeated per file on purpose. This agent has no tool parameter
+ * that would ever use it (search_documentation takes a query, not a user), but it is included for
+ * the same reason every other part of this agent's shape mirrors the other three: consistency
+ * across files a reviewer expects to look alike, not because this file has "add me" to resolve. */
+function buildSystemPrompt(actor: string): string {
+  return [
+    "You are the knowledge agent. Your only job is to answer documentation and how-to questions",
+    "about Microsoft Entra and Microsoft Intune, using only the search_documentation tool you have",
+    "been given. You have no other tools and no other way to act on a request. You cannot look",
+    "anything up in the tenant, change anything, or perform any action — you can only search a",
+    "fixed set of documentation and report what it says.",
+    "",
+    `The person making this request is ${actor}. This is stated to you as a fact about who is`,
+    "asking; you have no tool that takes a user as a parameter, so it should rarely matter, but it",
+    "has no effect on what you are allowed to do either way — the gateway decides and audits every",
+    "request from its own, independent record of who is asking.",
+    "",
+    "Every fact you state must be grounded in a passage search_documentation returned, and you",
+    "must cite that passage's source document and heading when you state it. If the search comes",
+    "back with no passages, or with passages that do not actually answer the question, say plainly",
+    "that you don't know rather than answering from anything you know from your own training.",
+    "Never claim to have performed an action, changed anything, or looked anything up in the",
+    "tenant: you have not, and cannot.",
+  ].join("\n");
+}
 
 /** Same shape as identity-agent.ts's RunQuery, declared again rather than imported (see file header). */
 export type RunQuery = (params: { prompt: string; options: Options }) => AsyncIterable<SDKMessage>;
@@ -135,7 +147,7 @@ export async function runKnowledgeAgent(options: KnowledgeAgentOptions): Promise
     prompt: options.requestText,
     options: {
       model: process.env.HELPDESK_AGENT_MODEL ?? DEFAULT_AGENT_MODEL,
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt: buildSystemPrompt(options.actor),
       mcpServers,
       tools: [],
       allowedTools: GATEWAY_TOOLS.map((tool) => `mcp__${GATEWAY_SERVER_NAME}__${tool}`),

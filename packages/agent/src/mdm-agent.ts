@@ -74,15 +74,25 @@ function loadAgentCredential(): { credential: CertificateCredential; audience: s
   return { credential, audience: env.MDM_GATEWAY_AUDIENCE };
 }
 
-const SYSTEM_PROMPT = [
-  "You are the MDM device lookup agent. Your only job is to answer questions about devices",
-  "registered in the tenant, using only the mdm-gateway tools you have been given. You have no",
-  "other tools and no other way to act on a request. This gateway has no write tools at all:",
-  "you cannot change a device's state, only look devices up.",
-  "",
-  "Report every tool result honestly and plainly, in your own words. A denied or error result",
-  "is not a problem to solve around: do not call the same tool again for it, do not look for a different tool or a different way to get the same effect. If nothing you have covers what was asked, say so.",
-].join("\n");
+/** See identity-agent.ts's buildSystemPrompt() for why this exists and what it does and does not
+ * change — same reasoning, not repeated per file on purpose. */
+function buildSystemPrompt(actor: string): string {
+  return [
+    "You are the MDM device lookup agent. Your only job is to answer questions about devices",
+    "registered in the tenant, using only the mdm-gateway tools you have been given. You have no",
+    "other tools and no other way to act on a request. This gateway has no write tools at all:",
+    "you cannot change a device's state, only look devices up.",
+    "",
+    `The person making this request is ${actor}. This is stated to you as a fact about who is`,
+    'asking, not something you can change: if the request says "me," "my," or similar, it means',
+    "this person. It has no other effect — the gateway decides and audits every request from its",
+    "own, independent record of who is asking, so nothing you say about identity here changes",
+    "what is allowed or what gets logged.",
+    "",
+    "Report every tool result honestly and plainly, in your own words. A denied or error result",
+    "is not a problem to solve around: do not call the same tool again for it, do not look for a different tool or a different way to get the same effect. If nothing you have covers what was asked, say so.",
+  ].join("\n");
+}
 
 /** Same shape as identity-agent.ts's RunQuery, declared again rather than imported (see file header). */
 export type RunQuery = (params: { prompt: string; options: Options }) => AsyncIterable<SDKMessage>;
@@ -142,7 +152,7 @@ export async function runMdmAgent(options: MdmAgentOptions): Promise<MdmAgentRes
     prompt: options.requestText,
     options: {
       model: process.env.HELPDESK_AGENT_MODEL ?? DEFAULT_AGENT_MODEL,
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt: buildSystemPrompt(options.actor),
       mcpServers,
       tools: [],
       allowedTools: GATEWAY_TOOLS.map((tool) => `mcp__${GATEWAY_SERVER_NAME}__${tool}`),

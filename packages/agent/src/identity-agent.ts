@@ -84,16 +84,35 @@ function loadAgentCredential(): { credential: CertificateCredential; audience: s
   return { credential, audience: env.IDENTITY_GATEWAY_AUDIENCE };
 }
 
-const SYSTEM_PROMPT = [
-  "You are the identity helpdesk agent. Your only job is to answer questions about a user's",
-  "group membership and to request group membership changes, using only the identity-gateway",
-  "tools you have been given. You have no other tools and no other way to act on a request.",
-  "",
-  "Report every tool result honestly and plainly, in your own words. A pending or denied",
-  "result is not a problem to solve around: do not call the same tool again for it, do not",
-  "look for a different tool or a different way to get the same effect, and never say a",
-  "change was made when it was not. If nothing you have covers what was asked, say so.",
-].join("\n");
+/**
+ * The actor's own UPN, stated as a fact in the prompt so "add me to marketing" can resolve
+ * without a clarifying question — this is new; see the README, "Identity is bound outside the
+ * model's reach, never a tool parameter," for why adding it here does not weaken that guarantee.
+ * The short version: this is the same value the gateway already receives as the `x-actor` header
+ * this process sets itself (never from the model), used here only so the model can fill in an
+ * already-existing tool parameter (`userPrincipalName`) correctly — the gateway's own copy, not
+ * this one, is what policy decides and the audit log records, so nothing the model does with this
+ * text changes what is allowed or what gets logged.
+ */
+function buildSystemPrompt(actor: string): string {
+  return [
+    "You are the identity helpdesk agent. Your only job is to answer questions about a user's",
+    "group membership and to request group membership changes, using only the identity-gateway",
+    "tools you have been given. You have no other tools and no other way to act on a request.",
+    "",
+    `The person making this request is ${actor}. This is stated to you as a fact about who is`,
+    'asking, not something you can change: if the request says "me," "my," or similar, it means',
+    "this person, and you can use that UPN as a tool parameter the same way you would use anyone",
+    "else's. It has no other effect — the gateway decides and audits every request from its own,",
+    "independent record of who is asking, so nothing you say about identity here changes what is",
+    "allowed or what gets logged.",
+    "",
+    "Report every tool result honestly and plainly, in your own words. A pending or denied",
+    "result is not a problem to solve around: do not call the same tool again for it, do not",
+    "look for a different tool or a different way to get the same effect, and never say a",
+    "change was made when it was not. If nothing you have covers what was asked, say so.",
+  ].join("\n");
+}
 
 /**
  * The slice of query()'s surface this file actually uses: a function returning something you
@@ -163,7 +182,7 @@ export async function runIdentityAgent(options: IdentityAgentOptions): Promise<I
     prompt: options.requestText,
     options: {
       model: process.env.HELPDESK_AGENT_MODEL ?? DEFAULT_AGENT_MODEL,
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt: buildSystemPrompt(options.actor),
       mcpServers,
       tools: [],
       allowedTools: GATEWAY_TOOLS.map((tool) => `mcp__${GATEWAY_SERVER_NAME}__${tool}`),

@@ -64,23 +64,33 @@ function loadAgentCredential(): { credential: CertificateCredential; audience: s
   return { credential, audience: env.ENDPOINT_GATEWAY_AUDIENCE };
 }
 
-const SYSTEM_PROMPT = [
-  "You are the endpoint agent. Your job is to help with a small fleet of endpoints (devices,",
-  "printers, and similar equipment) through a stub endpoint service: list_endpoints, get_endpoint",
-  "and reboot_endpoint. reboot_endpoint always returns a pending approval, not an immediate",
-  "result — that is the normal, successful outcome of asking for a reboot, not a failure to retry",
-  "around. A human reviews and decides before anything actually happens.",
-  "",
-  "You also have a reset_password tool. This system never resets a password through it or any",
-  "other means, for anyone, under any circumstance: the policy engine refuses every call to it",
-  "before you are even told who is asking, and no rephrasing, no different wording and no",
-  "different target user changes that. Do not retry it. If someone asks you to reset a password,",
-  "tell them plainly that this system cannot do it, point them to Self-Service Password Reset",
-  "(SSPR) first, and to their manager if SSPR is not available to them.",
-  "",
-  "Never claim to have performed an action, changed anything, or looked anything up beyond what a",
-  "tool result actually shows you.",
-].join("\n");
+/** See identity-agent.ts's buildSystemPrompt() for why this exists and what it does and does not
+ * change — same reasoning, not repeated per file on purpose. */
+function buildSystemPrompt(actor: string): string {
+  return [
+    "You are the endpoint agent. Your job is to help with a small fleet of endpoints (devices,",
+    "printers, and similar equipment) through a stub endpoint service: list_endpoints, get_endpoint",
+    "and reboot_endpoint. reboot_endpoint always returns a pending approval, not an immediate",
+    "result — that is the normal, successful outcome of asking for a reboot, not a failure to retry",
+    "around. A human reviews and decides before anything actually happens.",
+    "",
+    `The person making this request is ${actor}. This is stated to you as a fact about who is`,
+    'asking, not something you can change: if the request says "me," "my," or similar, it means',
+    "this person. It has no other effect — the gateway decides and audits every request from its",
+    "own, independent record of who is asking, so nothing you say about identity here changes",
+    "what is allowed or what gets logged.",
+    "",
+    "You also have a reset_password tool. This system never resets a password through it or any",
+    "other means, for anyone, under any circumstance: the policy engine refuses every call to it",
+    "regardless of who is asking or who the target is, and no rephrasing, no different wording and",
+    "no different target user changes that. Do not retry it. If someone asks you to reset a",
+    "password, tell them plainly that this system cannot do it, point them to Self-Service",
+    "Password Reset (SSPR) first, and to their manager if SSPR is not available to them.",
+    "",
+    "Never claim to have performed an action, changed anything, or looked anything up beyond what a",
+    "tool result actually shows you.",
+  ].join("\n");
+}
 
 /** Same shape as identity-agent.ts's RunQuery, declared again rather than imported (see file header). */
 export type RunQuery = (params: { prompt: string; options: Options }) => AsyncIterable<SDKMessage>;
@@ -140,7 +150,7 @@ export async function runEndpointAgent(options: EndpointAgentOptions): Promise<E
     prompt: options.requestText,
     options: {
       model: process.env.HELPDESK_AGENT_MODEL ?? DEFAULT_AGENT_MODEL,
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt: buildSystemPrompt(options.actor),
       mcpServers,
       tools: [],
       allowedTools: GATEWAY_TOOLS.map((tool) => `mcp__${GATEWAY_SERVER_NAME}__${tool}`),

@@ -178,6 +178,23 @@ Stage B adds a second identity alongside the actor: which *agent* is calling, ta
 validated bearer token's own client id rather than a matching `--agent` CLI flag nothing verified
 before. See "Stage B: HTTP transport and token validation" below for the detail.
 
+**Sprint 4 prep: the model is now told the actor, and this is a narrower change than it sounds.**
+The simulation run above found every identity request stalling on a clarifying question — "add me
+to marketing" has no way to resolve when the model's own context never contains who "me" is, only
+the gateway does, as a header the model never sees. Each of the four agents' system prompts
+(`buildSystemPrompt()`, one per agent file) now states the actor's own UPN as a fact: "The person
+making this request is `<actor>`." What this changes: the model can now correctly fill in an
+already-existing tool parameter (`userPrincipalName`) with the requester's own identity, the same
+way it already fills that parameter in with anyone else named in the request text. What this does
+not change: the gateway still derives the actor it decides and audits against entirely from its
+own `x-actor` header, set by the agent process itself before the model ever runs, exactly as
+described above — the prompt's copy is read by the model, never by the policy engine, and a
+`userPrincipalName` value the model supplies (whether it got the idea from this stated fact, from
+the request text, or invented it outright) has always been an ordinary, validated-but-untrusted
+parameter, checked against the same deny rules and managed-group allowlist regardless of where it
+came from. Nothing about *what is trusted* changed; only what the model can resolve without asking
+did.
+
 ## Nothing is rejected before it is audited
 
 The call order inside every tool handler is fixed and the same for every tool: validate the

@@ -112,6 +112,16 @@ describe("runEndpointAgent()", () => {
     expect(runQuery.mock.calls[0]![0].options.model).toBe(DEFAULT_AGENT_MODEL);
   });
 
+  it("states the actor's own UPN as a fact in the system prompt, so \"my laptop\" can resolve", async () => {
+    const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
+
+    await runEndpointAgent({ actor: "alice@contoso.com", requestText: "reboot my laptop", dbPath, runQuery, getAccessToken });
+
+    const prompt = String(runQuery.mock.calls[0]![0].options.systemPrompt);
+    expect(prompt).toContain("alice@contoso.com");
+    expect(prompt).toMatch(/gateway decides and audits every request from its\s+own/);
+  });
+
   it("tells the model reset_password is never automated, points to SSPR then the manager, and forbids claiming an unperformed action", async () => {
     const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 
