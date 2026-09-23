@@ -48,6 +48,22 @@ describe("TRIAGE_SYSTEM_PROMPT", () => {
     expect(TRIAGE_SYSTEM_PROMPT).toContain("classify any");
     expect(TRIAGE_SYSTEM_PROMPT).toContain("password reset request here");
   });
+
+  it("scopes knowledge to any workplace IT how-to question, not just identity or device management", () => {
+    const prompt = TRIAGE_SYSTEM_PROMPT.replace(/\s+/g, " ");
+    expect(prompt).toContain("anything IT supports at work");
+    expect(prompt).toContain("even if you are not sure the documentation actually covers that specific product");
+  });
+
+  it("narrows unsupported to genuinely non-IT requests, naming facilities/HR/personal/family/delivery explicitly", () => {
+    const prompt = TRIAGE_SYSTEM_PROMPT.replace(/\s+/g, " ");
+    expect(prompt).toContain("a request that is not an IT matter at all");
+    expect(prompt).toContain("facilities");
+    expect(prompt).toContain("HR");
+    expect(prompt).toContain("family member's own issue");
+    expect(prompt).toContain("delivery or parcel question");
+    expect(prompt).toContain('Do not put a genuine IT question here just because it is not');
+  });
 });
 
 describe("createTriageClassifier()", () => {

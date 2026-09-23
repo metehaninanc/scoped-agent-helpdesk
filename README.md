@@ -920,6 +920,24 @@ outcome — nothing happens — but silently, with none of that guidance and no 
 audit log (see "Endpoint gateway notes" below). Getting this routing decision right is what makes
 the rest of the redesign actually reachable, not just correct in isolation.
 
+**Sprint 4 prep: `unsupported` narrowed to genuinely non-IT requests, `knowledge` widened to
+everything else IT supports.** The 150-ticket simulation run found 41 "unsupported" outcomes, and
+reading them showed the category had been doing two different jobs under one name: correctly
+declining real non-IT questions (a broken coffee machine, a nephew's job application, a landlord's
+email), and incorrectly declining ordinary workplace IT questions the knowledge agent was never
+given a chance to answer — "how do I share a OneDrive folder," "how do you pin a message in
+Teams," "what's the difference between OneDrive and SharePoint." `knowledge`'s own definition had
+scoped it to "identity or device management" specifically, so anything IT-shaped but outside that
+narrower pair fell through to `unsupported` by default, regardless of whether the corpus might
+actually cover it. The category boundary now matches the real line that matters: `unsupported` is
+for requests that are not an IT matter at all (facilities, HR, a personal device or account with
+no work connection, a family member's own issue, a delivery question), and every other IT how-to
+question — whether or not today's Entra/Intune-only corpus happens to cover it — is `knowledge`'s
+to attempt and decline honestly if it cannot answer, the same "say what you don't know" discipline
+the knowledge agent already had. This is a change to what the two categories mean, not to the
+routing mechanism or the category set itself — still the same five values, still a single isolated
+classification call with no memory or extracted parameters.
+
 Triage's output deliberately carries no extracted parameters, even though SPRINT3.md's own text
 originally described it that way — that line has since been corrected to match (see SPRINT3.md,
 3.1). The reasoning: an unused field is a field that gets used later. Today
