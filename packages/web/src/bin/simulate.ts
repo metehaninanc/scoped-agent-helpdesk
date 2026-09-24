@@ -34,6 +34,7 @@
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import { routeRequest } from "@helpdesk/agent";
@@ -239,7 +240,14 @@ async function main(): Promise<void> {
   console.error(`[simulate] done: ${processed} new ticket(s) processed this run, ${alreadyDone.size + processed}/${loaded.length} total recorded`);
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
-  process.exit(1);
-});
+// Guarded, unlike a script meant only to be run directly: simulate-summary.ts and
+// simulate-compare.ts both import simDbPaths/resultsPath/summaryPath from this same file, and an
+// unguarded call here would resubmit every unrecorded ticket as a side effect of asking for a
+// summary — exactly the kind of thing "no shortcut, no unexpected side effect" is supposed to
+// prevent, not cause.
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
+    process.exit(1);
+  });
+}
