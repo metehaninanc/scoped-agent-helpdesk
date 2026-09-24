@@ -1,13 +1,17 @@
 /**
- * Summarizes a simulation run (bin/simulate.ts) at any point, complete or partial: reads
- * evidence/simulation-results.jsonl, computes the ticket-level summary (simulation-summary.ts),
- * reads token usage and cost live from the five sim chains via the same computeDashboardData()
- * the live dashboard uses, verifies all five chains, and writes evidence/simulation-summary.md.
+ * Summarizes a simulation run (bin/simulate.ts) at any point, complete or partial: reads that
+ * run's results file, computes the ticket-level summary (simulation-summary.ts), reads token
+ * usage and cost live from that run's five sim chains via the same computeDashboardData() the
+ * live dashboard uses, verifies all five chains, and writes that run's summary file.
  *
- *   pnpm simulate-summary
+ *   pnpm simulate-summary [-- --tag <name>]
+ *
+ * --tag matches bin/simulate.ts's own: with no tag, reads evidence/simulation-results.jsonl and
+ * data/sim-*.db, writes evidence/simulation-summary.md; with `--tag 2`, the same for the second
+ * run's own files, never touching the first run's.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { parseArgs } from "node:util";
 
 import { AuditLog } from "@helpdesk/audit-core";
 import { openDatabase } from "@helpdesk/gateway-core";
@@ -15,17 +19,7 @@ import { openDatabase } from "@helpdesk/gateway-core";
 import { computeDashboardData, type ChainSnapshot } from "../dashboard-metrics.js";
 import { computeSimulationSummary, renderSimulationSummaryMarkdown } from "../simulation-summary.js";
 import type { TicketResult } from "../simulation-types.js";
-
-const SIM_DB_PATHS = {
-  orchestrator: resolve("data/sim-orchestrator.db"),
-  identity: resolve("data/sim-identity.db"),
-  mdm: resolve("data/sim-mdm.db"),
-  knowledge: resolve("data/sim-knowledge.db"),
-  endpoint: resolve("data/sim-endpoint.db"),
-} as const;
-
-const RESULTS_PATH = resolve("evidence/simulation-results.jsonl");
-const SUMMARY_PATH = resolve("evidence/simulation-summary.md");
+import { resultsPath, simDbPaths, summaryPath } from "./simulate.js";
 
 function readResults(path: string): TicketResult[] {
   if (!existsSync(path)) throw new Error(`${path} does not exist — run \`pnpm simulate\` first`);
@@ -36,6 +30,13 @@ function readResults(path: string): TicketResult[] {
 }
 
 function main(): void {
+  const { values } = parseArgs({ options: { tag: { type: "string" } }, strict: true });
+  const tag = values.tag;
+
+  const SIM_DB_PATHS = simDbPaths(tag);
+  const RESULTS_PATH = resultsPath(tag);
+  const SUMMARY_PATH = summaryPath(tag);
+
   const results = readResults(RESULTS_PATH);
   const summary = computeSimulationSummary(results);
 

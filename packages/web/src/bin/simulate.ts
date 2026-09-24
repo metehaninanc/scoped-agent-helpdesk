@@ -2,28 +2,35 @@
  * Sprint 4 prep, independent of that sprint's own spec: submit all 150 simulation tickets
  * (test/sim_records{1,2,3}.json) through the real entry point — routeRequest(), the same function
  * packages/web/src/request-page.ts calls for a real web form submission — against a dedicated set
- * of five databases (data/sim-*.db) so this run's evidence never mixes with or overwrites the five
- * chains under data/ that carry every verification run from Sprints 1 through 3.
+ * of five databases (data/sim-*.db by default) so this run's evidence never mixes with or
+ * overwrites the five chains under data/ that carry every verification run from Sprints 1 through 3.
  *
- *   pnpm simulate
+ *   pnpm simulate [-- --tag <name>] [-- --limit <n>]
+ *
+ * --tag names a second (third, ...) independent run against its own databases and its own results
+ * file, so a later pass can sit side by side with an earlier one rather than overwriting it: with
+ * `--tag 2`, databases are data/sim2-*.db and results go to
+ * evidence/simulation-results-2.jsonl. The actor mapping is never tagged — test/actor-mapping.json
+ * is shared by every pass, deliberately, so "the same actor mapping" is a property of the file
+ * being reused, not re-derived per run.
  *
  * One Agent SDK turn per ticket, exactly what routeRequest() already does per call — there is no
  * multi-turn loop anywhere in this codebase to add one to, so "do not answer clarifying questions"
  * holds by construction, not by a check this file adds. Sequential, with a small delay
- * (SIM_DELAY_MS, default 1500ms) between tickets, and resumable: every completed ticket is
- * appended to evidence/simulation-results.jsonl as soon as it finishes, and a ticket already
+ * (SIM_DELAY_MS, default 1500ms) between tickets, and resumable within one tag: every completed
+ * ticket is appended to that tag's results file as soon as it finishes, and a ticket already
  * present there (by sourceFile + id, since ids repeat across the three files) is skipped on the
- * next invocation rather than resubmitted.
+ * next invocation of the same tag rather than resubmitted.
  *
  * This file never reads a ticket's actualNeed field — see simulation-tickets.ts, which drops it
  * before a ticket's own type can carry it this far.
  *
- * The four sim gateways must already be running against the sim db paths and sim ports before
- * this runs — see README.md, "Sprint 4 simulation notes", for the exact commands. This file talks
- * to them the same way the real agents always do: through IDENTITY_GATEWAY_URL and friends, read
- * from this process's own environment, which must be set to the sim ports before this process
- * starts (those env vars are read once, at module load time, by identity-agent.ts and friends —
- * setting them after import would be too late).
+ * The four sim gateways for this tag must already be running against that tag's db paths and
+ * ports before this runs — see README.md, "Sprint 4 simulation notes", for the exact commands.
+ * This file talks to them the same way the real agents always do: through IDENTITY_GATEWAY_URL and
+ * friends, read from this process's own environment, which must be set to the right ports before
+ * this process starts (those env vars are read once, at module load time, by identity-agent.ts and
+ * friends — setting them after import would be too late).
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -37,16 +44,29 @@ import { loadOrBuildActorMapping } from "../simulation-actor-mapping.js";
 import { loadTickets, ticketKey } from "../simulation-tickets.js";
 import type { SimToolCall, TicketResult } from "../simulation-types.js";
 
-const SIM_DB_PATHS = {
-  orchestrator: resolve("data/sim-orchestrator.db"),
-  identity: resolve("data/sim-identity.db"),
-  mdm: resolve("data/sim-mdm.db"),
-  knowledge: resolve("data/sim-knowledge.db"),
-  endpoint: resolve("data/sim-endpoint.db"),
-} as const;
+/** data/sim-*.db with no tag; data/sim<tag>-*.db with one — see file header. */
+export function simDbPaths(tag?: string): Record<"orchestrator" | "identity" | "mdm" | "knowledge" | "endpoint", string> {
+  const prefix = tag ? `sim${tag}` : "sim";
+  return {
+    orchestrator: resolve(`data/${prefix}-orchestrator.db`),
+    identity: resolve(`data/${prefix}-identity.db`),
+    mdm: resolve(`data/${prefix}-mdm.db`),
+    knowledge: resolve(`data/${prefix}-knowledge.db`),
+    endpoint: resolve(`data/${prefix}-endpoint.db`),
+  };
+}
+
+/** evidence/simulation-results.jsonl with no tag; evidence/simulation-results-<tag>.jsonl with one. */
+export function resultsPath(tag?: string): string {
+  return resolve(tag ? `evidence/simulation-results-${tag}.jsonl` : "evidence/simulation-results.jsonl");
+}
+
+/** evidence/simulation-summary.md with no tag; evidence/simulation-summary-<tag>.md with one. */
+export function summaryPath(tag?: string): string {
+  return resolve(tag ? `evidence/simulation-summary-${tag}.md` : "evidence/simulation-summary.md");
+}
 
 const ACTOR_MAPPING_PATH = resolve("test/actor-mapping.json");
-const RESULTS_PATH = resolve("evidence/simulation-results.jsonl");
 const DELAY_MS = Number.parseInt(process.env.SIM_DELAY_MS ?? "1500", 10);
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -82,8 +102,13 @@ async function main(): Promise<void> {
   // --limit caps how many NEW tickets this invocation submits — for a cheap smoke test before
   // committing to the full file, never for skipping tickets that look out of scope; resumability
   // means a later invocation with no --limit still picks up everything this one left undone.
-  const { values } = parseArgs({ options: { limit: { type: "string" } }, strict: true });
+  // --tag names an independent, side-by-side run — see file header.
+  const { values } = parseArgs({ options: { limit: { type: "string" }, tag: { type: "string" } }, strict: true });
   const limit = values.limit !== undefined ? Number.parseInt(values.limit, 10) : undefined;
+  const tag = values.tag;
+
+  const SIM_DB_PATHS = simDbPaths(tag);
+  const RESULTS_PATH = resultsPath(tag);
 
   mkdirSync(dirname(RESULTS_PATH), { recursive: true });
 
@@ -92,7 +117,7 @@ async function main(): Promise<void> {
   const mapping = loadOrBuildActorMapping(ACTOR_MAPPING_PATH, distinctAddresses);
 
   const alreadyDone = readExistingKeys(RESULTS_PATH);
-  console.error(`[simulate] ${loaded.length} ticket(s) total, ${alreadyDone.size} already recorded, ${loaded.length - alreadyDone.size} remaining`);
+  console.error(`[simulate]${tag ? ` [tag ${tag}]` : ""} ${loaded.length} ticket(s) total, ${alreadyDone.size} already recorded, ${loaded.length - alreadyDone.size} remaining`);
   if (limit !== undefined) console.error(`[simulate] --limit ${limit}: this invocation will stop after ${limit} new ticket(s)`);
 
   const gatewayLogs = {
