@@ -13,6 +13,8 @@
  */
 import { z } from "zod";
 
+import { HAND_OFF_TOOL_DESCRIPTION } from "@helpdesk/gateway-core";
+
 import { toolParamSchemas, type ToolName } from "../policy/schemas.js";
 
 export const TOOL_NAMES = Object.keys(toolParamSchemas) as ToolName[];
@@ -22,6 +24,7 @@ const PARAMETER_DESCRIPTIONS: Record<string, string> = {
     "The user's principal name, which is their sign-in address, for example alice@contoso.com. Use it exactly as the requester gave it.",
   groupId:
     "The object id (GUID) of the target group, taken from a list_managed_groups result. Only those groups are valid.",
+  reason: "A short account of what a person needs to do.",
 };
 
 export function toolDescription(tool: ToolName): string {
@@ -79,6 +82,11 @@ export function toolDescription(tool: ToolName): string {
         '- { status: "executed" }: the change was carried out immediately. This does not happen in the current configuration.',
         '- { status: "error", code, message }: the request could not be recorded. Report the message as given.',
       ].join("\n");
+
+    // SPRINT4.md, section 2: identical on every gateway — see @helpdesk/gateway-core's own
+    // hand-off-tool.ts for why this text lives there, not here, and is only referenced.
+    case "hand_off":
+      return HAND_OFF_TOOL_DESCRIPTION;
   }
 }
 

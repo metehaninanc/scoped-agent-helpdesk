@@ -7,7 +7,7 @@
  */
 import { z } from "zod";
 
-import { userPrincipalName } from "@helpdesk/gateway-core";
+import { HAND_OFF_PARAMS_SCHEMA, HAND_OFF_TOOL_NAME, userPrincipalName } from "@helpdesk/gateway-core";
 
 import type { PolicyConfig, ToolRequest } from "./types.js";
 
@@ -25,6 +25,7 @@ export const toolParamSchemas = {
   list_managed_groups: z.strictObject({}),
   add_user_to_group: z.strictObject({ userPrincipalName, groupId }),
   remove_user_from_group: z.strictObject({ userPrincipalName, groupId }),
+  [HAND_OFF_TOOL_NAME]: HAND_OFF_PARAMS_SCHEMA,
 } as const;
 
 export type ToolName = keyof typeof toolParamSchemas;

@@ -14,6 +14,7 @@ import {
   openDatabase,
   type ConformanceHarness,
 } from "@helpdesk/gateway-core";
+import { HandoffStore } from "@helpdesk/handoff-core";
 
 import { policyConfig } from "./policy/config.js";
 import { createGatewayServer } from "./tools/server.js";
@@ -30,6 +31,7 @@ conformanceSuite("identity-gateway", (keys) => {
   const server = createGatewayServer({
     audit,
     approvals: new ApprovalStore(db),
+    handoffs: new HandoffStore(db, audit),
     config: policyConfig,
     graph: {
       listUserGroups: async () => {

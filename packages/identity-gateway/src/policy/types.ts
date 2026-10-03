@@ -76,6 +76,8 @@ export const Rule = {
   // Autonomous rules. These never surface in a Decision but keep the ladder uniform.
   AutonomousListUserGroups: "autonomous.list_user_groups",
   AutonomousListManagedGroups: "autonomous.list_managed_groups",
+  // SPRINT4.md, section 2: hand_off is identical, unconditionally autonomous, on every gateway.
+  AutonomousHandOff: "autonomous.hand_off",
 } as const;
 
 export type RuleId = (typeof Rule)[keyof typeof Rule];
