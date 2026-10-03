@@ -12,6 +12,7 @@
     "verify-audit": "pnpm --filter @helpdesk/identity-gateway build && node --no-warnings=ExperimentalWarning packages/identity-gateway/dist/bin/verify-audit.js",
     "graph-smoke": "pnpm --filter @helpdesk/identity-gateway build && node --no-warnings=ExperimentalWarning packages/identity-gateway/dist/bin/graph-smoke.js",
     "mdm-graph-smoke": "pnpm --filter @helpdesk/identity-gateway build && node --no-warnings=ExperimentalWarning packages/identity-gateway/dist/bin/mdm-graph-smoke.js",
+    "prove-injection": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/prove-injection.js",
     "prove-isolation": "pnpm --filter @helpdesk/identity-gateway build && node --no-warnings=ExperimentalWarning packages/identity-gateway/dist/bin/prove-isolation.js",
     "identity-gateway": "pnpm --filter @helpdesk/identity-gateway build && node --no-warnings=ExperimentalWarning packages/identity-gateway/dist/bin/gateway.js",
     "mdm-gateway": "pnpm --filter @helpdesk/mdm-gateway build && node --no-warnings=ExperimentalWarning packages/mdm-gateway/dist/bin/gateway.js",
@@ -31,6 +32,7 @@
     "simulate-summary": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/simulate-summary.js",
     "simulate-compare": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/simulate-compare.js",
     "simulate-score": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/simulate-score.js",
+    "record-walkthrough": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/record-walkthrough.js",
     "triage-harness": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/triage-harness.js"
   },
   "devDependencies": {
