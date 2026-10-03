@@ -29,7 +29,10 @@ export type RouteResult =
       reply: string;
       note?: string;
     }
-  | { status: "unsupported"; requestId: string; message: string; note?: string }
+  | { status: "not_it"; requestId: string; message: string; note?: string }
+  | { status: "needs_human"; requestId: string; handoffId: string; message: string; note?: string }
+  | { status: "network"; requestId: string; handoffId: string; message: string; note?: string }
+  | { status: "security"; requestId: string; handoffId: string; message: string; urgent: true; note?: string }
   | { status: "triage_failed"; requestId: string; message: string };
 
 export interface SubmitRequestDeps {
@@ -63,10 +66,20 @@ function renderResult(result: SubmitRequestResult): string {
           <p><strong>Request id:</strong> <span class="status">${escapeHtml(result.requestId)}</span></p>
           <p>${escapeHtml(result.message)}</p>
         </div>`;
-    case "unsupported":
+    case "not_it":
       return `
         <div class="info">
           <p><strong>Request id:</strong> <span class="status">${escapeHtml(result.requestId)}</span></p>
+          <p>${escapeHtml(result.message)}</p>
+          ${renderNote(result.note)}
+        </div>`;
+    case "needs_human":
+    case "network":
+    case "security":
+      return `
+        <div class="info">
+          <p><strong>Request id:</strong> <span class="status">${escapeHtml(result.requestId)}</span></p>
+          <p><strong>Handoff id:</strong> ${escapeHtml(result.handoffId)}</p>
           <p>${escapeHtml(result.message)}</p>
           ${renderNote(result.note)}
         </div>`;

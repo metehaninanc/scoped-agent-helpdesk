@@ -4,9 +4,48 @@
  * number here is derived from the two runs' own recorded TicketResults and, for cost, the two
  * runs' own five sim chains — nothing recomputed differently between the passes, so a difference
  * in the numbers is a difference between the runs, not between two ways of counting the same run.
+ *
+ * SPRINT4.md, section 6: which two passes are "before" and "after" is now a parameter, not always
+ * pass one — comparing pass two against pass three needs the identical machinery below, just
+ * pointed at a different baseline. renderComparisonMarkdown() takes each side's own label for
+ * exactly this reason, rather than the fixed "pass one"/"pass two" strings it used when only one
+ * comparison had ever been run.
  */
-import type { CostSection } from "./dashboard-metrics.js";
+import type { AuditRecord } from "@helpdesk/audit-core";
+
+import type { ChainSnapshot, CostSection, OutcomesSection } from "./dashboard-metrics.js";
 import type { SimCategory, TicketResult } from "./simulation-types.js";
+
+/**
+ * A sim chain can carry more history than the pass's own recorded results does — not from
+ * corruption, but from an interrupted attempt: triage completing (a real `routed`/`denied`
+ * decision, on the record) followed by the agent's own call failing before anything closes it
+ * out, orphaning that requestId. bin/simulate.ts's own resumability then reprocesses that same
+ * ticket fresh under a new requestId once it is no longer in the results file, leaving the first,
+ * incomplete attempt's records sitting in the chain alongside the second, complete one. SPRINT4.md,
+ * section 6's own live run produced exactly this — 73 orphaned requestIds, real records of a real
+ * failed attempt, still worth having for what they show about that failure, but not part of "the
+ * 150 tickets this pass answers" and not something cost or outcome figures should double-count.
+ *
+ * This restricts a chain snapshot to only the requestIds a pass's own results.jsonl actually
+ * carries — every reader of a pass's sim chains (bin/simulate-summary.ts, bin/simulate-compare.ts,
+ * bin/simulate-score.ts) applies it before handing a snapshot to computeDashboardData(), so "how
+ * many requests this pass cost" and "how this pass scored" both mean the same 150 requests the
+ * results file itself claims, on every pass, not only the one that happened to need it.
+ * `chainBreak` is left untouched: chain integrity is a property of the whole, real, on-disk
+ * sequence, never of a filtered view of it.
+ */
+export function filterChainToRequestIds(snapshot: ChainSnapshot, requestIds: ReadonlySet<string>): ChainSnapshot {
+  return { records: snapshot.records.filter((r: AuditRecord) => requestIds.has(r.requestId)), chainBreak: snapshot.chainBreak };
+}
+
+/** Every requestId a pass's own results actually claim — null (a runner-level error, no request
+ * ever completed) is never included, since there is nothing on any chain to keep for it. */
+export function requestIdsOf(results: readonly TicketResult[]): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const r of results) if (r.requestId !== null) ids.add(r.requestId);
+  return ids;
+}
 
 export interface ComparisonRow {
   label: string;
@@ -154,23 +193,66 @@ function sameSignature(a: OutcomeSignature, b: OutcomeSignature): boolean {
 export type OutcomeClassification = "improved" | "regressed" | "changed";
 
 /**
- * A deliberately simple, explainable classification — not a claim that every "improved" ticket
- * is now fully resolved, or that every "regressed" one is now broken. It answers one narrower
- * question: did this ticket move toward engagement (a stalled or silently-dropped request now
- * reaching a tool, or a real category) or away from it (the reverse)? Anything that changed
- * without matching either pattern — a different category between two real ones, a different tool
- * or policy decision at the same category/toolCalled state — is reported as "changed" with no
- * direction asserted, since that judgment needs the reply text, not just the four-field signature
- * this function looks at.
+ * A per-ticket bucket in dashboard-metrics.ts's own outcome model (OutcomesSection), computed
+ * from a single TicketResult's signature rather than a live chain — this file compares two
+ * one-shot runner passes, neither of which has a human behind it yet (SPRINT4.md section 6: no
+ * second turn, approvals and handoffs left unresolved), so "resolved via an approval" never
+ * applies here the way it can on the live dashboard; "approvalPending" is the ceiling for a
+ * gated write in this context, and "handedOff" always means "in progress," never "resolved."
+ */
+export type SimOutcomeBucket = "resolved" | "redirected" | "handedOff" | "approvalPending" | "routedButUnresolved" | "classifierFailed" | "runnerError";
+
+function outcomeBucketOf(sig: OutcomeSignature): SimOutcomeBucket {
+  if (sig.category === "error") return "runnerError";
+  if (sig.category === "triage_failed") return "classifierFailed";
+  // "unsupported" is the old, single-category predecessor of "not_it" (SPRINT4.md, section 1) —
+  // treated the same way here, since both are the same outcome under whichever scheme was live.
+  if (sig.category === "not_it" || sig.category === "unsupported") return "redirected";
+  // network and security are handoffs exactly as needs_human is, for a different reason.
+  if (sig.category === "needs_human" || sig.category === "network" || sig.category === "security") return "handedOff";
+  // Routable: identity | mdm | knowledge | endpoint.
+  if (sig.toolCalled && sig.toolName === "hand_off") return "handedOff";
+  if (sig.toolCalled && sig.policyDecision === "approval") return "approvalPending";
+  if (sig.toolCalled && sig.policyDecision === "autonomous") return "resolved";
+  // No tool called, or a gateway denial: reached the right agent, nothing came of it.
+  return "routedButUnresolved";
+}
+
+/** Three tiers, matching dashboard-metrics.ts's own OutcomesSection philosophy, not a five-way
+ * ranking within it: an operational fault (triage or the runner itself failed, not a system
+ * decision) is worse than a dead end (reached an agent or a redirect decision, nothing useful
+ * came of it), which is worse than any of the four named, working outcomes — resolved, redirected,
+ * handed off, or approval pending, none ranked against each other, the same reason SPRINT4.md,
+ * section 5 reports the reject and accept paths as separate figures rather than one blended
+ * number: this file has no basis for saying a redirect is better or worse than a resolution. */
+function tierOf(bucket: SimOutcomeBucket): 0 | 1 | 2 {
+  if (bucket === "classifierFailed" || bucket === "runnerError") return 0;
+  if (bucket === "routedButUnresolved") return 1;
+  return 2;
+}
+
+/**
+ * Fixed after SPRINT4.md, section 6's own pass-two-vs-pass-three comparison shipped a version of
+ * this function that assumed reaching a tool is always better than not — the exact fallacy
+ * section 5 exists to correct, left standing in this file even after the dashboard itself was
+ * rewritten to stop making it. Under the old rule, a ticket that reached `list_devices` against
+ * this tenant's permanently empty device directory (a dead end no different from declining
+ * outright) counted as a regression the moment triage correctly re-routed it to `needs_human`
+ * instead — nineteen of pass three's twenty mechanically-flagged "regressions" turned out to be
+ * this, confirmed by reading both passes' own reply text (see the root README's own account).
+ * `outcomeBucketOf()`/`tierOf()` above replace "did it call a tool" with the same three-tier
+ * shape the dashboard already uses — an operational fault is worse than a dead end, which is
+ * worse than any working outcome — so a graceful `hand_off` or a `needs_human` redirect no longer
+ * reads as worse than a tool call that resolved nothing. A change within one tier (redirected to
+ * resolved, say) still reports as "changed, direction not asserted": this file has no basis for
+ * ranking those against each other, deliberately, the same restraint section 5's own reject/accept
+ * split already applies to the live dashboard.
  */
 export function classifyChange(before: OutcomeSignature, after: OutcomeSignature): OutcomeClassification {
-  const wasDropped = before.category === "unsupported" || before.category === "error";
-  const isDropped = after.category === "unsupported" || after.category === "error";
-
-  if (before.toolCalled && !after.toolCalled) return "regressed";
-  if (!wasDropped && isDropped) return "regressed";
-  if (!before.toolCalled && after.toolCalled) return "improved";
-  if (wasDropped && !isDropped) return "improved";
+  const t1 = tierOf(outcomeBucketOf(before));
+  const t2 = tierOf(outcomeBucketOf(after));
+  if (t2 > t1) return "improved";
+  if (t2 < t1) return "regressed";
   return "changed";
 }
 
@@ -223,6 +305,8 @@ export function renderComparisonMarkdown(
   headline2: HeadlineNumbers,
   costComparison: CostComparison,
   outcomeChanges: readonly TicketOutcomeChange[],
+  beforeLabel = "pass one",
+  afterLabel = "pass two",
 ): string {
   const categoryRows = categoryComparison.map((r) => `| ${r.label} | ${r.pass1} | ${r.pass2} | ${fmtDelta(r.delta)} |`).join("\n");
 
@@ -249,43 +333,45 @@ export function renderComparisonMarkdown(
   const changeSection = (title: string, note: string, rows: readonly TicketOutcomeChange[]): string =>
     rows.length === 0
       ? `### ${title}\n\n_(none)_\n`
-      : `### ${title}\n\n${note}\n\n| Ticket | Pass one | Pass two |\n|---|---|---|\n${rows.map(changeRow).join("\n")}\n`;
+      : `### ${title}\n\n${note}\n\n| Ticket | ${beforeLabel[0]!.toUpperCase()}${beforeLabel.slice(1)} | ${afterLabel[0]!.toUpperCase()}${afterLabel.slice(1)} |\n|---|---|---|\n${rows.map(changeRow).join("\n")}\n`;
 
-  return `# Simulation comparison: pass one vs pass two
+  const Before = `${beforeLabel[0]!.toUpperCase()}${beforeLabel.slice(1)}`;
+  const After = `${afterLabel[0]!.toUpperCase()}${afterLabel.slice(1)}`;
+
+  return `# Simulation comparison: ${beforeLabel} vs ${afterLabel}
 
 Same 150 tickets, same committed actor mapping (\`test/actor-mapping.json\`), same single-turn
-rule. Pass one's databases and evidence files are untouched; every number below comes from pass
-two's own, independent set (\`data/sim2-*.db\`, \`evidence/simulation-results-2.jsonl\`) compared
-against pass one's.
+rule. ${Before}'s databases and evidence files are untouched; every number below comes from
+${afterLabel}'s own, independent set compared against ${beforeLabel}'s.
 
 ## Two numbers that matter most
 
-| Metric | Pass one | Pass two | Delta |
+| Metric | ${Before} | ${After} | Delta |
 |---|---|---|---|
 | Identity requests reaching \`add_user_to_group\` (not stalling on a clarifying question) | ${headline1.identityReachedAddUserToGroup} | ${headline2.identityReachedAddUserToGroup} | ${fmtDelta(headline2.identityReachedAddUserToGroup - headline1.identityReachedAddUserToGroup)} |
 | Endpoint replies still naming a stub device | ${headline1.endpointNamedStubDevice} | ${headline2.endpointNamedStubDevice} | ${fmtDelta(headline2.endpointNamedStubDevice - headline1.endpointNamedStubDevice)} |
 
 ## Category distribution
 
-| Category | Pass one | Pass two | Delta |
+| Category | ${Before} | ${After} | Delta |
 |---|---|---|---|
 ${categoryRows}
 
 ## Outcomes
 
-| Outcome | Pass one | Pass two | Delta |
+| Outcome | ${Before} | ${After} | Delta |
 |---|---|---|---|
 ${outcomeRows}
 
 ### Refused, by rule
 
-| Rule | Pass one | Pass two | Delta |
+| Rule | ${Before} | ${After} | Delta |
 |---|---|---|---|
 ${ruleRows}
 
 ## Cost
 
-| Component | Pass one | Pass two | Delta |
+| Component | ${Before} | ${After} | Delta |
 |---|---|---|---|
 ${costRows}
 | **Total** | **${usd(costComparison.totalCostUsd.pass1)}** | **${usd(costComparison.totalCostUsd.pass2)}** | **${costComparison.totalCostUsd.delta >= 0 ? "+" : ""}${usd(costComparison.totalCostUsd.delta)}** |
@@ -297,10 +383,87 @@ ${outcomeChanges.length} of 150 tickets changed outcome between the two passes. 
 first and are not summarized away, per instruction — a ticket that got worse matters more than one
 that got better.
 
-${changeSection("Regressed", "A ticket that reached a tool or a real category in pass one and did not in pass two.", regressed)}
+${changeSection("Regressed", `A ticket that reached a tool or a real category in ${beforeLabel} and did not in ${afterLabel}.`, regressed)}
 
-${changeSection("Improved", "A ticket that stalled or was silently dropped in pass one and reached a tool or a real category in pass two.", improved)}
+${changeSection("Improved", `A ticket that stalled or was silently dropped in ${beforeLabel} and reached a tool or a real category in ${afterLabel}.`, improved)}
 
 ${changeSection("Changed, direction not asserted", "The outcome signature differs but does not match a clear improve/regress pattern — read the reply text in both results files to judge.", changed)}
+`;
+}
+
+// ---------------------------------------------------------------------------
+// SPRINT4.md, section 6: the outcomes model (dashboard-metrics.ts's OutcomesSection) applied to a
+// simulation pass's own sim chains, rather than the live `data/` ones — the exact same function,
+// computeDashboardData(), the dashboard itself calls; nothing here recomputes an outcome
+// differently for a simulation pass than it would for real traffic.
+
+export interface PassOutcomes {
+  label: string;
+  outcomes: OutcomesSection;
+  /** Misrouted is never mechanically computable (see dashboard-metrics.ts's own note) — null for a
+   * pass this was not hand-scored against the ticket set's ground truth for. */
+  misrouted: number | null;
+}
+
+function outcomeLine(label: string, values: readonly (number | string)[]): string {
+  return `| ${label} | ${values.join(" | ")} |`;
+}
+
+/** Renders the reject path and accept path as two separate tables, across as many passes as are
+ * given — SPRINT4.md, section 5's own rule ("a single blended percentage hides which half is
+ * actually broken") applied again here, now across passes rather than within one render. */
+export function renderOutcomesComparisonMarkdown(passes: readonly PassOutcomes[]): string {
+  const header = `| Outcome | ${passes.map((p) => p.label).join(" | ")} |`;
+  const divider = `|---${passes.map(() => "|---").join("")}|`;
+
+  const rejectRows = [
+    outcomeLine("Total", passes.map((p) => p.outcomes.rejectPath.total)),
+    outcomeLine("Redirected", passes.map((p) => p.outcomes.rejectPath.redirected)),
+    outcomeLine("Handed off, resolved", passes.map((p) => p.outcomes.rejectPath.handedOffResolved)),
+    outcomeLine("Handed off, still in progress", passes.map((p) => p.outcomes.rejectPath.handedOffInProgress)),
+  ].join("\n");
+
+  const acceptRows = [
+    outcomeLine("Total", passes.map((p) => p.outcomes.acceptPath.total)),
+    outcomeLine("Resolved", passes.map((p) => p.outcomes.acceptPath.resolved)),
+    outcomeLine("Handed off, resolved", passes.map((p) => p.outcomes.acceptPath.handedOffResolved)),
+    outcomeLine("Handed off, still in progress", passes.map((p) => p.outcomes.acceptPath.handedOffInProgress)),
+    outcomeLine("Routed but unresolved", passes.map((p) => p.outcomes.acceptPath.routedButUnresolved)),
+    outcomeLine("Approval pending", passes.map((p) => p.outcomes.acceptPath.approvalPending)),
+    outcomeLine("Approval rejected by an approver", passes.map((p) => p.outcomes.acceptPath.approvalRejected)),
+  ].join("\n");
+
+  const otherRows = [
+    outcomeLine("Classifier failures (excluded from both paths)", passes.map((p) => p.outcomes.classifierFailures)),
+    outcomeLine("Other denied, rule not recognized (excluded from both paths)", passes.map((p) => p.outcomes.otherDenied)),
+    outcomeLine("Misrouted", passes.map((p) => (p.misrouted === null ? "not scored" : p.misrouted))),
+  ].join("\n");
+
+  return `# Simulation outcomes, by pass — SPRINT4.md, section 5's model
+
+Every figure below except "Misrouted" is computed the same way the live dashboard computes it —
+\`computeDashboardData()\`, pointed at each pass's own five sim chains instead of \`data/\`'s real
+ones. "Misrouted" is never mechanical (see dashboard-metrics.ts's own \`MISROUTED_NOTE\`): a pass
+shows a real count only once it has been scored by hand against the ticket set's own \`actualNeed\`
+ground truth, and "not scored" otherwise, rather than a zero that would misreport an absence of
+data as an absence of misrouting.
+
+## Reject path — triage said not IT or needs a human
+
+${header}
+${divider}
+${rejectRows}
+
+## Accept path — triage routed it to an agent
+
+${header}
+${divider}
+${acceptRows}
+
+## Excluded from both paths
+
+${header}
+${divider}
+${otherRows}
 `;
 }

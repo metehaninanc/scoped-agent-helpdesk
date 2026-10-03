@@ -31,17 +31,29 @@
  * friends, read from this process's own environment, which must be set to the right ports before
  * this process starts (those env vars are read once, at module load time, by identity-agent.ts and
  * friends — setting them after import would be too late).
+ *
+ * SPRINT4.md, section 6: a usage/policy limit or an authentication failure (runStoppingReason(),
+ * @helpdesk/agent) stops the run outright rather than being recorded as an ordinary per-ticket
+ * "error" result. The two look identical from inside a single try/catch — both are the runner
+ * failing to complete a call — but they are not the same kind of thing: a network blip on one
+ * ticket says nothing about the next one, while a usage limit is a standing condition that will
+ * keep firing on every remaining ticket until it clears. Recording the second kind as ordinary
+ * "error" results (which is what the very first live run of this section did — 67 of 150 tickets,
+ * this way, silently) means a pass could finish "successfully" while having actually scored
+ * almost half its tickets as noise. Stopping is deliberately the louder, more disruptive choice.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-import { routeRequest } from "@helpdesk/agent";
+import { routeRequest, runStoppingReason } from "@helpdesk/agent";
 import { AuditLog, type AuditRecord } from "@helpdesk/audit-core";
 import { openDatabase } from "@helpdesk/gateway-core";
 
 import { loadOrBuildActorMapping } from "../simulation-actor-mapping.js";
+import { unreachableGateways } from "../simulation-gateways.js";
+import { triageStopReason } from "../simulation-stop.js";
 import { loadTickets, ticketKey } from "../simulation-tickets.js";
 import type { SimToolCall, TicketResult } from "../simulation-types.js";
 
@@ -128,6 +140,23 @@ async function main(): Promise<void> {
     endpoint: new AuditLog(openDatabase(SIM_DB_PATHS.endpoint)),
   } as const;
 
+  // The origins the four agents themselves connect to (each agent reads the same variable and
+  // default at module load) — see simulation-gateways.ts for why a dead one must stop the run.
+  const GATEWAY_URLS = [
+    process.env.IDENTITY_GATEWAY_URL ?? "http://127.0.0.1:3001",
+    process.env.MDM_GATEWAY_URL ?? "http://127.0.0.1:3002",
+    process.env.KNOWLEDGE_GATEWAY_URL ?? "http://127.0.0.1:3003",
+    process.env.ENDPOINT_GATEWAY_URL ?? "http://127.0.0.1:3004",
+  ];
+  const stopIfGatewayDown = async (key: string, when: string): Promise<void> => {
+    const down = await unreachableGateways(GATEWAY_URLS);
+    if (down.length === 0) return;
+    console.error(
+      `[simulate] STOPPING at ${key}: gateway(s) not accepting connections ${when}: ${down.join(", ")}. A ticket recorded now would score the agent's missing tools as the system's behaviour; nothing further attempted or recorded. Restart the gateways and resume with the same --tag.`,
+    );
+    throw new Error(`gateway unreachable ${when}: ${down.join(", ")}`);
+  };
+
   let processed = 0;
   try {
     for (const { ticket, sourceFile } of loaded) {
@@ -138,6 +167,8 @@ async function main(): Promise<void> {
 
       const actor = mapping[ticket.submittedBy];
       if (!actor) throw new Error(`no actor mapping entry for ${ticket.submittedBy} (${key})`);
+
+      await stopIfGatewayDown(key, "before the ticket");
 
       let result: TicketResult;
       try {
@@ -170,14 +201,18 @@ async function main(): Promise<void> {
             policyRules: last?.rules ?? [],
             reply: routed.reply,
           };
-        } else if (routed.status === "unsupported") {
+        } else if (routed.status === "not_it" || routed.status === "needs_human" || routed.status === "network" || routed.status === "security") {
+          // SPRINT4.md, section 1 split the old, single "unsupported" outcome into these two —
+          // category takes routed.status directly (SimCategory has carried both since that
+          // split) rather than collapsing them back into one bucket a later pass would need to
+          // undo again.
           result = {
             id: ticket.id,
             sourceFile,
             submittedBy: ticket.submittedBy,
             actor,
             requestId: routed.requestId,
-            category: "unsupported",
+            category: routed.status,
             partiallyOutOfScope: routed.note !== undefined,
             agentInvoked: null,
             toolCalled: false,
@@ -188,6 +223,11 @@ async function main(): Promise<void> {
             reply: routed.message,
           };
         } else {
+          // routeRequest() swallows a triage error into this result instead of throwing it, so the
+          // catch block below never sees a billing refusal or a 401 on the classification call —
+          // rethrown here, with the original text, so it takes the same stop-and-log path an
+          // agent's usage limit does. See simulation-stop.ts.
+          if (triageStopReason(routed)) throw new Error(routed.cause);
           result = {
             id: ticket.id,
             sourceFile,
@@ -206,8 +246,21 @@ async function main(): Promise<void> {
           };
         }
       } catch (error) {
-        // A ticket the runner itself could not complete (a network blip, a credential failure) is
-        // data, not noise: recorded and moved past, never retried, never silently skipped.
+        const message = error instanceof Error ? error.message : String(error);
+        const stopReason = runStoppingReason(message);
+        if (stopReason) {
+          // Not a ticket outcome at all: a standing condition on this credential or account that
+          // will keep firing on every remaining ticket. Stop here, loudly, rather than let the
+          // run "finish" having quietly scored the rest of the pass as noise — see file header.
+          console.error(
+            `[simulate] STOPPING at ${key}: ${stopReason}. ${processed} ticket(s) recorded this run before stopping; nothing further attempted or recorded. Resume with the same --tag once this clears.`,
+          );
+          throw error;
+        }
+
+        // Anything else — a network blip, a credential this run's own gateways rejected, ... —
+        // is a ticket the runner itself could not complete: data, not noise, recorded and moved
+        // past, never retried, never silently skipped.
         result = {
           id: ticket.id,
           sourceFile,
@@ -226,6 +279,10 @@ async function main(): Promise<void> {
           error: error instanceof Error ? (error.stack ?? error.message) : String(error),
         };
       }
+
+      // A gateway that died during the ticket leaves no error to catch — the agent just reports its
+      // tools missing — so a ticket an agent handled is only recorded if they are still up.
+      if (result.agentInvoked !== null) await stopIfGatewayDown(key, "after the ticket");
 
       appendFileSync(RESULTS_PATH, `${JSON.stringify(result)}\n`, "utf8");
       processed++;

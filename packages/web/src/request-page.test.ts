@@ -38,12 +38,22 @@ describe("submitRequest()", () => {
     expect(result).toEqual({ status: "routed", category: "identity", agent: "identity-agent", requestId: "r1", toolWasCalled: true, reply: "Bob is in Marketing." });
   });
 
-  it("returns an unsupported result as-is", async () => {
-    const routeRequest = vi.fn().mockResolvedValue({ status: "unsupported", requestId: "r1", message: "This system doesn't have a way to help with that yet." });
+  it("returns a not_it result as-is", async () => {
+    const routeRequest = vi.fn().mockResolvedValue({ status: "not_it", requestId: "r1", message: "This system doesn't have a way to help with that — it isn't an IT matter this team handles." });
 
     const result = await submitRequest({ actor: "alice@contoso.com", requestText: "reset my printer" }, { routeRequest });
 
-    expect(result).toEqual({ status: "unsupported", requestId: "r1", message: "This system doesn't have a way to help with that yet." });
+    expect(result).toEqual({ status: "not_it", requestId: "r1", message: "This system doesn't have a way to help with that — it isn't an IT matter this team handles." });
+  });
+
+  it("returns a needs_human result as-is", async () => {
+    const routeRequest = vi
+      .fn()
+      .mockResolvedValue({ status: "needs_human", requestId: "r1", handoffId: "handoff-1", message: "This needs a person to help with it — it has been handed off and is waiting for an operator." });
+
+    const result = await submitRequest({ actor: "alice@contoso.com", requestText: "my laptop screen is cracked" }, { routeRequest });
+
+    expect(result).toEqual({ status: "needs_human", requestId: "r1", handoffId: "handoff-1", message: "This needs a person to help with it — it has been handed off and is waiting for an operator." });
   });
 
   it("returns a triage_failed result as-is", async () => {
@@ -107,13 +117,42 @@ describe("renderRequestForm()", () => {
     expect(html).toContain("&lt;img");
   });
 
-  it("renders an unsupported result as informational, not an error, with the requestId", () => {
-    const html = renderRequestForm({ status: "unsupported", requestId: "req-1", message: "This system doesn't have a way to help with that yet." });
+  it("renders a not_it result as informational, not an error, with the requestId", () => {
+    const html = renderRequestForm({ status: "not_it", requestId: "req-1", message: "This system doesn't have a way to help with that — it isn't an IT matter this team handles." });
 
     expect(html).toContain('class="info"');
     expect(html).not.toContain('class="error"');
     expect(html).toContain("req-1");
-    expect(html).toContain("way to help with that yet");
+    expect(html).toContain("an IT matter");
+  });
+
+  it("renders a needs_human result as informational, not an error, with the requestId and the handoffId", () => {
+    const html = renderRequestForm({
+      status: "needs_human",
+      requestId: "req-1",
+      handoffId: "handoff-1",
+      message: "This needs a person to help with it — it has been handed off and is waiting for an operator.",
+    });
+
+    expect(html).toContain('class="info"');
+    expect(html).not.toContain('class="error"');
+    expect(html).toContain("req-1");
+    expect(html).toContain("handoff-1");
+    expect(html).toContain("needs a person");
+  });
+
+  it("renders network and security results like any other handoff: informational, with both ids", () => {
+    for (const status of ["network", "security"] as const) {
+      const html = renderRequestForm(
+        status === "security"
+          ? { status, requestId: "req-1", handoffId: "handoff-1", message: "A possible security matter.", urgent: true }
+          : { status, requestId: "req-1", handoffId: "handoff-1", message: "A network matter." },
+      );
+      expect(html).toContain('class="info"');
+      expect(html).not.toContain('class="error"');
+      expect(html).toContain("req-1");
+      expect(html).toContain("handoff-1");
+    }
   });
 
   it("renders a triage_failed result as an error, with the requestId", () => {
@@ -167,11 +206,23 @@ describe("renderRequestForm()", () => {
     expect(html).toContain("Part of this request was not addressed above");
   });
 
-  it("renders the partial-scope note on an unsupported result when present", () => {
+  it("renders the partial-scope note on a not_it result when present", () => {
     const html = renderRequestForm({
-      status: "unsupported",
+      status: "not_it",
       requestId: "req-1",
-      message: "This system doesn't have a way to help with that yet.",
+      message: "This system doesn't have a way to help with that — it isn't an IT matter this team handles.",
+      note: "Part of this request was not addressed above — please send it as a separate request.",
+    });
+
+    expect(html).toContain('class="note"');
+  });
+
+  it("renders the partial-scope note on a needs_human result when present", () => {
+    const html = renderRequestForm({
+      status: "needs_human",
+      requestId: "req-1",
+      handoffId: "handoff-1",
+      message: "This needs a person to help with it — it has been handed off and is waiting for an operator.",
       note: "Part of this request was not addressed above — please send it as a separate request.",
     });
 

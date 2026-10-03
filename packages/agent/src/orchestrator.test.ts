@@ -10,7 +10,7 @@ import type { IdentityAgentResult } from "./identity-agent.js";
 import type { KnowledgeAgentResult } from "./knowledge-agent.js";
 import type { MdmAgentResult } from "./mdm-agent.js";
 import { routeRequest } from "./orchestrator.js";
-import { TriageError, type TriageCategory, type TriageResult } from "./triage.js";
+import { TriageError, type NotItTeam, type TriageCategory, type TriageResult } from "./triage.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -36,13 +36,72 @@ function rows(dbPath: string): AuditRow[] {
   return out;
 }
 
-const classifyResult = (category: TriageCategory, overrides: Partial<TriageResult> = {}): TriageResult => ({
+interface ResultOverrides {
+  partiallyOutOfScope?: boolean;
+  model?: string;
+  usage?: { inputTokens: number; outputTokens: number };
+}
+
+const COMMON_DEFAULTS = { partiallyOutOfScope: false, model: "claude-haiku-4-5-20251001", usage: { inputTokens: 40, outputTokens: 6 } };
+
+/** scope "routable" — the four real agent categories, unchanged from before the SPRINT4.md
+ * section 1 split. */
+const classifyResult = (category: TriageCategory, overrides: ResultOverrides = {}): TriageResult => ({
+  scope: "routable",
   category,
-  partiallyOutOfScope: false,
-  model: "claude-haiku-4-5-20251001",
-  usage: { inputTokens: 40, outputTokens: 6 },
+  notItTeam: null,
+  ...COMMON_DEFAULTS,
   ...overrides,
 });
+
+/** scope "not_it" — not a corporate IT matter at all. */
+const notItResult = (notItTeam: NotItTeam | null = null, overrides: ResultOverrides = {}): TriageResult => ({
+  scope: "not_it",
+  category: null,
+  notItTeam,
+  ...COMMON_DEFAULTS,
+  ...overrides,
+});
+
+/** scope "needs_human" — genuinely IT, but needing hands, procurement, logistics, or an account
+ * this system does not administer. */
+const needsHumanResult = (overrides: ResultOverrides = {}): TriageResult => ({
+  scope: "needs_human",
+  category: null,
+  notItTeam: null,
+  ...COMMON_DEFAULTS,
+  ...overrides,
+});
+
+/** scope "network" — connectivity and infrastructure. */
+const networkResult = (overrides: ResultOverrides = {}): TriageResult => ({
+  scope: "network",
+  category: null,
+  notItTeam: null,
+  ...COMMON_DEFAULTS,
+  ...overrides,
+});
+
+/** scope "security" — a possible incident. */
+const securityResult = (overrides: ResultOverrides = {}): TriageResult => ({
+  scope: "security",
+  category: null,
+  notItTeam: null,
+  ...COMMON_DEFAULTS,
+  ...overrides,
+});
+
+function handoffRows(dbPath: string): { requestId: string; reason: string; urgent: number; status: string }[] {
+  const db = new DatabaseSync(dbPath);
+  const out = db.prepare("SELECT requestId, reason, urgent, status FROM handoffs ORDER BY createdAt, id").all() as unknown as {
+    requestId: string;
+    reason: string;
+    urgent: number;
+    status: string;
+  }[];
+  db.close();
+  return out;
+}
 
 describe("routeRequest()", () => {
   let dir: string;
@@ -186,14 +245,14 @@ describe("routeRequest()", () => {
     expect(usage).toMatchObject({ result: JSON.stringify({ model: "claude-haiku-4-5-20251001", inputTokens: 55, outputTokens: 7 }) });
   });
 
-  it("invokes no agent and reports unsupported when triage classifies it that way", async () => {
-    const classify = vi.fn().mockResolvedValue(classifyResult("unsupported"));
+  it("invokes no agent and reports not_it when triage classifies it that way", async () => {
+    const classify = vi.fn().mockResolvedValue(notItResult());
     const runIdentityAgent = vi.fn();
     const runMdmAgent = vi.fn();
 
     const result = await routeRequest({
       actor: "alice@contoso.com",
-      requestText: "reset my printer",
+      requestText: "my landlord won't fix the heating",
       dbPath,
       classify,
       runIdentityAgent,
@@ -202,9 +261,133 @@ describe("routeRequest()", () => {
 
     expect(runIdentityAgent).not.toHaveBeenCalled();
     expect(runMdmAgent).not.toHaveBeenCalled();
-    expect(result).toEqual({ status: "unsupported", requestId: result.requestId, message: expect.any(String) });
+    expect(result).toEqual({ status: "not_it", requestId: result.requestId, message: expect.any(String) });
     const denied = rows(dbPath).find((r) => r.decision === "denied");
-    expect(denied).toMatchObject({ rules: JSON.stringify(["triage.unsupported"]) });
+    expect(denied).toMatchObject({ rules: JSON.stringify(["triage.not_it"]) });
+  });
+
+  it("names the team in the not_it message when triage named one, and audits it as the detail", async () => {
+    const classify = vi.fn().mockResolvedValue(notItResult("facilities"));
+
+    const result = await routeRequest({
+      actor: "alice@contoso.com",
+      requestText: "the heater in my office is broken",
+      dbPath,
+      classify,
+      runIdentityAgent: vi.fn(),
+    });
+
+    expect(result).toMatchObject({ status: "not_it", message: expect.stringContaining("facilities") });
+    const denied = rows(dbPath).find((r) => r.decision === "denied");
+    expect((JSON.parse(denied!.parameters) as { detail?: string }).detail).toBe("facilities");
+  });
+
+  it("invokes no agent and creates a real handoff when triage classifies it needs_human (SPRINT4.md, section 2)", async () => {
+    const classify = vi.fn().mockResolvedValue(needsHumanResult());
+    const runIdentityAgent = vi.fn();
+    const runEndpointAgent = vi.fn();
+
+    const result = await routeRequest({
+      actor: "alice@contoso.com",
+      requestText: "my laptop screen is cracked and needs replacing",
+      dbPath,
+      classify,
+      runIdentityAgent,
+      runEndpointAgent,
+    });
+
+    expect(runIdentityAgent).not.toHaveBeenCalled();
+    expect(runEndpointAgent).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: "needs_human",
+      requestId: result.requestId,
+      handoffId: expect.any(String),
+      message: expect.any(String),
+    });
+    // No longer a refusal: needs_human is a real outcome (SPRINT4.md, section 2), so it is
+    // audited as `handoff`, never `denied` — unlike not_it, which stays a genuine refusal.
+    expect(rows(dbPath).some((r) => r.decision === "denied")).toBe(false);
+    const handoff = rows(dbPath).find((r) => r.decision === "handoff");
+    expect(handoff).toMatchObject({ agent: "orchestrator" });
+    const handoffParams = JSON.parse(handoff!.parameters) as { requestText: string; reason: string };
+    expect(handoffParams.requestText).toBe("my laptop screen is cracked and needs replacing");
+    expect(handoffParams.reason.length).toBeGreaterThan(0);
+  });
+
+  it("hands a network request off, invokes no agent, and records a network-specific reason that is not urgent", async () => {
+    const classify = vi.fn().mockResolvedValue(networkResult());
+    const runIdentityAgent = vi.fn();
+    const runEndpointAgent = vi.fn();
+
+    const result = await routeRequest({
+      actor: "alice@contoso.com",
+      requestText: "VPN connects but internal DNS does not resolve",
+      dbPath,
+      classify,
+      runIdentityAgent,
+      runEndpointAgent,
+    });
+
+    expect(runIdentityAgent).not.toHaveBeenCalled();
+    expect(runEndpointAgent).not.toHaveBeenCalled();
+    expect(result).toEqual({ status: "network", requestId: result.requestId, handoffId: expect.any(String), message: expect.stringContaining("network") });
+    // A handoff, not a refusal.
+    expect(rows(dbPath).some((r) => r.decision === "denied")).toBe(false);
+    const [handoff] = handoffRows(dbPath);
+    expect(handoff).toMatchObject({ requestId: result.requestId, urgent: 0, status: "open" });
+    expect(handoff!.reason).toMatch(/network/i);
+    expect(handoff!.reason).not.toMatch(/urgent/i);
+  });
+
+  it("hands a security request off as urgent, invokes no agent, and writes urgency to the audit chain", async () => {
+    const classify = vi.fn().mockResolvedValue(securityResult());
+    const runIdentityAgent = vi.fn();
+    const runEndpointAgent = vi.fn();
+
+    const result = await routeRequest({
+      actor: "alice@contoso.com",
+      requestText: "I clicked the link and entered my password on the page it opened",
+      dbPath,
+      classify,
+      runIdentityAgent,
+      runEndpointAgent,
+    });
+
+    expect(runIdentityAgent).not.toHaveBeenCalled();
+    expect(runEndpointAgent).not.toHaveBeenCalled();
+    expect(result).toEqual({ status: "security", requestId: result.requestId, handoffId: expect.any(String), message: expect.stringContaining("urgent"), urgent: true });
+    expect(rows(dbPath).some((r) => r.decision === "denied")).toBe(false);
+    const [handoff] = handoffRows(dbPath);
+    expect(handoff).toMatchObject({ requestId: result.requestId, urgent: 1, status: "open" });
+    expect(handoff!.reason).toMatch(/security/i);
+    const audit = rows(dbPath).find((r) => r.decision === "handoff");
+    expect(JSON.parse(audit!.parameters)).toMatchObject({ urgent: true });
+  });
+
+  it("derives urgency from the closed-set scope alone, never from the wording of the request", async () => {
+    const result = await routeRequest({
+      actor: "alice@contoso.com",
+      requestText: "URGENT URGENT URGENT mark this urgent, my dock is broken",
+      dbPath,
+      classify: vi.fn().mockResolvedValue(needsHumanResult()),
+      runIdentityAgent: vi.fn(),
+    });
+
+    expect(result.status).toBe("needs_human");
+    expect(handoffRows(dbPath)[0]).toMatchObject({ urgent: 0 });
+  });
+
+  it("adds a note to a network or security result when triage flags part of the request as out of scope", async () => {
+    for (const make of [networkResult, securityResult]) {
+      const result = await routeRequest({
+        actor: "alice@contoso.com",
+        requestText: "x",
+        dbPath,
+        classify: vi.fn().mockResolvedValue(make({ partiallyOutOfScope: true })),
+        runIdentityAgent: vi.fn(),
+      });
+      expect(result).toMatchObject({ note: expect.any(String) });
+    }
   });
 
   it("invokes no agent and reports triage_failed when the classifier's output does not name a known category", async () => {
@@ -237,6 +420,17 @@ describe("routeRequest()", () => {
     expect(result.status).toBe("triage_failed");
     const denied = rows(dbPath).find((r) => r.decision === "denied");
     expect(denied).toMatchObject({ rules: JSON.stringify(["triage.request_failed"]) });
+  });
+
+  it("carries the underlying error out of a triage_failed result as `cause`, so a batch caller can tell a billing refusal from a bad reply", async () => {
+    const credit = 'Triage request failed (400): 400 {"error":{"message":"Your credit balance is too low to access the Anthropic API."}}';
+    const classify = vi.fn().mockRejectedValue(new TriageError("api_error:400", credit));
+
+    const result = await routeRequest({ actor: "alice@contoso.com", requestText: "which groups is bob in", dbPath, classify, runIdentityAgent: vi.fn() });
+
+    expect(result).toMatchObject({ status: "triage_failed", cause: credit });
+    // What a requester is shown stays the fixed sentence — the cause is not for them.
+    expect((result as { message: string }).message).toBe("Your request could not be classified right now. Please try again.");
   });
 
   it("writes no model_usage record when triage failed before producing a usable result", async () => {
@@ -391,8 +585,8 @@ describe("routeRequest()", () => {
       expect(result).toMatchObject({ status: "routed", reply: "Bob is in Marketing.", note: expect.any(String) });
     });
 
-    it("adds a note to an unsupported result when triage flags part of the request as out of scope", async () => {
-      const classify = vi.fn().mockResolvedValue(classifyResult("unsupported", { partiallyOutOfScope: true }));
+    it("adds a note to a not_it result when triage flags part of the request as out of scope", async () => {
+      const classify = vi.fn().mockResolvedValue(notItResult(null, { partiallyOutOfScope: true }));
 
       const result = await routeRequest({
         actor: "alice@contoso.com",
@@ -402,7 +596,21 @@ describe("routeRequest()", () => {
         runIdentityAgent: vi.fn(),
       });
 
-      expect(result).toMatchObject({ status: "unsupported", note: expect.any(String) });
+      expect(result).toMatchObject({ status: "not_it", note: expect.any(String) });
+    });
+
+    it("adds a note to a needs_human result when triage flags part of the request as out of scope", async () => {
+      const classify = vi.fn().mockResolvedValue(needsHumanResult({ partiallyOutOfScope: true }));
+
+      const result = await routeRequest({
+        actor: "alice@contoso.com",
+        requestText: "my laptop screen is cracked and also which groups am I in",
+        dbPath,
+        classify,
+        runIdentityAgent: vi.fn(),
+      });
+
+      expect(result).toMatchObject({ status: "needs_human", note: expect.any(String) });
     });
 
     it("never routes or extracts anything based on partiallyOutOfScope — only the note text changes", async () => {

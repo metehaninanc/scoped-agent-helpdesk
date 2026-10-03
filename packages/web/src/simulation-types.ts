@@ -14,7 +14,26 @@ export interface SimToolCall {
   rules: string[];
 }
 
-export type SimCategory = "identity" | "mdm" | "knowledge" | "endpoint" | "unsupported" | "triage_failed" | "error";
+/** "not_it" and "needs_human" are SPRINT4.md, section 1's split of the old, single "unsupported"
+ * outcome (see @helpdesk/agent's orchestrator.ts). "unsupported" stays in this type only because
+ * pass one and pass two's already-committed results files (evidence/simulation-results{,-2}.jsonl)
+ * literally contain it on disk and this type still has to describe what simulation-compare.ts
+ * reads back — this project does not rewrite past evidence to match a later scheme (see the
+ * root README's own "pass one's databases and evidence files are untouched"). bin/simulate.ts
+ * itself never writes "unsupported" again; a pass recorded from here on uses "not_it" or
+ * "needs_human" instead. */
+export type SimCategory =
+  | "identity"
+  | "mdm"
+  | "knowledge"
+  | "endpoint"
+  | "not_it"
+  | "needs_human"
+  | "network"
+  | "security"
+  | "unsupported"
+  | "triage_failed"
+  | "error";
 
 export interface TicketResult {
   id: string;

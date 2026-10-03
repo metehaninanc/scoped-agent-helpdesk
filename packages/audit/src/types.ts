@@ -7,9 +7,17 @@
  *                               its own, without touching a tool, still leaves a trail
  *   autonomous, approval, denied  policy decisions from decide(); a second record with the
  *                               same kind and a non-null result marks execution
+ *   rationale_requested          an approver asked for a briefing on a pending approval
+ *                               (SPRINT4.md, section 4). Written before the model is ever called
+ *                               — evidence that the ask happened, regardless of what it produces.
+ *                               actor is the approver, not the original requester; parameters =
+ *                               { approvalId }; result is always null
  *   rationale                   supporting information generated for approvers. Never a
  *                               decision. parameters = exactly the facts the model was given,
- *                               result = the text it returned, verbatim
+ *                               result = the text it returned, verbatim, or an error if generation
+ *                               failed. As of SPRINT4.md, section 4, always preceded by its own
+ *                               `rationale_requested` record on the same chain — generation is
+ *                               requested by a human from the console, never automatic
  *   approved, rejected          a human approver's verdict; actor is the approver. A second
  *                               approved record with a non-null result marks execution
  *   routed                      the orchestration layer dispatched a request to an agent, after
@@ -20,6 +28,22 @@
  *   model_usage                 token usage for one model call: an agent's own turn, a rationale
  *                               generation, or a triage classification. Never a decision.
  *                               parameters is null, result = { model, inputTokens, outputTokens }
+ *   handoff                     a request was queued for a person to work outside this system
+ *                               (SPRINT4.md, section 2). Not a refusal: a real, first-class
+ *                               outcome, the same way `routed` is. Written either by the
+ *                               orchestrator directly (triage decided `needs_human`, `network` or
+ *                               `security`, before any agent or gateway is involved — see
+ *                               @helpdesk/handoff-core's own README notes for why that path has no
+ *                               policy decision to make) or by a gateway's `hand_off` tool,
+ *                               autonomous, called by the model mid-conversation. `parameters`
+ *                               carries the reason and `urgent` (true only for triage's
+ *                               `security`; records written before the field existed lack it and
+ *                               read as not urgent); `result` is null until taken
+ *   handoff_taken               an operator started working a handoff. `result` names who and
+ *                               when; no note required (SPRINT4.md, section 3: only `resolve`
+ *                               requires one)
+ *   handoff_resolved            an operator finished working a handoff. `result` carries the
+ *                               required resolution note
  */
 export const AUDIT_DECISIONS = [
   "request",
@@ -27,11 +51,15 @@ export const AUDIT_DECISIONS = [
   "approval",
   "denied",
   "no_tool_called",
+  "rationale_requested",
   "rationale",
   "approved",
   "rejected",
   "routed",
   "model_usage",
+  "handoff",
+  "handoff_taken",
+  "handoff_resolved",
 ] as const;
 export type AuditDecision = (typeof AUDIT_DECISIONS)[number];
 
