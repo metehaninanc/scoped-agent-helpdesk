@@ -1,7 +1,7 @@
 Gateway isolation: Graph-level (Sprint 2 Stage A; extended, SPRINT3.md 3.3 and 3.4),
 gateway-level (Sprint 2 Stage B; extended, 3.3 and 3.4), and endpoint coverage (Stage B,
 Component 5; extended, 3.4)
-Run at: 2026-09-19T17:49:48.558Z
+Run at: 2026-10-03T19:52:17.787Z
 Tenant: f5590adf-b4c2-43c0-a656-5fb76451a2b7
 
 Checks 1-4 prove Microsoft enforces the separation between the identity and MDM gateways'
