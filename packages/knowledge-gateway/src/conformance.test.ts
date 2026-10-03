@@ -7,6 +7,7 @@
  */
 import { AuditLog } from "@helpdesk/audit-core";
 import { TokenValidator, conformanceSuite, createRequestListener, openDatabase, type ConformanceHarness } from "@helpdesk/gateway-core";
+import { HandoffStore } from "@helpdesk/handoff-core";
 
 import { corpusRawDir, loadCorpus } from "./corpus.js";
 import { policyConfig } from "./policy/config.js";
@@ -22,11 +23,13 @@ const documentationSearch = createDocumentationSearch(loadCorpus(corpusRawDir())
 conformanceSuite("knowledge-gateway", (keys) => {
   const db = openDatabase(":memory:");
   const audit = new AuditLog(db);
+  const handoffs = new HandoffStore(db, audit);
   const auditCountWhenBackendTouched = { value: -1 };
 
   const server = createGatewayServer({
     audit,
     config: policyConfig,
+    handoffs,
     search: (query: string) => {
       auditCountWhenBackendTouched.value = audit.list().length;
       return documentationSearch.search(query);

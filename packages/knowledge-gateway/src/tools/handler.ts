@@ -11,7 +11,8 @@
  *   4. branch: autonomous -> search the corpus, then a second audit record with the result
  *              denied     -> return a refusal naming the rules, call nothing
  */
-import { runToolCall, type GatewayToolOutput, type SessionContext, type ToolCallResult } from "@helpdesk/gateway-core";
+import { createHandOffExecute, runToolCall, type GatewayToolOutput, type HandOffOk, type SessionContext, type ToolCallResult } from "@helpdesk/gateway-core";
+import type { HandoffStore } from "@helpdesk/handoff-core";
 
 import type { AuditInput, AuditRecord } from "@helpdesk/audit-core";
 import type { SearchResult } from "../search.js";
@@ -28,12 +29,14 @@ export interface GatewayDeps {
    * into this package (SPRINT3.md, 3.3 — this is the case @helpdesk/gateway-core exists to make
    * first class). */
   search: (query: string) => SearchResult[];
+  /** SPRINT4.md, section 2: identical on every gateway. */
+  handoffs: Pick<HandoffStore, "create">;
   config: PolicyConfig;
   decide?: (request: ToolRequest, context: RequestContext, config: PolicyConfig) => Decision;
   now?: () => Date;
 }
 
-type Ok = { status: "ok"; passages: SearchResult[] };
+type Ok = { status: "ok"; passages: SearchResult[] } | HandOffOk;
 
 export type ToolOutput = GatewayToolOutput<Ok, RuleId>;
 
@@ -49,14 +52,16 @@ export async function handleToolCall(
     config: deps.config,
     ...(deps.now ? { now: deps.now } : {}),
     parse: parseToolRequest,
-    execute: (request) => execute(request, deps),
+    execute: (request) => execute(request, deps, session),
     deniedMessageSuffix: "Nothing was searched.",
   });
 }
 
-async function execute(request: ValidatedToolRequest, deps: GatewayDeps): Promise<Ok> {
+async function execute(request: ValidatedToolRequest, deps: GatewayDeps, session: SessionContext): Promise<Ok> {
   switch (request.tool) {
     case "search_documentation":
       return { status: "ok", passages: deps.search(request.params.query) };
+    case "hand_off":
+      return createHandOffExecute(deps.handoffs)(request, session);
   }
 }
