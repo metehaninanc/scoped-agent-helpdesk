@@ -11,7 +11,7 @@
  * node:sqlite needs Node 22.13 or newer (unflagged in 22.13.0, nodejs/node#55890). The
  * check below turns "ERR_UNKNOWN_BUILTIN_MODULE" on an old VPS into a message that says so.
  */
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -31,9 +31,29 @@ export function assertNodeSupportsSqlite(version: string = process.versions.node
   }
 }
 
-export function openDatabase(path: string): DatabaseSync {
+/**
+ * `create` defaults to false: a path that does not exist yet is refused loudly rather than handed
+ * back as a new, empty chain. `new DatabaseSync(path)` on its own cannot tell a real chain from a
+ * typo'd path — both look like "file not found" — so the check has to happen here, before that
+ * call, where the difference between "start a chain" and "open one" is still known. Pass
+ * `{ create: true }` only at the one place that legitimately starts a new chain (a gateway's own
+ * `bin/gateway.ts`, or the orchestrator chain's own writer, which has no dedicated gateway of its
+ * own) — every reader (the dashboard, `verify-audit`, the simulation tools) leaves it unset, so a
+ * wrong path fails the same way a wrong path anywhere else in this project does.
+ */
+export function openDatabase(path: string, options: { create?: boolean } = {}): DatabaseSync {
   assertNodeSupportsSqlite();
-  if (path !== IN_MEMORY) mkdirSync(dirname(path), { recursive: true });
+  const create = options.create ?? false;
+  if (path !== IN_MEMORY) {
+    const exists = existsSync(path);
+    if (!exists && !create) {
+      throw new Error(
+        `No audit database at ${path}. openDatabase() does not create one unless { create: true } ` +
+          "is passed explicitly — check the path for a typo before assuming this chain doesn't exist yet.",
+      );
+    }
+    if (!exists) mkdirSync(dirname(path), { recursive: true });
+  }
 
   const db = new DatabaseSync(path);
   // WAL keeps readers (the web app) from blocking the writer (the gateway). Harmless in memory.

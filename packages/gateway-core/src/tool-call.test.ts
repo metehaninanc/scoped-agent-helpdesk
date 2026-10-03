@@ -28,7 +28,7 @@ function parse(request: { tool: string; params: unknown }): { ok: true; request:
   return { ok: true, request: { tool: request.tool, params: { value: params.value } } };
 }
 
-const session: SessionContext = { actor: "alice@contoso.com", agent: "test-agent", requestId: "req-1" };
+const session: SessionContext = { actor: "alice@contoso.com", agent: "test-agent", requestId: "req-1", requestText: "test request" };
 
 const payload = (result: Awaited<ReturnType<typeof runToolCall>>): Record<string, unknown> => {
   const first = result.content[0];
@@ -176,7 +176,7 @@ describe("runToolCall()", () => {
   });
 
   it("stamps every record with the session's requestId, actor and agent", async () => {
-    const other: SessionContext = { actor: "bob@contoso.com", agent: "other-agent", requestId: "req-9" };
+    const other: SessionContext = { actor: "bob@contoso.com", agent: "other-agent", requestId: "req-9", requestText: "test request" };
     await runToolCall("read", { value: "hi" }, other, deps);
 
     for (const record of audit.list()) {

@@ -36,6 +36,15 @@ export interface SessionContext {
   actor: string;
   agent: string;
   requestId: string;
+  /** The request exactly as the person typed it. SPRINT4.md, section 2: a `hand_off` tool call
+   * needs this on the handoff record it creates ("the record carries ... the original request
+   * text"), and the gateway never sees it any other way — a tool's own model-supplied params are
+   * for `reason`, what a person should do, never a restatement of what started the conversation,
+   * the same reason `actor` travels as a header rather than a tool parameter. Empty string when
+   * the header is absent, not enforced the way `x-actor` is: unlike identity, a missing or wrong
+   * request text cannot let a request through as someone else, so there is nothing here worth a
+   * hard 400 over. */
+  requestText: string;
 }
 
 /**
@@ -74,5 +83,6 @@ export function sessionFromExtra(extra: ToolCallExtra): SessionContext {
     actor: headerValue(extra.requestInfo?.headers, "x-actor") ?? "unknown",
     agent: extra.authInfo?.clientId ?? "unknown",
     requestId: headerValue(extra.requestInfo?.headers, "x-request-id") ?? "unknown",
+    requestText: headerValue(extra.requestInfo?.headers, "x-request-text") ?? "",
   };
 }
