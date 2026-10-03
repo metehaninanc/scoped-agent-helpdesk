@@ -10,27 +10,17 @@
  * why every number here traces back to the five chains and nothing else.
  */
 import type {
+  AcceptPathOutcomes,
   ComponentCost,
   DashboardData,
   GatewayApprovalStats,
+  RejectPathOutcomes,
   RuleFrequency,
 } from "./dashboard-metrics.js";
-import { escapeHtml } from "./html.js";
+import { escapeHtml, formatDuration } from "./html.js";
 
 function formatUsd(amount: number): string {
   return `$${amount.toFixed(4)}`;
-}
-
-function formatDuration(ms: number): string {
-  const totalMinutes = Math.round(ms / 60_000);
-  const days = Math.floor(totalMinutes / 1440);
-  const hours = Math.floor((totalMinutes % 1440) / 60);
-  const minutes = totalMinutes % 60;
-  const parts: string[] = [];
-  if (days > 0) parts.push(`${days}d`);
-  if (hours > 0) parts.push(`${hours}h`);
-  if (parts.length === 0 || minutes > 0) parts.push(`${minutes}m`);
-  return parts.join(" ");
 }
 
 function formatPercent(fraction: number): string {
@@ -62,29 +52,79 @@ function renderTrust(data: DashboardData["trust"]): string {
 
 function renderVolume(data: DashboardData["volume"]): string {
   const dayRows = data.requestsByDay.map((d) => `<tr><td>${escapeHtml(d.day)}</td><td>${d.count}</td></tr>`).join("");
-  const { split } = data;
-
-  const classifierNote =
-    data.classifierFailures > 0
-      ? `<p class="note">${data.classifierFailures} request(s) could not be classified at all (a triage
-         network or output error) and are excluded from the split below — that is an operational
-         fault, not a system outcome.</p>`
-      : "";
 
   return `
     <h2>How much the system handles</h2>
     <table>
       <thead><tr><th>Day</th><th>Requests</th></tr></thead>
       <tbody>${dayRows || `<tr><td colspan="2">No requests recorded.</td></tr>`}</tbody>
-    </table>
+    </table>`;
+}
+
+/** SPRINT4.md, section 5: five outcomes, not tool-call-equals-success, and the reject and accept
+ * paths reported as separate figures rather than one blended percentage — see
+ * dashboard-metrics.ts's own header comment on this section for the full reasoning behind every
+ * row here. */
+function renderRejectPath(data: RejectPathOutcomes): string {
+  return `
+    <h3>Reject path — triage said not IT or needs a human (${data.total})</h3>
     <table>
-      <thead><tr><th>Autonomous</th><th>Approval gated</th><th>Refused</th><th>Model declined</th></tr></thead>
-      <tbody><tr><td>${split.autonomous}</td><td>${split.approvalGated}</td><td>${split.refused}</td><td>${split.modelDeclined}</td></tr></tbody>
+      <thead><tr><th>Outcome</th><th>Count</th></tr></thead>
+      <tbody>
+        <tr><td>Redirected</td><td>${data.redirected}</td></tr>
+        <tr><td>Handed off, resolved</td><td>${data.handedOffResolved}</td></tr>
+        <tr><td>Handed off, still in progress</td><td>${data.handedOffInProgress}</td></tr>
+      </tbody>
+    </table>`;
+}
+
+function renderAcceptPath(data: AcceptPathOutcomes): string {
+  return `
+    <h3>Accept path — triage routed it to an agent (${data.total})</h3>
+    <table>
+      <thead><tr><th>Outcome</th><th>Count</th></tr></thead>
+      <tbody>
+        <tr><td>Resolved</td><td>${data.resolved}</td></tr>
+        <tr><td>Handed off, resolved</td><td>${data.handedOffResolved}</td></tr>
+        <tr><td>Handed off, still in progress</td><td>${data.handedOffInProgress}</td></tr>
+        <tr><td>Routed but unresolved</td><td>${data.routedButUnresolved}</td></tr>
+        <tr><td>Approval pending</td><td>${data.approvalPending}</td></tr>
+        <tr><td>Approval rejected by an approver</td><td>${data.approvalRejected}</td></tr>
+      </tbody>
     </table>
-    <p class="note">"Model declined" is the agent's own model choosing not to call any tool — no
-    policy decision was ever made, and the log cannot say why without inspecting the reply text.
-    It is not folded into "refused," which is reserved for a named rule actually firing.</p>
-    ${classifierNote}`;
+    <p class="note">"Routed but unresolved" — reached the right agent, which had nothing that bore
+    on it: no tool called, a gateway policy denial, or a backend execution failure. Coverage's
+    problem, not triage's.</p>
+    <p class="note">Approval pending and approval rejected are shown on their own, not folded into
+    resolved (nothing has changed yet, or the human said no) or into routed-but-unresolved (the
+    agent had exactly the right action — that is precisely why it was gated).</p>`;
+}
+
+function renderOutcomes(data: DashboardData["outcomes"]): string {
+  const classifierNote =
+    data.classifierFailures > 0
+      ? `<p class="note">${data.classifierFailures} request(s) could not be classified at all (a
+         triage network or output error) — excluded from both paths below; an operational fault,
+         not a routing outcome.</p>`
+      : "";
+  const otherDeniedNote =
+    data.otherDenied > 0
+      ? `<p class="note">${data.otherDenied} older denial(s) name a rule this scoring model does
+         not recognize (a rule retired since the chain was created) — excluded from both paths
+         below rather than misclassified, not silently dropped from this page's own count.</p>`
+      : "";
+
+  return `
+    <h2>Did the system resolve things</h2>
+    <p class="note">Reject path and accept path, reported separately — a single blended percentage
+    hides which half is actually broken, the same mistake this project's own first two simulation
+    passes exposed.</p>
+    ${renderRejectPath(data.rejectPath)}
+    ${renderAcceptPath(data.acceptPath)}
+    <h3>Misrouted</h3>
+    <p class="info">${escapeHtml(data.misroutedNote)}</p>
+    ${classifierNote}
+    ${otherDeniedNote}`;
 }
 
 function renderGatewayApprovalRow(g: GatewayApprovalStats): string {
@@ -184,6 +224,7 @@ export function renderDashboard(data: DashboardData): string {
     authentication of its own, the same level of protection the approval screen already has.</p>
     ${renderTrust(data.trust)}
     ${renderVolume(data.volume)}
+    ${renderOutcomes(data.outcomes)}
     ${renderHumans(data.humans)}
     ${renderStopped(data.stopped)}
     ${renderCost(data.cost)}`;
