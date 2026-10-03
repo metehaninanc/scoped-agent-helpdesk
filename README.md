@@ -5009,3 +5009,32 @@ statuses, reasons, messages), the handoff store's `urgent` field and migration, 
 `simulation-compare.ts` and `simulate.ts`; and in the last round `triage.ts` again (the wire names and the
 parser mapping, the `mdm`, `knowledge` and `endpoint` text). 1024 tests across nine packages, all passing;
 `pnpm typecheck` and `pnpm build` clean.
+
+## Repository history: how the working tree was committed
+
+For most of Sprint 3 and all of Sprint 4 the work lived in an uncommitted working tree, and was committed
+in one sitting at the end. The history below is a record of what is in the tree, grouped by what it is, and
+**not** a record of the order things happened in; no attempt was made to reconstruct that. Everything else in
+this document is traceable to evidence, and this section says plainly where the history is not.
+
+| Commit | What it holds |
+|---|---|
+| `5c9fb63`, `6a03959`, `f13ef77`, `5fe1d74` | The generated ticket sets, the mixed set and its sampler, and the three label files. Labels were committed before any run on them. |
+| `75833da` | Triage's `network` and `security` outcomes, urgent handoffs (`packages/handoff-core`), the wider `identity`, the renamed output fields, and the harness. |
+| `fd79590` | Evidence for the mixed set, `dataset2` and the format probe. |
+| `2fc6ca3` | The README as it then stood. |
+| `6abc620` | `SPRINT4.md`. |
+| `2d0f5c0`, `770218e`, `40cecf1` | Earlier evidence: the first triage-accuracy runs, simulation passes three and four, screenshots. |
+| `912957a` | The knowledge corpus as a folder contract, corrected citation URLs, `verify-citations`. |
+| `52528a2` | `gateway-core`: a missing audit database is refused, `hand_off` exports. |
+| `97f054a`, `7646d9e`, `5a4cf72`, `d02fa1e` | The four gateways' `hand_off` tool, and the identity gateway's briefing endpoint. |
+| `b23fe55`, `e53a686`, `011dbc6`, `ae1f086` | The agent package: failure recognition, the database guard, the orchestrator chain, the four agents and `HELPDESK_AGENT_AUTH`. |
+| `dc5b5ab`, `1d58de9`, `14b528f` | The web package: simulation tooling, the dashboard's outcomes section, the console wiring. |
+| `c983a72` | Root scripts and the lockfile. |
+
+**What was and was not checked.** `c983a72` is the tip of that series, and it was checked as a clean clone:
+installed offline from the committed lockfile with `--frozen-lockfile` (nothing downloaded), built,
+type-checked, and all 1,024 tests passed. **No commit before it was built on its own**, and the first
+several cannot have been: they depend on `packages/handoff-core`, the gateways and the lockfile, which arrive
+in later commits, and each such commit says so in its message. Several files, `README.md` among them, were
+committed whole and so carry work from more than one period. Nothing was rewritten to hide any of this.
