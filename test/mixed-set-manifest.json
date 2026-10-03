@@ -1,0 +1,76 @@
+{
+  "seed": 20261003,
+  "perSource": 50,
+  "sources": {
+    "d1": "test/dataset1.json",
+    "d2": "test/dataset2.json",
+    "d3": "test/dataset3.json"
+  },
+  "stratifiedBy": "test/dataset-labels.json",
+  "targetWeights": {
+    "identity": 102,
+    "mdm": 23,
+    "knowledge": 40,
+    "endpoint": 12,
+    "needs_human": 273,
+    "not_it": 0
+  },
+  "targetWasSupplied": false,
+  "categoryTotals": {
+    "identity": 34,
+    "mdm": 8,
+    "knowledge": 13,
+    "endpoint": 4,
+    "needs_human": 91,
+    "not_it": 0
+  },
+  "allocation": {
+    "d1": {
+      "identity": 12,
+      "mdm": 3,
+      "knowledge": 4,
+      "endpoint": 1,
+      "needs_human": 30,
+      "not_it": 0
+    },
+    "d2": {
+      "identity": 12,
+      "mdm": 2,
+      "knowledge": 4,
+      "endpoint": 1,
+      "needs_human": 31,
+      "not_it": 0
+    },
+    "d3": {
+      "identity": 10,
+      "mdm": 3,
+      "knowledge": 5,
+      "endpoint": 2,
+      "needs_human": 30,
+      "not_it": 0
+    }
+  },
+  "poolBySource": {
+    "d1": {
+      "needs_human": 89,
+      "identity": 36,
+      "endpoint": 4,
+      "mdm": 9,
+      "knowledge": 12
+    },
+    "d2": {
+      "needs_human": 93,
+      "identity": 35,
+      "endpoint": 2,
+      "knowledge": 14,
+      "mdm": 6
+    },
+    "d3": {
+      "needs_human": 91,
+      "endpoint": 6,
+      "identity": 31,
+      "knowledge": 14,
+      "mdm": 8
+    }
+  }
+}
