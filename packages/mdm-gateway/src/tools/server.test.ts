@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuditLog } from "@helpdesk/audit-core";
 import { openDatabase } from "@helpdesk/gateway-core";
+import { HandoffStore } from "@helpdesk/handoff-core";
 
 import { Rule, type PolicyConfig } from "../policy/types.js";
 import type { GatewayDeps } from "./handler.js";
@@ -34,6 +35,7 @@ describe("MDM gateway MCP server", () => {
         listDevices: vi.fn(async () => [{ id: DEVICE, displayName: "alice-laptop", operatingSystem: "Windows", isCompliant: true }]),
         getDevice: vi.fn(async () => ({ id: DEVICE, displayName: "alice-laptop", operatingSystem: "Windows", isCompliant: true })),
       },
+      handoffs: new HandoffStore(db, audit),
       config,
     };
 
@@ -48,16 +50,24 @@ describe("MDM gateway MCP server", () => {
     audit.close();
   });
 
-  it("identifies itself and advertises exactly the two tools with closed schemas and no ids", async () => {
+  it("identifies itself and advertises list_devices, get_device and hand_off, each with a closed schema and no ids", async () => {
     expect(client.getServerVersion()?.name).toBe(GATEWAY_NAME);
 
     const { tools } = await client.listTools();
 
-    expect(tools.map((t) => t.name)).toEqual(["list_devices", "get_device"]);
+    expect(tools.map((t) => t.name)).toEqual(["list_devices", "get_device", "hand_off"]);
     for (const tool of tools) {
       expect(tool.description).toBeTruthy();
       expect(tool.inputSchema.additionalProperties).toBe(false);
     }
+  });
+
+  it("runs hand_off end to end, autonomous, and audits both the tool call and the handoff's own creation (SPRINT4.md, section 2)", async () => {
+    const result = await client.callTool({ name: "hand_off", arguments: { reason: "needs a replacement device" } });
+
+    expect(result.isError).toBeFalsy();
+    expect(textOf(result)).toMatchObject({ status: "handed_off", handoffId: expect.any(String) });
+    expect(audit.list().map((r) => r.decision)).toEqual(["autonomous", "handoff", "autonomous"]);
   });
 
   it("runs an autonomous call end to end and audits it twice", async () => {

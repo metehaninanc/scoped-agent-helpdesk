@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
+import { HAND_OFF_TOOL_DESCRIPTION } from "@helpdesk/gateway-core";
+
 import { TOOL_NAMES, toolDefinitions, toolDescription, toolInputSchema } from "./descriptions.js";
 
 describe("tool definitions", () => {
-  it("exposes exactly the two Sprint 2 MDM tools", () => {
-    expect(TOOL_NAMES).toEqual(["list_devices", "get_device"]);
+  it("exposes the two Sprint 2 MDM tools plus hand_off (SPRINT4.md, section 2 — on every gateway)", () => {
+    expect(TOOL_NAMES).toEqual(["list_devices", "get_device", "hand_off"]);
     expect(toolDefinitions().map((t) => t.name)).toEqual(TOOL_NAMES);
   });
 
@@ -58,5 +60,11 @@ describe("list_devices description", () => {
 
   it("states plainly that this gateway has no write tools", () => {
     expect(text).toContain("This gateway has no write tools at all");
+  });
+});
+
+describe("hand_off description", () => {
+  it("is the shared, cross-gateway text from @helpdesk/gateway-core, not a local copy (SPRINT4.md, section 2)", () => {
+    expect(toolDescription("hand_off")).toBe(HAND_OFF_TOOL_DESCRIPTION);
   });
 });

@@ -12,7 +12,8 @@
  *              approval   -> fails loudly (no onApproval supplied)
  *              denied     -> return a refusal naming the rules, call nothing
  */
-import { runToolCall, type ErrorOutput, type GatewayToolOutput, type SessionContext, type ToolCallResult } from "@helpdesk/gateway-core";
+import { createHandOffExecute, runToolCall, type ErrorOutput, type GatewayToolOutput, type HandOffOk, type SessionContext, type ToolCallResult } from "@helpdesk/gateway-core";
+import type { HandoffStore } from "@helpdesk/handoff-core";
 
 import type { AuditInput, AuditRecord } from "@helpdesk/audit-core";
 import type { DeviceSummary } from "@helpdesk/identity-gateway";
@@ -30,12 +31,14 @@ export interface GatewayDeps {
     listDevices(): Promise<DeviceSummary[]>;
     getDevice(deviceId: string): Promise<DeviceSummary>;
   };
+  /** SPRINT4.md, section 2: identical on every gateway. */
+  handoffs: Pick<HandoffStore, "create">;
   config: PolicyConfig;
   decide?: (request: ToolRequest, context: RequestContext, config: PolicyConfig) => Decision;
   now?: () => Date;
 }
 
-type Ok = { status: "ok"; devices: DeviceSummary[] } | { status: "ok"; device: DeviceSummary };
+type Ok = { status: "ok"; devices: DeviceSummary[] } | { status: "ok"; device: DeviceSummary } | HandOffOk;
 
 export type ToolOutput = GatewayToolOutput<Ok, RuleId>;
 
@@ -60,17 +63,19 @@ export async function handleToolCall(
     config: deps.config,
     ...(deps.now ? { now: deps.now } : {}),
     parse: parseToolRequest,
-    execute: (request) => execute(request, deps),
+    execute: (request) => execute(request, deps, session),
     describeError,
     deniedMessageSuffix: "Nothing was looked up.",
   });
 }
 
-async function execute(request: ValidatedToolRequest, deps: GatewayDeps): Promise<Ok> {
+async function execute(request: ValidatedToolRequest, deps: GatewayDeps, session: SessionContext): Promise<Ok> {
   switch (request.tool) {
     case "list_devices":
       return { status: "ok", devices: await deps.graph.listDevices() };
     case "get_device":
       return { status: "ok", device: await deps.graph.getDevice(request.params.deviceId) };
+    case "hand_off":
+      return createHandOffExecute(deps.handoffs)(request, session);
   }
 }

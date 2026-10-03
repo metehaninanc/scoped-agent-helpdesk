@@ -6,6 +6,7 @@
  */
 import { AuditLog } from "@helpdesk/audit-core";
 import { TokenValidator, conformanceSuite, createRequestListener, openDatabase, type ConformanceHarness } from "@helpdesk/gateway-core";
+import { HandoffStore } from "@helpdesk/handoff-core";
 
 import { policyConfig } from "./policy/config.js";
 import { createGatewayServer } from "./tools/server.js";
@@ -17,11 +18,13 @@ const REQUIRED_ROLE = "Gateway.Invoke";
 conformanceSuite("mdm-gateway", (keys) => {
   const db = openDatabase(":memory:");
   const audit = new AuditLog(db);
+  const handoffs = new HandoffStore(db, audit);
   const auditCountWhenBackendTouched = { value: -1 };
 
   const server = createGatewayServer({
     audit,
     config: policyConfig,
+    handoffs,
     graph: {
       listDevices: async () => {
         auditCountWhenBackendTouched.value = audit.list().length;

@@ -27,6 +27,7 @@ import { parseArgs } from "node:util";
 
 import { AuditLog } from "@helpdesk/audit-core";
 import { TokenValidator, createRequestListener, createTransportFactory, openDatabase } from "@helpdesk/gateway-core";
+import { HandoffStore } from "@helpdesk/handoff-core";
 import { CertificateCredential, GraphClient } from "@helpdesk/identity-gateway";
 
 import { loadMdmGatewayEnv } from "../env.js";
@@ -56,10 +57,11 @@ async function main(): Promise<void> {
   const graph = new GraphClient({ credential });
 
   const dbPath = resolve(args.db ?? DEFAULT_DB_PATH);
-  const db = openDatabase(dbPath);
+  const db = openDatabase(dbPath, { create: true });
   const audit = new AuditLog(db);
+  const handoffs = new HandoffStore(db, audit);
 
-  const gatewayDeps = { audit, graph, config: policyConfig };
+  const gatewayDeps = { audit, graph, handoffs, config: policyConfig };
 
   // A fresh Server and transport pair per request: see @helpdesk/gateway-core's server.ts
   // header comment (createTransportFactory) for why a stateless transport cannot be reused.
