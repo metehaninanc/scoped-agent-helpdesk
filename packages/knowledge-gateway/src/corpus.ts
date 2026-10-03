@@ -48,8 +48,17 @@ export interface CorpusManifest {
   product: string;
   repo: string;
   commit: string;
-  /** The path prefix inside that repo corresponding to corpus/raw/<dir>/. */
-  repoPathPrefix: string;
+  /** Maps each local file name in this directory to its exact path within `repo` at `commit`.
+   * Sprint 4 prep: this used to be one shared `repoPathPrefix` string, on the assumption that
+   * every file vendored into one product directory lives under one common path in the source
+   * repo. Widening the corpus found that assumption already false for both `entra` and `intune`
+   * — Microsoft's own restructuring means files legitimately worth vendoring together do not
+   * always share a real parent folder — and that every citation built from the wrong prefix was
+   * a link that silently 404s. A per-file map has no "usually right" case to get wrong: either a
+   * file has a real, checked entry, or `loadCorpus()` refuses to index it at all (see below).
+   * `bin/verify-citations.ts` re-resolves every URL this produces against GitHub itself, so a
+   * bad entry is caught by running a command, not by trusting the mapping was typed correctly. */
+  files: Record<string, string>;
   /** SPRINT3.md, 3.3: "record the commit and the license." Free text — the README's own
    * "Knowledge gateway notes" is the canonical explanation when a license needs more than a
    * one-line identifier (entra-docs' own discrepancy between its LICENSE file and its
@@ -64,7 +73,7 @@ const ManifestSchema = z
     commit: z
       .string()
       .regex(/^[0-9a-f]{40}$/i, "must be a 40-character git commit SHA"),
-    repoPathPrefix: z.string().min(1),
+    files: z.record(z.string().min(1), z.string().min(1)),
     license: z.string().min(1),
   })
   .strict();
@@ -122,7 +131,13 @@ function chunkDocument(manifest: CorpusManifest, dirName: string, fileName: stri
   const frontmatter = frontmatterMatch?.[1] ?? "";
   const body = frontmatterMatch ? raw.slice(frontmatterMatch[0].length) : raw;
   const sourceTitle = extractTitle(frontmatter, fileName);
-  const repoPath = `${manifest.repoPathPrefix}/${fileName}`;
+  const repoPath = manifest.files[fileName];
+  if (repoPath === undefined) {
+    // loadCorpus() validates every local file has a "files" entry before this is ever called —
+    // reached only if a future caller skips that validation, in which case a loud failure here
+    // beats silently building a citation URL for a file the manifest never named.
+    throw new Error(`${dirName}/${fileName}: no entry in manifest.json's "files" map`);
+  }
   const sourceUrl = `https://github.com/${manifest.repo}/blob/${manifest.commit}/${repoPath}`;
 
   const lines = body.split(/\r?\n/);
@@ -193,6 +208,24 @@ export function loadCorpus(dir: string = corpusRawDir()): CorpusChunk[] {
     const fileNames = readdirSync(productDir)
       .filter((f) => extname(f) === ".md")
       .sort();
+
+    // Bidirectional: a .md file with no "files" entry would silently be skipped by the old,
+    // prefix-based scheme's equivalent of "just works"; here it is refused outright, the same
+    // "fail loudly on the unexpected" discipline as a malformed manifest.json. A "files" entry
+    // with no matching file on disk is refused too — the other half of the same typo/rename this
+    // is meant to catch, since a stale entry naming a file that no longer exists locally means
+    // one less citation than the manifest claims to carry, unnoticed until now.
+    const declared = new Set(Object.keys(manifest.files));
+    const present = new Set(fileNames);
+    const undeclared = fileNames.filter((f) => !declared.has(f));
+    const stale = [...declared].filter((f) => !present.has(f));
+    if (undeclared.length > 0 || stale.length > 0) {
+      const problems: string[] = [];
+      if (undeclared.length > 0) problems.push(`file(s) on disk with no "files" entry: ${undeclared.join(", ")}`);
+      if (stale.length > 0) problems.push(`"files" entries with no matching file on disk: ${stale.join(", ")}`);
+      throw new Error(`${productDir}/manifest.json: ${problems.join("; ")}`);
+    }
+
     for (const fileName of fileNames) {
       const raw = readFileSync(join(productDir, fileName), "utf8");
       chunks.push(...chunkDocument(manifest, dirName, fileName, raw));

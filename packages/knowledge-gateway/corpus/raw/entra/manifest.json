@@ -2,6 +2,15 @@
   "product": "entra",
   "repo": "MicrosoftDocs/entra-docs",
   "commit": "a37c43ae5c2494cfc4211bb6242eb3151de6e40e",
-  "repoPathPrefix": "docs",
+  "files": {
+    "concept-conditional-access-policies.md": "docs/identity/conditional-access/concept-conditional-access-policies.md",
+    "concept-conditional-access-users-groups.md": "docs/identity/conditional-access/concept-conditional-access-users-groups.md",
+    "concept-device-registration.md": "docs/identity/devices/concept-device-registration.md",
+    "concept-learn-about-groups.md": "docs/fundamentals/concept-learn-about-groups.md",
+    "concept-understand-roles.md": "docs/identity/role-based-access-control/concept-understand-roles.md",
+    "how-to-assign-roles-to-users.md": "docs/fundamentals/how-to-assign-roles-to-users.md",
+    "how-to-manage-groups.md": "docs/fundamentals/how-to-manage-groups.md",
+    "what-is-entra.md": "docs/fundamentals/what-is-entra.md"
+  },
   "license": "CC-BY-4.0 (content) / MIT (code samples) — see README.md, \"Knowledge gateway notes\", for the entra-docs LICENSE-vs-ThirdPartyNotices.md discrepancy this project relies on"
 }

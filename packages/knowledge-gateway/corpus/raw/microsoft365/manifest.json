@@ -1,0 +1,13 @@
+{
+  "product": "microsoft365",
+  "repo": "MicrosoftDocs/microsoft-365-docs",
+  "commit": "eab9d7696cdff87474698b08a1fb328091102a2f",
+  "files": {
+    "add-users.md": "microsoft-365/admin/add-users/add-users.md",
+    "assign-admin-roles.md": "microsoft-365/admin/add-users/assign-admin-roles.md",
+    "delete-a-user.md": "microsoft-365/admin/add-users/delete-a-user.md",
+    "let-users-reset-passwords.md": "microsoft-365/admin/add-users/let-users-reset-passwords.md",
+    "reset-passwords.md": "microsoft-365/admin/add-users/reset-passwords.md"
+  },
+  "license": "CC-BY-4.0 (content) / MIT (code samples) — this repo's own LICENSE file is CC-BY-4.0 text directly, no ThirdPartyNotices.md discrepancy the way entra-docs has; see README.md, \"Knowledge gateway notes\""
+}

@@ -111,11 +111,18 @@ describe("retrieval quality against questions.md (the real, vendored corpus)", (
     expect(results.some((r) => r.sourceTitle === "Manage Microsoft Entra user roles")).toBe(true);
   });
 
-  it("returns nothing usable for a question the corpus does not cover (VPN profiles)", () => {
-    // Not asserted empty: "device"/"Intune" may still overlap. What matters is that no result
-    // is headed by anything VPN-specific — there is no such heading in this corpus at all.
+  it("finds overview-level VPN coverage but not a configuration how-to (Sprint 4 corpus widening, questions.md Q14)", () => {
+    // Originally asserted no VPN-related result at all, back when device-configuration was left
+    // out of the corpus entirely. Widening the corpus (Sprint 4 prep) vendored
+    // intune-deviceconfig/overview.md for an unrelated reason (a general device-configuration
+    // overview), which incidentally carries that article's own "VPN" section — real, accurate,
+    // citable content, not noise: it states VPN profiles exist and that iOS/iPadOS is supported.
+    // What's still true, and still worth a dedicated assertion: nothing in this corpus is the
+    // step-by-step "how do I configure it" procedure, which lives in a separate article this
+    // corpus does not vendor. See questions.md's Q14 for the full finding.
     const results = search.search("How do I configure a VPN profile for iOS devices in Intune?");
-    expect(results.some((r) => /vpn/i.test(r.heading) || /vpn/i.test(r.text))).toBe(false);
+    expect(results.some((r) => r.heading === "VPN" && /ios/i.test(r.text))).toBe(true);
+    expect(results.every((r) => !/step \d|select (save|create|next)\b/i.test(r.text))).toBe(true);
   });
 
   it("finds nothing actually about a return policy for a question entirely unrelated to the corpus", () => {

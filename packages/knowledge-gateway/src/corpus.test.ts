@@ -10,7 +10,7 @@ const SAMPLE_MANIFEST = {
   product: "entra",
   repo: "MicrosoftDocs/entra-docs",
   commit: "a37c43ae5c2494cfc4211bb6242eb3151de6e40e",
-  repoPathPrefix: "docs",
+  files: { "sample.md": "docs/sample.md" },
   license: "CC-BY-4.0",
 };
 
@@ -113,7 +113,7 @@ describe("loadCorpus()", () => {
     await mkdir(join(dir, "widgetworks"), { recursive: true });
     await writeFile(
       join(dir, "widgetworks", "manifest.json"),
-      JSON.stringify({ product: "widgetworks", repo: "example/widgetworks-docs", commit: "b".repeat(40), repoPathPrefix: "docs", license: "CC-BY-4.0" }),
+      JSON.stringify({ product: "widgetworks", repo: "example/widgetworks-docs", commit: "b".repeat(40), files: { "other.md": "docs/other.md" }, license: "CC-BY-4.0" }),
     );
     await writeFile(join(dir, "widgetworks", "other.md"), "# Widgetworks\n\nSome widgetworks content.\n");
 
@@ -122,6 +122,38 @@ describe("loadCorpus()", () => {
     expect(listProductDirs(dir).sort()).toEqual(["entra", "widgetworks"]);
     const widgetChunk = chunks.find((c) => c.id.startsWith("widgetworks/"));
     expect(widgetChunk?.sourceUrl).toBe("https://github.com/example/widgetworks-docs/blob/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/docs/other.md");
+  });
+
+  it("builds a distinct, correct source URL per file even when a directory's files do not share a common real path (Sprint 4 prep)", async () => {
+    // The bug a single repoPathPrefix could not represent: two files vendored into the same
+    // product directory that live under genuinely different paths in the source repo.
+    await writeFile(join(dir, "entra", "manifest.json"), JSON.stringify({
+      ...SAMPLE_MANIFEST,
+      files: { "sample.md": "docs/one/sample.md", "second.md": "docs/two/second.md" },
+    }));
+    await writeFile(join(dir, "entra", "second.md"), "# Second\n\nAnother file, a different real subfolder.\n");
+
+    const chunks = loadCorpus(dir);
+
+    expect(chunks.find((c) => c.id.startsWith("entra/sample.md"))?.sourceUrl).toBe(
+      "https://github.com/MicrosoftDocs/entra-docs/blob/a37c43ae5c2494cfc4211bb6242eb3151de6e40e/docs/one/sample.md",
+    );
+    expect(chunks.find((c) => c.id.startsWith("entra/second.md"))?.sourceUrl).toBe(
+      "https://github.com/MicrosoftDocs/entra-docs/blob/a37c43ae5c2494cfc4211bb6242eb3151de6e40e/docs/two/second.md",
+    );
+  });
+
+  it("fails loudly on a .md file present on disk with no entry in manifest.json's files map", async () => {
+    await writeFile(join(dir, "entra", "undeclared.md"), "# Undeclared\n\nShould not be silently skipped.\n");
+    expect(() => loadCorpus(dir)).toThrow(/no "files" entry: undeclared\.md/);
+  });
+
+  it("fails loudly on a files map entry naming a file that does not exist on disk", async () => {
+    await writeFile(join(dir, "entra", "manifest.json"), JSON.stringify({
+      ...SAMPLE_MANIFEST,
+      files: { "sample.md": "docs/sample.md", "ghost.md": "docs/ghost.md" },
+    }));
+    expect(() => loadCorpus(dir)).toThrow(/no matching file on disk: ghost\.md/);
   });
 });
 
