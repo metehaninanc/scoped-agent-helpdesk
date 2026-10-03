@@ -35,3 +35,35 @@ export function ensureEnvLoaded(startDir: string = process.cwd()): void {
     dir = parent;
   }
 }
+
+/** Selects how the four agents' Agent SDK subprocess authenticates. Unset (the default) leaves
+ * options.env unset, so the subprocess inherits process.env and uses ANTHROPIC_API_KEY — the way
+ * every pass through section 6 ran, and the only way a headless server can run. "session" strips
+ * the key from the subprocess's environment only, so it falls back to the machine's logged-in
+ * Claude session instead; triage and the rationale generator call the Messages API in-process
+ * and still read the key from process.env, untouched. */
+export const AGENT_AUTH_ENV = "HELPDESK_AGENT_AUTH";
+
+/** The phrase runStoppingReason() (sdk-usage-errors.ts) matches to stop a batch run. */
+export const AGENT_AUTH_PATH_MISMATCH = "Agent auth path mismatch";
+
+/** The `env` to hand the Agent SDK's query(), or undefined to leave it unset (inherit
+ * process.env). The SDK replaces the subprocess environment entirely when this is set at all, so
+ * session mode passes a full copy minus the one variable, never a partial object. */
+export function agentSubprocessEnv(source: NodeJS.ProcessEnv = process.env): Record<string, string | undefined> | undefined {
+  if (source[AGENT_AUTH_ENV] !== "session") return undefined;
+  const { ANTHROPIC_API_KEY: _withheld, ...rest } = source;
+  return rest;
+}
+
+/** Called with the `apiKeySource` the SDK reports in its own init message, on every agent call.
+ * Withholding the key from options.env is a request, not a guarantee — a different source of the
+ * same key (an apiKeyHelper, a project setting) would silently put the run back on the API key,
+ * which is precisely how a batch run drains a balance nobody meant to spend. In session mode the
+ * only acceptable report is "none": no API key, so the call is on the login session. */
+export function assertAgentAuthPath(apiKeySource: string, source: NodeJS.ProcessEnv = process.env): void {
+  if (source[AGENT_AUTH_ENV] !== "session" || apiKeySource === "none") return;
+  throw new Error(
+    `${AGENT_AUTH_PATH_MISMATCH}: ${AGENT_AUTH_ENV}=session requires the agent subprocess to report apiKeySource "none" (the login session), but it reported "${apiKeySource}" — it is using an API key.`,
+  );
+}

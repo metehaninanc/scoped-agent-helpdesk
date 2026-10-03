@@ -39,12 +39,15 @@ import { z } from "zod";
 
 import { CertificateCredential } from "@helpdesk/identity-gateway";
 
-import { ensureEnvLoaded } from "./env.js";
+import { agentSubprocessEnv, assertAgentAuthPath, ensureEnvLoaded } from "./env.js";
 import { DEFAULT_AGENT_MODEL } from "./models.js";
 import { SessionAudit } from "./session-audit.js";
 
 const GATEWAY_SERVER_NAME = "mdm-gateway";
-const GATEWAY_TOOLS = ["list_devices", "get_device"] as const;
+// SPRINT4.md, section 2: hand_off is on every gateway now, named here the same way this agent's
+// other two are — see the gateway's own hand-off-tool.ts for why the tool itself is shared;
+// nothing about how it is granted to this agent is.
+const GATEWAY_TOOLS = ["list_devices", "get_device", "hand_off"] as const;
 /** MDM_GATEWAY_URL is the gateway's origin (no path), same convention as IDENTITY_GATEWAY_URL. */
 const GATEWAY_BASE_URL = process.env.MDM_GATEWAY_URL ?? "http://127.0.0.1:3002";
 const GATEWAY_URL = `${GATEWAY_BASE_URL}/mcp`;
@@ -90,7 +93,9 @@ function buildSystemPrompt(actor: string): string {
     "what is allowed or what gets logged.",
     "",
     "Report every tool result honestly and plainly, in your own words. A denied or error result",
-    "is not a problem to solve around: do not call the same tool again for it, do not look for a different tool or a different way to get the same effect. If nothing you have covers what was asked, say so.",
+    "is not a problem to solve around: do not call the same tool again for it, do not look for a different tool or a different way to get the same effect. If nothing you have covers what was asked — a device needs physical replacement or repair, or the",
+    "question is not about a device this tenant manages — call hand_off with a short reason",
+    "instead of just telling the requester you cannot help.",
   ].join("\n");
 }
 
@@ -144,10 +149,14 @@ export async function runMdmAgent(options: MdmAgentOptions): Promise<MdmAgentRes
         authorization: `Bearer ${token}`,
         "x-actor": options.actor,
         "x-request-id": requestId,
+        // SPRINT4.md, section 2: same class as x-actor above. See identity-agent.ts's own copy
+        // of this comment and the README for the full reasoning.
+        "x-request-text": options.requestText,
       },
     },
   };
 
+  const subprocessEnv = agentSubprocessEnv();
   const stream = runQuery({
     prompt: options.requestText,
     options: {
@@ -158,6 +167,7 @@ export async function runMdmAgent(options: MdmAgentOptions): Promise<MdmAgentRes
       allowedTools: GATEWAY_TOOLS.map((tool) => `mcp__${GATEWAY_SERVER_NAME}__${tool}`),
       permissionMode: "dontAsk",
       persistSession: false,
+      ...(subprocessEnv ? { env: subprocessEnv } : {}),
     } satisfies Options,
   });
 
@@ -165,6 +175,7 @@ export async function runMdmAgent(options: MdmAgentOptions): Promise<MdmAgentRes
   let reply = "";
   let modelUsage: Record<string, { inputTokens: number; outputTokens: number }> = {};
   for await (const message of stream) {
+    if (message.type === "system" && message.subtype === "init") assertAgentAuthPath(message.apiKeySource);
     if (message.type === "assistant" && message.message.content.some((block) => block.type === "tool_use")) {
       toolWasCalled = true;
     }

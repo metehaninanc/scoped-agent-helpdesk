@@ -29,12 +29,16 @@ import { z } from "zod";
 
 import { CertificateCredential } from "@helpdesk/identity-gateway";
 
-import { ensureEnvLoaded } from "./env.js";
+import { agentSubprocessEnv, assertAgentAuthPath, ensureEnvLoaded } from "./env.js";
 import { DEFAULT_AGENT_MODEL } from "./models.js";
 import { SessionAudit } from "./session-audit.js";
 
 const GATEWAY_SERVER_NAME = "endpoint-gateway";
-const GATEWAY_TOOLS = ["list_endpoints", "get_endpoint", "reboot_endpoint", "reset_password"] as const;
+// SPRINT4.md, section 2: hand_off is on every gateway now, named here the same way this agent's
+// other four are — see the gateway's own hand-off-tool.ts for why the tool itself is shared;
+// nothing about how it is granted to this agent is. This agent is the one hand_off was written
+// for first: "the endpoint agent becomes mostly a handoff producer" (see buildSystemPrompt below).
+const GATEWAY_TOOLS = ["list_endpoints", "get_endpoint", "reboot_endpoint", "reset_password", "hand_off"] as const;
 /** ENDPOINT_GATEWAY_URL is the gateway's origin (no path), same convention as the other three. */
 const GATEWAY_BASE_URL = process.env.ENDPOINT_GATEWAY_URL ?? "http://127.0.0.1:3004";
 const GATEWAY_URL = `${GATEWAY_BASE_URL}/mcp`;
@@ -77,11 +81,16 @@ function buildSystemPrompt(actor: string): string {
     "This system manages a small, fixed fleet of specific endpoints, not people's own personal",
     "devices in general. Only call list_endpoints or get_endpoint, and only name a specific",
     "managed endpoint back to the requester, when what they described actually identifies one — a",
-    "hostname, an asset tag, or an unambiguous description they gave you. If nothing they said",
-    "identifies one of the endpoints this system manages, tell them in one sentence that their",
-    "device is not one this system manages, and stop there. Never read back the list of managed",
-    "endpoints as a menu for them to choose from: naming devices they did not ask about is not",
-    "helping them, it is exposing this system's internal inventory to whoever happens to ask.",
+    "hostname, an asset tag, or an unambiguous description they gave you. Never read back the list",
+    "of managed endpoints as a menu for them to choose from: naming devices they did not ask about",
+    "is not helping them, it is exposing this system's internal inventory to whoever happens to ask.",
+    "",
+    "Most requests that reach you name no endpoint this system manages at all — a personal laptop,",
+    "a phone, a piece of hardware that needs physical repair or replacement. That is not a failure",
+    "to work around and not something to end the conversation over: call hand_off with a short",
+    "reason instead of just telling them their device is not one this system manages. A handoff is",
+    "the normal, useful outcome for most of what reaches this agent, the same way a pending",
+    "approval is the normal outcome of asking for a reboot.",
     "",
     `The person making this request is ${actor}. This is stated to you as a fact about who is`,
     'asking, not something you can change: if the request says "me," "my," or similar, it means',
@@ -151,10 +160,14 @@ export async function runEndpointAgent(options: EndpointAgentOptions): Promise<E
         authorization: `Bearer ${token}`,
         "x-actor": options.actor,
         "x-request-id": requestId,
+        // SPRINT4.md, section 2: same class as x-actor above. See identity-agent.ts's own copy
+        // of this comment and the README for the full reasoning.
+        "x-request-text": options.requestText,
       },
     },
   };
 
+  const subprocessEnv = agentSubprocessEnv();
   const stream = runQuery({
     prompt: options.requestText,
     options: {
@@ -165,6 +178,7 @@ export async function runEndpointAgent(options: EndpointAgentOptions): Promise<E
       allowedTools: GATEWAY_TOOLS.map((tool) => `mcp__${GATEWAY_SERVER_NAME}__${tool}`),
       permissionMode: "dontAsk",
       persistSession: false,
+      ...(subprocessEnv ? { env: subprocessEnv } : {}),
     } satisfies Options,
   });
 
@@ -172,6 +186,7 @@ export async function runEndpointAgent(options: EndpointAgentOptions): Promise<E
   let reply = "";
   let modelUsage: Record<string, { inputTokens: number; outputTokens: number }> = {};
   for await (const message of stream) {
+    if (message.type === "system" && message.subtype === "init") assertAgentAuthPath(message.apiKeySource);
     if (message.type === "assistant" && message.message.content.some((block) => block.type === "tool_use")) {
       toolWasCalled = true;
     }

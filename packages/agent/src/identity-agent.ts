@@ -38,7 +38,7 @@ import { z } from "zod";
 
 import { CertificateCredential } from "@helpdesk/identity-gateway";
 
-import { ensureEnvLoaded } from "./env.js";
+import { agentSubprocessEnv, assertAgentAuthPath, ensureEnvLoaded } from "./env.js";
 import { DEFAULT_AGENT_MODEL } from "./models.js";
 import { SessionAudit } from "./session-audit.js";
 
@@ -48,6 +48,10 @@ const GATEWAY_TOOLS = [
   "list_managed_groups",
   "add_user_to_group",
   "remove_user_from_group",
+  // SPRINT4.md, section 2: hand_off is on every gateway now, this agent's own copy of the tool
+  // named here the same way its other four are — see the gateway's own hand-off-tool.ts for why
+  // the tool itself is shared; nothing about how it is granted to this agent is.
+  "hand_off",
 ] as const;
 /** IDENTITY_GATEWAY_URL is the gateway's origin (no path): the web app's decide-endpoint client
  * shares the same env var and appends its own path, see packages/web/src/bin/web.ts. */
@@ -110,7 +114,9 @@ function buildSystemPrompt(actor: string): string {
     "Report every tool result honestly and plainly, in your own words. A pending or denied",
     "result is not a problem to solve around: do not call the same tool again for it, do not",
     "look for a different tool or a different way to get the same effect, and never say a",
-    "change was made when it was not. If nothing you have covers what was asked, say so.",
+    "change was made when it was not. If nothing you have covers what was asked — it names a",
+    "role rather than a group, or needs something no group membership tool here can do — call",
+    "hand_off with a short reason instead of just telling the requester you cannot help.",
   ].join("\n");
 }
 
@@ -174,10 +180,15 @@ export async function runIdentityAgent(options: IdentityAgentOptions): Promise<I
         authorization: `Bearer ${token}`,
         "x-actor": options.actor,
         "x-request-id": requestId,
+        // SPRINT4.md, section 2: same class as x-actor above — set by this process from a value
+        // it already holds before the model's turn starts, never a tool parameter the model
+        // fills in. hand_off needs it for the handoff record it creates; see the README.
+        "x-request-text": options.requestText,
       },
     },
   };
 
+  const subprocessEnv = agentSubprocessEnv();
   const stream = runQuery({
     prompt: options.requestText,
     options: {
@@ -188,6 +199,7 @@ export async function runIdentityAgent(options: IdentityAgentOptions): Promise<I
       allowedTools: GATEWAY_TOOLS.map((tool) => `mcp__${GATEWAY_SERVER_NAME}__${tool}`),
       permissionMode: "dontAsk",
       persistSession: false,
+      ...(subprocessEnv ? { env: subprocessEnv } : {}),
     } satisfies Options,
   });
 
@@ -195,6 +207,7 @@ export async function runIdentityAgent(options: IdentityAgentOptions): Promise<I
   let reply = "";
   let modelUsage: Record<string, { inputTokens: number; outputTokens: number }> = {};
   for await (const message of stream) {
+    if (message.type === "system" && message.subtype === "init") assertAgentAuthPath(message.apiKeySource);
     if (message.type === "assistant" && message.message.content.some((block) => block.type === "tool_use")) {
       toolWasCalled = true;
     }

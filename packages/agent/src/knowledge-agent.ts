@@ -27,12 +27,15 @@ import { z } from "zod";
 
 import { CertificateCredential } from "@helpdesk/identity-gateway";
 
-import { ensureEnvLoaded } from "./env.js";
+import { agentSubprocessEnv, assertAgentAuthPath, ensureEnvLoaded } from "./env.js";
 import { DEFAULT_AGENT_MODEL } from "./models.js";
 import { SessionAudit } from "./session-audit.js";
 
 const GATEWAY_SERVER_NAME = "knowledge-gateway";
-const GATEWAY_TOOLS = ["search_documentation"] as const;
+// SPRINT4.md, section 2: hand_off is on every gateway now, named here the same way this agent's
+// one other tool is — see the gateway's own hand-off-tool.ts for why the tool itself is shared;
+// nothing about how it is granted to this agent is.
+const GATEWAY_TOOLS = ["search_documentation", "hand_off"] as const;
 /** KNOWLEDGE_GATEWAY_URL is the gateway's origin (no path), same convention as the other two. */
 const GATEWAY_BASE_URL = process.env.KNOWLEDGE_GATEWAY_URL ?? "http://127.0.0.1:3003";
 const GATEWAY_URL = `${GATEWAY_BASE_URL}/mcp`;
@@ -85,7 +88,11 @@ function buildSystemPrompt(actor: string): string {
     "back with no passages, or with passages that do not actually answer the question, say plainly",
     "that you don't know rather than answering from anything you know from your own training.",
     "Never claim to have performed an action, changed anything, or looked anything up in the",
-    "tenant: you have not, and cannot.",
+    "tenant: you have not, and cannot. \"I don't know\" is a complete, honest answer to a",
+    "documentation question the corpus does not cover — do not call hand_off just because you",
+    "don't know something. Call it only when the request itself is not really a how-to question",
+    "at all: it asks someone to look into or fix something specific to this requester's own",
+    "account or tenant, which no documentation search could ever answer.",
   ].join("\n");
 }
 
@@ -139,10 +146,14 @@ export async function runKnowledgeAgent(options: KnowledgeAgentOptions): Promise
         authorization: `Bearer ${token}`,
         "x-actor": options.actor,
         "x-request-id": requestId,
+        // SPRINT4.md, section 2: same class as x-actor above. See identity-agent.ts's own copy
+        // of this comment and the README for the full reasoning.
+        "x-request-text": options.requestText,
       },
     },
   };
 
+  const subprocessEnv = agentSubprocessEnv();
   const stream = runQuery({
     prompt: options.requestText,
     options: {
@@ -153,6 +164,7 @@ export async function runKnowledgeAgent(options: KnowledgeAgentOptions): Promise
       allowedTools: GATEWAY_TOOLS.map((tool) => `mcp__${GATEWAY_SERVER_NAME}__${tool}`),
       permissionMode: "dontAsk",
       persistSession: false,
+      ...(subprocessEnv ? { env: subprocessEnv } : {}),
     } satisfies Options,
   });
 
@@ -160,6 +172,7 @@ export async function runKnowledgeAgent(options: KnowledgeAgentOptions): Promise
   let reply = "";
   let modelUsage: Record<string, { inputTokens: number; outputTokens: number }> = {};
   for await (const message of stream) {
+    if (message.type === "system" && message.subtype === "init") assertAgentAuthPath(message.apiKeySource);
     if (message.type === "assistant" && message.message.content.some((block) => block.type === "tool_use")) {
       toolWasCalled = true;
     }

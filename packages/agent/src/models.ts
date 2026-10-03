@@ -8,8 +8,13 @@
  *   Triage (DEFAULT_TRIAGE_MODEL, triage.ts) already ran on a fixed model. It classifies every
  *   single request into one of five closed-set values, nothing more. That is the cheapest kind
  *   of judgement call to ask a model to make, and it runs on every request, including every one
- *   that gets refused before any agent runs — the smallest model that classifies reliably is the
- *   right one.
+ *   that gets refused before any agent runs — so it started on the smallest model, on that
+ *   reasoning alone. It has since been measured (README, "Triage accuracy"): on 150 hand-labelled
+ *   tickets Haiku scores 80.7-83.3% at $1.54 per 1,000 requests and Sonnet 89.3% at $3.96, a gap
+ *   several times Haiku's own run-to-run spread, so "the smallest model is sufficient" is not what
+ *   the evidence shows. The default stays Haiku until someone decides the $2.42 per 1,000 is worth
+ *   paying; HELPDESK_TRIAGE_MODEL=claude-sonnet-5 is the switch, and classify() disables thinking
+ *   explicitly so either choice works.
  *
  *   The rationale generator (DEFAULT_RATIONALE_MODEL,
  *   packages/identity-gateway/src/approvals/rationale.ts) already ran on a fixed model too. It

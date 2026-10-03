@@ -7,8 +7,8 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "test": "pnpm --filter @helpdesk/audit-core build && vitest run",
-    "test:watch": "pnpm --filter @helpdesk/audit-core build && vitest",
+    "test": "pnpm --filter @helpdesk/audit-core build && pnpm --filter @helpdesk/handoff-core build && vitest run",
+    "test:watch": "pnpm --filter @helpdesk/audit-core build && pnpm --filter @helpdesk/handoff-core build && vitest",
     "typecheck": "pnpm --filter @helpdesk/identity-gateway build && tsc -p tsconfig.json --noEmit",
     "build": "pnpm --filter @helpdesk/identity-gateway build && tsc -p tsconfig.build.json"
   },
@@ -16,6 +16,7 @@
     "@anthropic-ai/claude-agent-sdk": "^0.3.273",
     "@anthropic-ai/sdk": "^0.125.0",
     "@helpdesk/audit-core": "workspace:*",
+    "@helpdesk/handoff-core": "workspace:*",
     "@helpdesk/identity-gateway": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "zod": "^4.6.5"
