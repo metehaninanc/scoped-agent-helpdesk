@@ -1,6 +1,6 @@
 /**
- * The web app entry point. Two server-rendered pages (server.ts); no framework, no build
- * pipeline (SPRINT1.md, Component 6).
+ * The web app entry point: the request form, the dashboard, and the operator console
+ * (server.ts). No framework, no build pipeline (SPRINT1.md, Component 6).
  *
  * SPRINT2.md, Stage B, Component 5: this process no longer holds a Graph credential at all. It
  * used to build its own CertificateCredential and GraphClient because Sprint 1 had no HTTP
@@ -15,8 +15,14 @@
  * Each gateway keeps its own store and its own audit chain (SPRINT2.md, Component 6: "a
  * compromise of one cannot rewrite the other's history"); this file is the one place that reads
  * both, the same way it was already the one place that reached the single gateway before this
- * phase — approvals-page.ts and server.ts are untouched, since they only ever depended on the
- * injected listPendingApprovals/getApproval/decide functions, never on how many gateways back them.
+ * phase — console-page.ts and server.ts are untouched by which gateway backs an approval, since
+ * they only ever depend on the injected listPendingApprovals/getApproval/decide functions, never
+ * on how many gateways back them.
+ *
+ * SPRINT4.md, section 3: this process now also owns a HandoffStore per chain (five, one per
+ * already-open db connection). Unlike an approval decision, taking or resolving a handoff needs
+ * no credential and calls no gateway over HTTP — see the HandoffStore-wiring block below for why
+ * that lets take()/resolve() be called directly, in process.
  *
  * This process needs a credential per approval-gated gateway it talks to — not to reach Graph or
  * the stub directly, but to authenticate itself to each gateway's decision endpoint, the same way
@@ -33,8 +39,11 @@ import { z } from "zod";
 import { routeRequest } from "@helpdesk/agent";
 import { AuditLog } from "@helpdesk/audit-core";
 import { ApprovalError, ApprovalStore, openDatabase, type ApprovalErrorCode, type ApprovalOutcome, type ApprovalRecord } from "@helpdesk/gateway-core";
+import { HandoffError, HandoffStore, type HandoffRecord } from "@helpdesk/handoff-core";
 import { CertificateCredential, loadGatewayEnv } from "@helpdesk/identity-gateway";
 
+import { getRequestTrail as buildRequestTrail, type TrailRecord } from "../console-data.js";
+import type { RationaleActionResult } from "../console-page.js";
 import { computeDashboardData, type ChainSnapshot, type DashboardData } from "../dashboard-metrics.js";
 import { createWebServer } from "../server.js";
 
@@ -50,11 +59,17 @@ const orchestratorDbPath = resolve(process.env.ORCHESTRATOR_DB_PATH ?? "data/orc
 const mdmDbPath = resolve(process.env.MDM_HELPDESK_DB_PATH ?? "data/mdm-helpdesk.db");
 const knowledgeDbPath = resolve(process.env.KNOWLEDGE_HELPDESK_DB_PATH ?? "data/knowledge-helpdesk.db");
 
+// identity/endpoint/mdm/knowledge each have their own dedicated gateway process (README,
+// Prerequisites: start all four before `pnpm web`), so this app expects those four chains to
+// already exist and fails loudly if one does not. The orchestrator chain has no gateway of its
+// own — `routeRequest()`'s first call creates it (OrchestratorAudit), and on a fresh deployment
+// that may not have happened yet by the time this process boots, so this is the one open here
+// allowed to create it.
 const identityDb = openDatabase(identityDbPath);
 const identityApprovals = new ApprovalStore(identityDb);
 const endpointDb = openDatabase(endpointDbPath);
 const endpointApprovals = new ApprovalStore(endpointDb);
-const orchestratorDb = openDatabase(orchestratorDbPath);
+const orchestratorDb = openDatabase(orchestratorDbPath, { create: true });
 const mdmDb = openDatabase(mdmDbPath);
 const knowledgeDb = openDatabase(knowledgeDbPath);
 
@@ -83,6 +98,55 @@ function getDashboardData(): DashboardData {
   });
 }
 
+/** Every audit record across all five chains carrying a given request id, oldest first — the
+ * operator console's own "what the system did and why" (SPRINT4.md, section 3, item 2). Built
+ * fresh on every call from the same five read-only AuditLogs the dashboard already reads, never
+ * cached — the same discipline as getDashboardData() above. */
+function getRequestTrail(requestId: string): TrailRecord[] {
+  return buildRequestTrail(requestId, auditLogs);
+}
+
+// One HandoffStore per chain, sharing the same already-open db connection and AuditLog each
+// chain's own gateway or the orchestrator already writes through (SPRINT4.md, section 2: a
+// HandoffStore never manages its own connection, a caller passes one in). Unlike ApprovalStore,
+// taking or resolving a handoff needs no credential and touches no external system — see the
+// README, "Handoff core notes" — so this process can call take()/resolve() directly, with no HTTP
+// round trip to a gateway the way an approval decision needs.
+const handoffStores = {
+  orchestrator: new HandoffStore(orchestratorDb, auditLogs.orchestrator),
+  identity: new HandoffStore(identityDb, auditLogs.identity),
+  mdm: new HandoffStore(mdmDb, auditLogs.mdm),
+  knowledge: new HandoffStore(knowledgeDb, auditLogs.knowledge),
+  endpoint: new HandoffStore(endpointDb, auditLogs.endpoint),
+};
+const allHandoffStores = Object.values(handoffStores);
+
+function listActiveHandoffs(): HandoffRecord[] {
+  return allHandoffStores.flatMap((store) => store.listActive()).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+function getHandoff(id: string): HandoffRecord | null {
+  for (const store of allHandoffStores) {
+    const found = store.get(id);
+    if (found) return found;
+  }
+  return null;
+}
+
+function findHandoffStore(id: string): HandoffStore {
+  const store = allHandoffStores.find((s) => s.get(id) !== null);
+  if (!store) throw new HandoffError("not_found", `handoff ${id} not found`);
+  return store;
+}
+
+function takeHandoff(id: string, takenBy: string): HandoffRecord {
+  return findHandoffStore(id).take(id, takenBy);
+}
+
+function resolveHandoff(id: string, resolvedBy: string, note: string): HandoffRecord {
+  return findHandoffStore(id).resolve(id, resolvedBy, note);
+}
+
 /** This process's own credential env: one certificate per approval-gated gateway, reusing that
  * gateway's own agent's app registration (see file header) rather than minting new ones. */
 const agentCredentialEnvSchema = z.object({
@@ -106,6 +170,9 @@ interface ApprovalGatewayClient {
   credential: CertificateCredential;
   audience: string;
   decisionUrl: string;
+  /** Only identity's own gateway has one — see console-page.ts's header comment for why a
+   * briefing was never generalized beyond identity's two gated tools (SPRINT4.md, section 4). */
+  rationaleUrl?: string;
 }
 
 const identityGateway: ApprovalGatewayClient = {
@@ -118,6 +185,7 @@ const identityGateway: ApprovalGatewayClient = {
   }),
   audience: agentEnv.IDENTITY_GATEWAY_AUDIENCE,
   decisionUrl: `${identityGatewayBaseUrl}/approvals/decide`,
+  rationaleUrl: `${identityGatewayBaseUrl}/approvals/rationale`,
 };
 
 const endpointGateway: ApprovalGatewayClient = {
@@ -136,7 +204,7 @@ const approvalGateways = [identityGateway, endpointGateway];
 
 /**
  * The web app's own thin HTTP client for a gateway's decision endpoint. Reconstructs an
- * ApprovalError from the gateway's error response so approvals-page.ts's existing `instanceof
+ * ApprovalError from the gateway's error response so console-page.ts's existing `instanceof
  * ApprovalError` handling keeps working unchanged: that file never re-implements the
  * requester/approver or required-note checks, it just has to show the refusal honestly, and it
  * still does not know or care whether the answer came from an in-process call or over HTTP.
@@ -161,6 +229,46 @@ async function decideThroughGateway(gateway: ApprovalGatewayClient, input: {
     throw new ApprovalError(code, body.message ?? "The gateway refused this decision.");
   }
   return body as ApprovalOutcome;
+}
+
+/**
+ * The web app's own thin HTTP client for a gateway's rationale endpoint (SPRINT4.md, section 4).
+ * Unlike decideThroughGateway(), this never throws: there is no shared error class worth crossing
+ * a package boundary for one caller, so a refusal — from the gateway, or because this approval's
+ * gateway has no rationaleUrl at all — is just returned as the same RationaleActionResult a
+ * successful request would be, and console-page.ts's requestRationale() renders either the same
+ * way it already renders every other action's result.
+ */
+async function requestRationaleThroughGateway(
+  gateway: ApprovalGatewayClient,
+  input: { approvalId: string; requestedBy: string },
+): Promise<RationaleActionResult> {
+  if (!gateway.rationaleUrl) {
+    return { status: "error", code: "not_supported", message: "This approval's gateway does not generate a briefing." };
+  }
+  const { token } = await gateway.credential.getToken(`${gateway.audience}/.default`);
+  const response = await fetch(gateway.rationaleUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify(input),
+    // Generation itself can legitimately take several seconds (SPRINT4.md, section 4) — longer
+    // than a decide() round trip needs, so this gets its own, longer allowance, comfortably past
+    // the rationale generator's own 60s ceiling (rationale.ts's default timeoutMs).
+    signal: AbortSignal.timeout(65_000),
+  });
+  const body = (await response.json().catch(() => ({}))) as { code?: string; message?: string } & Partial<ApprovalRecord>;
+
+  if (!response.ok) {
+    return { status: "error", code: body.code ?? "unknown", message: body.message ?? "The gateway refused this request." };
+  }
+  return { status: "ok", approval: body as ApprovalRecord };
+}
+
+async function requestRationale(input: { approvalId: string; requestedBy: string }): Promise<RationaleActionResult> {
+  for (const gateway of approvalGateways) {
+    if (gateway.approvals.get(input.approvalId)) return requestRationaleThroughGateway(gateway, input);
+  }
+  return { status: "error", code: "not_found", message: `approval ${input.approvalId} not found` };
 }
 
 function listPendingApprovals(): ApprovalRecord[] {
@@ -194,8 +302,14 @@ const server = createWebServer({
   // the dashboard (SPRINT3.md, 3.5), a separate concern from where a request gets routed to.
   routeRequest: (input) => routeRequest({ actor: input.actor, requestText: input.requestText, identityDbPath }),
   decide,
+  request: requestRationale,
   listPendingApprovals,
   getApproval,
+  listActiveHandoffs,
+  getHandoff,
+  takeHandoff,
+  resolveHandoff,
+  getRequestTrail,
   getDashboardData,
 });
 
