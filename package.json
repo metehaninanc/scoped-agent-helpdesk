@@ -17,6 +17,7 @@
     "mdm-gateway": "pnpm --filter @helpdesk/mdm-gateway build && node --no-warnings=ExperimentalWarning packages/mdm-gateway/dist/bin/gateway.js",
     "knowledge-gateway": "pnpm --filter @helpdesk/knowledge-gateway build && node --no-warnings=ExperimentalWarning packages/knowledge-gateway/dist/bin/gateway.js",
     "knowledge-reindex": "pnpm --filter @helpdesk/knowledge-gateway build && node --no-warnings=ExperimentalWarning packages/knowledge-gateway/dist/bin/reindex.js",
+    "knowledge-verify-citations": "pnpm --filter @helpdesk/knowledge-gateway build && node --no-warnings=ExperimentalWarning packages/knowledge-gateway/dist/bin/verify-citations.js",
     "endpoint-gateway": "pnpm --filter @helpdesk/endpoint-gateway build && node --no-warnings=ExperimentalWarning packages/endpoint-gateway/dist/bin/gateway.js",
     "agent": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/identity-agent.js",
     "mdm-agent": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/mdm-agent.js",
@@ -28,7 +29,9 @@
     "web": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/web.js",
     "simulate": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/simulate.js",
     "simulate-summary": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/simulate-summary.js",
-    "simulate-compare": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/simulate-compare.js"
+    "simulate-compare": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/simulate-compare.js",
+    "simulate-score": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/simulate-score.js",
+    "triage-harness": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/triage-harness.js"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
