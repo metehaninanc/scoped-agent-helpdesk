@@ -74,6 +74,22 @@ describe("computeSimulationSummary()", () => {
     expect(summary.modelDeclinedCount).toBe(0);
   });
 
+  it("counts not_it and needs_human in the category distribution, and never toward reachedToolCount or modelDeclinedCount (SPRINT4.md, section 1's split of unsupported)", () => {
+    const summary = computeSimulationSummary([
+      result({ id: "1", category: "not_it", agentInvoked: null, toolCalled: false }),
+      result({ id: "2", category: "needs_human", agentInvoked: null, toolCalled: false }),
+    ]);
+
+    expect(summary.categoryDistribution).toEqual(
+      expect.arrayContaining([
+        { category: "not_it", count: 1 },
+        { category: "needs_human", count: 1 },
+      ]),
+    );
+    expect(summary.reachedToolCount).toBe(0);
+    expect(summary.modelDeclinedCount).toBe(0);
+  });
+
   it("tallies refusals by rule, most frequent first, only for routed tickets", () => {
     const summary = computeSimulationSummary([
       result({ id: "1", policyDecision: "denied", policyRules: ["deny.break_glass_user"] }),

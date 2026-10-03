@@ -17,6 +17,7 @@ import { AuditLog } from "@helpdesk/audit-core";
 import { openDatabase } from "@helpdesk/gateway-core";
 
 import { computeDashboardData, type ChainSnapshot } from "../dashboard-metrics.js";
+import { filterChainToRequestIds, requestIdsOf } from "../simulation-compare.js";
 import { computeSimulationSummary, renderSimulationSummaryMarkdown } from "../simulation-summary.js";
 import type { TicketResult } from "../simulation-types.js";
 import { resultsPath, simDbPaths, summaryPath } from "./simulate.js";
@@ -48,7 +49,11 @@ function main(): void {
     endpoint: new AuditLog(openDatabase(SIM_DB_PATHS.endpoint)),
   } as const;
 
-  const snapshot = (log: AuditLog): ChainSnapshot => ({ records: log.list(), chainBreak: log.verifyChain() });
+  // Restricted to this pass's own 150 requestIds — see simulation-compare.ts's own comment on
+  // filterChainToRequestIds() for why a chain can carry more than that (an interrupted attempt,
+  // retried under a fresh requestId once resumed) and why cost must not double-count it.
+  const validRequestIds = requestIdsOf(results);
+  const snapshot = (log: AuditLog): ChainSnapshot => filterChainToRequestIds({ records: log.list(), chainBreak: log.verifyChain() }, validRequestIds);
   const dashboardData = computeDashboardData({
     orchestrator: snapshot(logs.orchestrator),
     identity: snapshot(logs.identity),

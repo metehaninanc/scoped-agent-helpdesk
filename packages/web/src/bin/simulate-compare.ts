@@ -5,9 +5,13 @@
  * neither pass's own files, only the comparison itself.
  *
  *   pnpm simulate-compare --tag 2
+ *   pnpm simulate-compare --baseline 2 --tag 3
  *
- * --tag names the second pass, compared against the untagged first pass — matches bin/simulate.ts
- * and bin/simulate-summary.ts's own --tag.
+ * --tag names the "after" pass. --baseline names the "before" pass and defaults to the untagged
+ * first pass, matching this file's original, single-comparison behavior; SPRINT4.md, section 6
+ * needs pass two as the baseline instead, to compare against pass three directly rather than
+ * through pass one. Output always goes to evidence/simulation-comparison-<tag>.md, keyed on the
+ * "after" side, since that is the pass a given comparison run is actually evaluating.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -23,7 +27,9 @@ import {
   buildOutcomeComparison,
   computeHeadlineNumbers,
   computeOutcomeChanges,
+  filterChainToRequestIds,
   renderComparisonMarkdown,
+  requestIdsOf,
 } from "../simulation-compare.js";
 import type { TicketResult } from "../simulation-types.js";
 import { resultsPath, simDbPaths } from "./simulate.js";
@@ -36,7 +42,9 @@ function readResults(path: string): TicketResult[] {
     .map((line) => JSON.parse(line) as TicketResult);
 }
 
-function readCost(tag: string | undefined) {
+/** Restricted to this pass's own requestIds before costing — see simulation-compare.ts's
+ * filterChainToRequestIds() for why a chain can carry more than that. */
+function readCost(tag: string | undefined, results: readonly TicketResult[]) {
   const paths = simDbPaths(tag);
   const logs = {
     orchestrator: new AuditLog(openDatabase(paths.orchestrator)),
@@ -45,7 +53,8 @@ function readCost(tag: string | undefined) {
     knowledge: new AuditLog(openDatabase(paths.knowledge)),
     endpoint: new AuditLog(openDatabase(paths.endpoint)),
   } as const;
-  const snapshot = (log: AuditLog): ChainSnapshot => ({ records: log.list(), chainBreak: log.verifyChain() });
+  const validRequestIds = requestIdsOf(results);
+  const snapshot = (log: AuditLog): ChainSnapshot => filterChainToRequestIds({ records: log.list(), chainBreak: log.verifyChain() }, validRequestIds);
   const data = computeDashboardData({
     orchestrator: snapshot(logs.orchestrator),
     identity: snapshot(logs.identity),
@@ -58,23 +67,39 @@ function readCost(tag: string | undefined) {
   return data.cost;
 }
 
+function passLabel(tag: string | undefined): string {
+  return tag ? `pass ${({ "2": "two", "3": "three", "4": "four" } as Record<string, string>)[tag] ?? tag}` : "pass one";
+}
+
 function main(): void {
-  const { values } = parseArgs({ options: { tag: { type: "string" } }, strict: true });
+  const { values } = parseArgs({ options: { tag: { type: "string" }, baseline: { type: "string" } }, strict: true });
   const tag = values.tag;
-  if (!tag) throw new Error("--tag <name> is required: which pass to compare against the untagged first pass");
+  if (!tag) throw new Error("--tag <name> is required: which pass to compare against the baseline");
+  const baseline = values.baseline;
 
-  const pass1Results = readResults(resultsPath());
-  const pass2Results = readResults(resultsPath(tag));
-  console.error(`[simulate-compare] pass one: ${pass1Results.length} ticket(s); pass two (tag ${tag}): ${pass2Results.length} ticket(s)`);
+  const beforeResults = readResults(resultsPath(baseline));
+  const afterResults = readResults(resultsPath(tag));
+  const beforeLabel = passLabel(baseline);
+  const afterLabel = passLabel(tag);
+  console.error(`[simulate-compare] ${beforeLabel}: ${beforeResults.length} ticket(s); ${afterLabel}: ${afterResults.length} ticket(s)`);
 
-  const categoryComparison = buildCategoryComparison(pass1Results, pass2Results);
-  const outcomeComparison = buildOutcomeComparison(pass1Results, pass2Results);
-  const headline1 = computeHeadlineNumbers(pass1Results);
-  const headline2 = computeHeadlineNumbers(pass2Results);
-  const costComparison = buildCostComparison(readCost(undefined), readCost(tag));
-  const outcomeChanges = computeOutcomeChanges(pass1Results, pass2Results);
+  const categoryComparison = buildCategoryComparison(beforeResults, afterResults);
+  const outcomeComparison = buildOutcomeComparison(beforeResults, afterResults);
+  const headline1 = computeHeadlineNumbers(beforeResults);
+  const headline2 = computeHeadlineNumbers(afterResults);
+  const costComparison = buildCostComparison(readCost(baseline, beforeResults), readCost(tag, afterResults));
+  const outcomeChanges = computeOutcomeChanges(beforeResults, afterResults);
 
-  const markdown = renderComparisonMarkdown(categoryComparison, outcomeComparison, headline1, headline2, costComparison, outcomeChanges);
+  const markdown = renderComparisonMarkdown(
+    categoryComparison,
+    outcomeComparison,
+    headline1,
+    headline2,
+    costComparison,
+    outcomeChanges,
+    beforeLabel,
+    afterLabel,
+  );
   const outPath = resolve(`evidence/simulation-comparison-${tag}.md`);
   writeFileSync(outPath, markdown, "utf8");
   console.error(`[simulate-compare] wrote ${outPath}`);

@@ -7,8 +7,14 @@ import {
   classifyChange,
   computeHeadlineNumbers,
   computeOutcomeChanges,
+  filterChainToRequestIds,
+  renderComparisonMarkdown,
+  renderOutcomesComparisonMarkdown,
+  requestIdsOf,
+  type PassOutcomes,
 } from "./simulation-compare.js";
-import type { CostSection } from "./dashboard-metrics.js";
+import type { AuditRecord } from "@helpdesk/audit-core";
+import type { CostSection, OutcomesSection } from "./dashboard-metrics.js";
 import type { TicketResult } from "./simulation-types.js";
 
 function result(overrides: Partial<TicketResult> & { id: string; sourceFile: string }): TicketResult {
@@ -141,24 +147,62 @@ describe("classifyChange()", () => {
     ...overrides,
   });
 
-  it("classifies a stall-to-resolved change as improved", () => {
-    expect(classifyChange(sig({ toolCalled: false }), sig({ toolCalled: true }))).toBe("improved");
+  const resolved = sig({ toolCalled: true, policyDecision: "autonomous" });
+  const redirected = sig({ category: "not_it" });
+  const handedOffByTriage = sig({ category: "needs_human" });
+  const handedOffByAgent = sig({ toolCalled: true, toolName: "hand_off", policyDecision: "autonomous" });
+  const approvalPending = sig({ toolCalled: true, policyDecision: "approval" });
+  const deadEnd = sig({ toolCalled: false }); // routedButUnresolved: reached an agent, nothing came of it
+  const deniedDeadEnd = sig({ toolCalled: true, policyDecision: "denied" });
+  const classifierFailed = sig({ category: "triage_failed" });
+  const runnerError = sig({ category: "error" });
+
+  it("classifies a dead end reaching any working outcome as improved", () => {
+    expect(classifyChange(deadEnd, resolved)).toBe("improved");
+    expect(classifyChange(deadEnd, redirected)).toBe("improved");
+    expect(classifyChange(deadEnd, handedOffByTriage)).toBe("improved");
+    expect(classifyChange(deadEnd, approvalPending)).toBe("improved");
   });
 
-  it("classifies unsupported-to-real-category as improved", () => {
-    expect(classifyChange(sig({ category: "unsupported" }), sig({ category: "knowledge" }))).toBe("improved");
+  it("classifies a working outcome falling to a dead end as regressed", () => {
+    expect(classifyChange(resolved, deadEnd)).toBe("regressed");
+    expect(classifyChange(handedOffByAgent, deniedDeadEnd)).toBe("regressed");
   });
 
-  it("classifies a resolved-to-stall change as regressed", () => {
-    expect(classifyChange(sig({ toolCalled: true }), sig({ toolCalled: false }))).toBe("regressed");
+  it("classifies unsupported the same as its successor not_it (SPRINT4.md, section 1): reaching it from a dead end is improved", () => {
+    expect(classifyChange(deadEnd, sig({ category: "unsupported" }))).toBe("improved");
   });
 
-  it("classifies real-category-to-unsupported as regressed", () => {
-    expect(classifyChange(sig({ category: "identity" }), sig({ category: "unsupported" }))).toBe("regressed");
+  it("does not treat a resolved-to-redirected move as a regression — a redirect is not worse than a resolution, only different", () => {
+    expect(classifyChange(resolved, redirected)).toBe("changed");
   });
 
-  it("classifies a same-toolCalled, different-category move between two real categories as changed", () => {
-    expect(classifyChange(sig({ category: "identity", toolCalled: true }), sig({ category: "mdm", toolCalled: true }))).toBe("changed");
+  it("classifies an operational fault as worse than a dead end, in either direction", () => {
+    expect(classifyChange(classifierFailed, deadEnd)).toBe("improved");
+    expect(classifyChange(deadEnd, runnerError)).toBe("regressed");
+  });
+
+  it("classifies an operational fault reaching a working outcome as improved", () => {
+    expect(classifyChange(runnerError, resolved)).toBe("improved");
+    expect(classifyChange(resolved, classifierFailed)).toBe("regressed");
+  });
+
+  it("does not rank the four working outcomes against each other — the fix for the pass-two/pass-three regression bug", () => {
+    // The bug this replaced: a tool call that resolved nothing (an mdm lookup against this
+    // tenant's permanently empty device directory) used to outrank a needs_human handoff simply
+    // because toolCalled was true. Both are tier-2, working outcomes now — reaching one from the
+    // other is "changed, direction not asserted," never "regressed," and reading the actual reply
+    // text is what decides which one was really better (see the root README's own account).
+    expect(classifyChange(resolved, handedOffByTriage)).toBe("changed");
+    expect(classifyChange(resolved, handedOffByAgent)).toBe("changed");
+    expect(classifyChange(handedOffByTriage, redirected)).toBe("changed");
+    expect(classifyChange(approvalPending, resolved)).toBe("changed");
+  });
+
+  it("classifies a same-tier move between two real categories as changed", () => {
+    expect(classifyChange(sig({ category: "identity", toolCalled: true, policyDecision: "autonomous" }), sig({ category: "mdm", toolCalled: true, policyDecision: "autonomous" }))).toBe(
+      "changed",
+    );
   });
 });
 
@@ -171,7 +215,7 @@ describe("computeOutcomeChanges()", () => {
     ];
     const pass2 = [
       result({ id: "1", sourceFile: "a", toolCalled: true }), // unchanged
-      result({ id: "2", sourceFile: "a", toolCalled: true }), // changed: improved
+      result({ id: "2", sourceFile: "a", toolCalled: true, policyDecision: "autonomous" }), // changed: improved
       result({ id: "4", sourceFile: "a", toolCalled: true }), // only in pass2
     ];
 
@@ -179,5 +223,126 @@ describe("computeOutcomeChanges()", () => {
 
     expect(changes).toHaveLength(1);
     expect(changes[0]).toMatchObject({ sourceFile: "a", id: "2", classification: "improved" });
+  });
+});
+
+describe("renderComparisonMarkdown()", () => {
+  it("labels each side by its own pass, not a hardcoded 'pass one'/'pass two' — SPRINT4.md, section 6 compares pass two against pass three", () => {
+    const empty = buildOutcomeComparison([], []);
+    const headline = computeHeadlineNumbers([]);
+    const cost = { totalCostUsd: { pass1: 0, pass2: 0, delta: 0 }, byComponent: [] };
+
+    const markdown = renderComparisonMarkdown([], empty, headline, headline, cost, [], "pass two", "pass three");
+
+    expect(markdown).toContain("# Simulation comparison: pass two vs pass three");
+    expect(markdown).toContain("| Metric | Pass two | Pass three | Delta |");
+    expect(markdown).not.toContain("pass one");
+  });
+
+  it("defaults to pass one vs pass two when no labels are given, unchanged from before section 6", () => {
+    const empty = buildOutcomeComparison([], []);
+    const headline = computeHeadlineNumbers([]);
+    const cost = { totalCostUsd: { pass1: 0, pass2: 0, delta: 0 }, byComponent: [] };
+
+    const markdown = renderComparisonMarkdown([], empty, headline, headline, cost, []);
+
+    expect(markdown).toContain("# Simulation comparison: pass one vs pass two");
+  });
+});
+
+describe("renderOutcomesComparisonMarkdown()", () => {
+  const outcomes = (overrides: Partial<OutcomesSection> = {}): OutcomesSection => ({
+    rejectPath: { total: 0, redirected: 0, handedOffResolved: 0, handedOffInProgress: 0 },
+    acceptPath: { total: 0, resolved: 0, handedOffResolved: 0, handedOffInProgress: 0, routedButUnresolved: 0, approvalPending: 0, approvalRejected: 0 },
+    classifierFailures: 0,
+    otherDenied: 0,
+    misroutedNote: "not computable",
+    ...overrides,
+  });
+
+  it("renders every pass given as its own column, in order, across both paths", () => {
+    const passes: PassOutcomes[] = [
+      { label: "pass one", outcomes: outcomes({ rejectPath: { total: 41, redirected: 41, handedOffResolved: 0, handedOffInProgress: 0 } }), misrouted: null },
+      { label: "pass three", outcomes: outcomes({ rejectPath: { total: 20, redirected: 15, handedOffResolved: 0, handedOffInProgress: 5 } }), misrouted: 12 },
+    ];
+
+    const markdown = renderOutcomesComparisonMarkdown(passes);
+
+    expect(markdown).toContain("| Outcome | pass one | pass three |");
+    expect(markdown).toContain("| Total | 41 | 20 |");
+    expect(markdown).toContain("| Redirected | 41 | 15 |");
+  });
+
+  it("shows 'not scored' for a pass with no hand-scored misrouted count, and the real count for one that has it", () => {
+    const passes: PassOutcomes[] = [
+      { label: "pass one", outcomes: outcomes(), misrouted: null },
+      { label: "pass three", outcomes: outcomes(), misrouted: 12 },
+    ];
+
+    const markdown = renderOutcomesComparisonMarkdown(passes);
+
+    expect(markdown).toContain("| Misrouted | not scored | 12 |");
+  });
+
+  it("reports the reject path and accept path as two separate tables", () => {
+    const passes: PassOutcomes[] = [{ label: "pass three", outcomes: outcomes(), misrouted: 0 }];
+    const markdown = renderOutcomesComparisonMarkdown(passes);
+    expect(markdown).toContain("## Reject path");
+    expect(markdown).toContain("## Accept path");
+  });
+});
+
+describe("requestIdsOf() / filterChainToRequestIds()", () => {
+  const result = (overrides: Partial<TicketResult> & { id: string; sourceFile: string }): TicketResult => ({
+    submittedBy: "someone@fake.example",
+    actor: "alexdesouza@metehantestoutlook.onmicrosoft.com",
+    requestId: `req-${overrides.id}`,
+    category: "identity",
+    partiallyOutOfScope: false,
+    agentInvoked: "identity-agent",
+    toolCalled: true,
+    toolCalls: [],
+    toolName: null,
+    policyDecision: null,
+    policyRules: [],
+    reply: "done",
+    ...overrides,
+  });
+
+  const rec = (requestId: string): AuditRecord => ({
+    id: 1,
+    timestamp: "2026-09-16T12:00:00.000Z",
+    requestId,
+    actor: "alice@contoso.com",
+    agent: "orchestrator",
+    tool: null,
+    parameters: null,
+    decision: "routed",
+    rules: [],
+    result: null,
+    prevHash: "x",
+    hash: "y",
+  });
+
+  it("collects every non-null requestId a pass's own results claim", () => {
+    const results = [
+      result({ id: "1", sourceFile: "a", requestId: "req-1" }),
+      result({ id: "2", sourceFile: "a", requestId: "req-2" }),
+      result({ id: "3", sourceFile: "a", requestId: null, category: "error" }),
+    ];
+    expect(requestIdsOf(results)).toEqual(new Set(["req-1", "req-2"]));
+  });
+
+  it("drops a record whose requestId is not in the valid set — an orphaned, interrupted attempt", () => {
+    const snapshot = { records: [rec("req-1"), rec("req-orphan"), rec("req-2")], chainBreak: null };
+    const filtered = filterChainToRequestIds(snapshot, new Set(["req-1", "req-2"]));
+    expect(filtered.records.map((r) => r.requestId)).toEqual(["req-1", "req-2"]);
+  });
+
+  it("leaves chainBreak untouched — integrity is a property of the real, whole chain, never a filtered view", () => {
+    const brk = { index: 0, id: 3, reason: "hash_mismatch" as const };
+    const snapshot = { records: [rec("req-1")], chainBreak: brk };
+    const filtered = filterChainToRequestIds(snapshot, new Set(["req-1"]));
+    expect(filtered.chainBreak).toBe(brk);
   });
 });
