@@ -19,15 +19,18 @@
  * so the refusal is nameable and auditable, never wired to anything that could act on it.
  */
 import {
+  createHandOffExecute,
   runToolCall,
   type ApprovalCreateInput,
   type ApprovalRecord,
   type ErrorOutput,
   type GatewayToolOutput,
+  type HandOffOk,
   type PendingApprovalOutput,
   type SessionContext,
   type ToolCallResult,
 } from "@helpdesk/gateway-core";
+import type { HandoffStore } from "@helpdesk/handoff-core";
 
 import type { AuditInput, AuditRecord } from "@helpdesk/audit-core";
 import type { EndpointService, EndpointSummary } from "../stub/endpoint-service.js";
@@ -43,12 +46,14 @@ export interface GatewayDeps {
    * README, "Endpoint gateway notes") rather than generalizing the identity-specific generator. */
   approvals: { create(input: ApprovalCreateInput): ApprovalRecord };
   stub: EndpointService;
+  /** SPRINT4.md, section 2: identical on every gateway. */
+  handoffs: Pick<HandoffStore, "create">;
   config: PolicyConfig;
   decide?: (request: ToolRequest, context: RequestContext, config: PolicyConfig) => Decision;
   now?: () => Date;
 }
 
-type Ok = { status: "ok"; endpoints: EndpointSummary[] } | { status: "ok"; endpoint: EndpointSummary | null };
+type Ok = { status: "ok"; endpoints: EndpointSummary[] } | { status: "ok"; endpoint: EndpointSummary | null } | HandOffOk;
 
 export type ToolOutput = GatewayToolOutput<Ok, RuleId>;
 
@@ -70,7 +75,7 @@ export async function handleToolCall(
     config: deps.config,
     ...(deps.now ? { now: deps.now } : {}),
     parse: parseToolRequest,
-    execute: (request) => execute(request, deps),
+    execute: (request) => execute(request, deps, session),
     onApproval: (request, rules, callSession) => onApproval(request, rules, callSession, deps),
     describeError,
     deniedMessageSuffix:
@@ -94,7 +99,7 @@ async function onApproval(
   return { status: "pending_approval", approvalId: approval.id };
 }
 
-async function execute(request: ValidatedToolRequest, deps: GatewayDeps): Promise<Ok> {
+async function execute(request: ValidatedToolRequest, deps: GatewayDeps, session: SessionContext): Promise<Ok> {
   switch (request.tool) {
     case "list_endpoints":
       return { status: "ok", endpoints: await deps.stub.listEndpoints() };
@@ -108,5 +113,7 @@ async function execute(request: ValidatedToolRequest, deps: GatewayDeps): Promis
       // Not reachable, ever: policy/decide.ts denies this tool unconditionally, before decide()
       // returns anything but "denied". See this file's header comment.
       throw new Error("reset_password has no execute() path: policy denies it unconditionally");
+    case "hand_off":
+      return createHandOffExecute(deps.handoffs)(request, session);
   }
 }

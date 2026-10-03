@@ -3,6 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApprovalStore, openDatabase } from "@helpdesk/gateway-core";
+import { HandoffStore } from "@helpdesk/handoff-core";
 import { AuditLog } from "@helpdesk/audit-core";
 import { Rule, type PolicyConfig } from "../policy/types.js";
 import { createEndpointService } from "../stub/endpoint-service.js";
@@ -33,6 +34,7 @@ describe("gateway MCP server", () => {
     deps = {
       audit,
       approvals,
+      handoffs: new HandoffStore(db, audit),
       stub: createEndpointService({ seed: [{ id: ENDPOINT, hostname: "front-desk-01", status: "online", lastCheckInAt: "2026-09-19T00:00:00.000Z" }] }),
       config,
     };
@@ -48,17 +50,25 @@ describe("gateway MCP server", () => {
     audit.close();
   });
 
-  it("identifies itself and advertises exactly the four tools with closed schemas and no ids", async () => {
+  it("identifies itself and advertises the four SPRINT3.md tools plus hand_off, each with a closed schema and no ids", async () => {
     expect(client.getServerVersion()?.name).toBe(GATEWAY_NAME);
 
     const { tools } = await client.listTools();
 
-    expect(tools.map((t) => t.name)).toEqual(["list_endpoints", "get_endpoint", "reboot_endpoint", "reset_password"]);
+    expect(tools.map((t) => t.name)).toEqual(["list_endpoints", "get_endpoint", "reboot_endpoint", "reset_password", "hand_off"]);
     for (const tool of tools) {
       expect(tool.description).toBeTruthy();
       expect(tool.inputSchema.additionalProperties).toBe(false);
       expect(tool.description).not.toContain(ENDPOINT);
     }
+  });
+
+  it("runs hand_off end to end, autonomous, and audits both the tool call and the handoff's own creation (SPRINT4.md, section 2)", async () => {
+    const result = await client.callTool({ name: "hand_off", arguments: { reason: "needs a replacement device" } });
+
+    expect(result.isError).toBeFalsy();
+    expect(textOf(result)).toMatchObject({ status: "handed_off", handoffId: expect.any(String) });
+    expect(audit.list().map((r) => r.decision)).toEqual(["autonomous", "handoff", "autonomous"]);
   });
 
   it("runs an autonomous read end to end and audits it twice", async () => {

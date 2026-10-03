@@ -13,7 +13,7 @@
  */
 import { z } from "zod";
 
-import { userPrincipalName } from "@helpdesk/gateway-core";
+import { HAND_OFF_PARAMS_SCHEMA, HAND_OFF_TOOL_NAME, userPrincipalName } from "@helpdesk/gateway-core";
 
 import type { ToolRequest } from "./types.js";
 
@@ -24,6 +24,7 @@ export const toolParamSchemas = {
   get_endpoint: z.strictObject({ endpointId }),
   reboot_endpoint: z.strictObject({ endpointId }),
   reset_password: z.strictObject({ userPrincipalName }),
+  [HAND_OFF_TOOL_NAME]: HAND_OFF_PARAMS_SCHEMA,
 } as const;
 
 export type ToolName = keyof typeof toolParamSchemas;

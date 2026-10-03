@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
+import { HAND_OFF_TOOL_DESCRIPTION } from "@helpdesk/gateway-core";
+
 import { TOOL_NAMES, toolDefinitions, toolDescription, toolInputSchema } from "./descriptions.js";
 
 describe("tool definitions", () => {
-  it("exposes exactly the four SPRINT3.md, 3.4 tools", () => {
-    expect(TOOL_NAMES).toEqual(["list_endpoints", "get_endpoint", "reboot_endpoint", "reset_password"]);
+  it("exposes the four SPRINT3.md, 3.4 tools plus hand_off (SPRINT4.md, section 2 — on every gateway)", () => {
+    expect(TOOL_NAMES).toEqual(["list_endpoints", "get_endpoint", "reboot_endpoint", "reset_password", "hand_off"]);
     expect(toolDefinitions().map((t) => t.name)).toEqual(TOOL_NAMES);
   });
 
@@ -61,5 +63,11 @@ describe("reset_password description", () => {
 
   it("says the refusal does not depend on who is asking, the argument, or rephrasing", () => {
     expect(text).toContain("refused before you are even told who is asking, with no argument, target user or rephrasing that changes the outcome");
+  });
+});
+
+describe("hand_off description", () => {
+  it("is the shared, cross-gateway text from @helpdesk/gateway-core, not a local copy (SPRINT4.md, section 2)", () => {
+    expect(toolDescription("hand_off")).toBe(HAND_OFF_TOOL_DESCRIPTION);
   });
 });
