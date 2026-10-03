@@ -294,13 +294,23 @@ async function decide(input: { approvalId: string; decidedBy: string; decision: 
 
 const server = createWebServer({
   // SPRINT3.md, 3.1: every raw request now goes through triage and the orchestration layer
-  // first, which decides which agent, if any, handles it. identityDbPath preserves this
-  // process's own HELPDESK_DB_PATH; routeRequest()'s own mdmDbPath/knowledgeDbPath/
-  // endpointDbPath/dbPath options are left unset here, so a routed request still writes to each
-  // agent's and the orchestrator's own default path — orchestratorDbPath/mdmDbPath/
-  // knowledgeDbPath above configure where this process reads those same defaults back from for
-  // the dashboard (SPRINT3.md, 3.5), a separate concern from where a request gets routed to.
-  routeRequest: (input) => routeRequest({ actor: input.actor, requestText: input.requestText, identityDbPath }),
+  // first, which decides which agent, if any, handles it. All five chain paths are passed, the
+  // same five this process reads back for the console and the dashboard. They used to be
+  // passed only for identity, which meant that pointing this process at a private set of chains
+  // (ORCHESTRATOR_DB_PATH, MDM_HELPDESK_DB_PATH, ...) moved where it READ and not where a routed
+  // request WROTE: the walkthrough recording found it, when requests made against private chains
+  // appended to the real orchestrator and knowledge chains. With the variables unset every path
+  // is the default it always was, so a normal deployment is unchanged.
+  routeRequest: (input) =>
+    routeRequest({
+      actor: input.actor,
+      requestText: input.requestText,
+      dbPath: orchestratorDbPath,
+      identityDbPath,
+      mdmDbPath,
+      knowledgeDbPath,
+      endpointDbPath,
+    }),
   decide,
   request: requestRationale,
   listPendingApprovals,
