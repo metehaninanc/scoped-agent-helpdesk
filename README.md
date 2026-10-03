@@ -163,7 +163,14 @@ per-session process to bind an argument to, so the actor now travels as an `x-ac
 the agent process sets on every request — the mechanism changed, the property did not: it is
 still something the agent's own code sets from its own caller, never a field the model fills in,
 never something read from the request text, and there is no tool parameter named anything like
-`userId` or `onBehalfOf` that a prompt could persuade the model to set.
+`userId` or `onBehalfOf` that a prompt could persuade the model to set. SPRINT4.md, section 2 adds
+a second header of the same class, `x-request-text`: the request exactly as the person typed it,
+which a gateway's own `hand_off` tool needs for the handoff record it creates and has no other way
+to reach, since the tool's own parameters carry only `reason`, never a restatement of what started
+the conversation. Same rule as `x-actor` — set by the agent process itself, from a value it
+already holds before the model's turn ever starts, never a tool parameter the model fills in —
+just a value that is not an identity, so nothing downstream trusts it the way it trusts `x-actor`;
+see "Handoff core notes" below for what depends on it and what does not.
 
 This matters because a tool parameter is something the conversation can influence. If identity
 were a parameter, a sufficiently creative prompt could potentially get the model to pass a
@@ -363,6 +370,12 @@ is no longer open: SPRINT3.md 3.1 builds it for real; see "Triage and orchestrat
 
 ```
 packages/audit             the audit record format and its hash chain, shared, standalone
+packages/handoff-core      as of SPRINT4.md, section 2: the generic handoff queue-item lifecycle
+                           (open/taken/resolved, the required resolution note, the audit writing)
+                           — standalone, the same layer as packages/audit and for the same reason:
+                           two real writers (a gateway's own hand_off tool, and the orchestrator's
+                           direct-creation path) need the identical mechanism and neither should
+                           import the other's runtime. See "Handoff core notes" below
 packages/gateway-core      as of SPRINT3.md 3.2: the shared spine every gateway is built from —
                            HTTP transport, MCP server wiring, token validation (auth/), the
                            validate/decide/audit/branch call order (tool-call.ts), the refusal
@@ -373,7 +386,10 @@ packages/gateway-core      as of SPRINT3.md 3.2: the shared spine every gateway 
                            of 3.4, also the approval store, workflow and decision-listener
                            (approvals/) generalized off the identity gateway once the endpoint
                            gateway needed its own approval chain, not identity's — see "Gateway
-                           template notes" below for what moved and what stayed identity-specific
+                           template notes" below for what moved and what stayed identity-specific.
+                           As of SPRINT4.md, section 2, also hand-off-tool.ts: the hand_off tool's
+                           shared schema, description and execute() every gateway wires in
+                           identically, built on @helpdesk/handoff-core
 packages/identity-gateway  identity gateway: its own tool schemas, policy rules, Graph client,
                            and rationale generation. As of 3.4 its approval store, workflow and
                            decision endpoint are @helpdesk/gateway-core's, generalized, not its
@@ -422,6 +438,14 @@ packages/agent             four agents, one file each (identity-agent.ts, mdm-ag
                            see "Triage and orchestration notes" below for why that does not weaken
                            triage staying outside the trust boundary. As of 3.4, a fifth category,
                            endpoint, covers both the stub fleet and every password reset request.
+                           As of SPRINT4.md, section 1, triage.ts makes two decisions (not_it /
+                           needs_human / routable, then category); section 2 has orchestrator.ts
+                           create a real handoff directly for needs_human, via
+                           @helpdesk/handoff-core, with no gateway and no policy decision in
+                           between — see "Handoff core notes" below. All four agents now also carry
+                           hand_off in their own allowedTools, each with its own system-prompt
+                           wording for when to call it (agent-boundary.test.ts keeps the four
+                           prompts genuinely separate texts, not a shared constant).
                            As of 3.5, also models.ts: the pinned model for triage and for the four
                            agents (a new DEFAULT_AGENT_MODEL), and the reasoning for both tiers
                            gathered in one place alongside the rationale generator's — see
@@ -493,7 +517,10 @@ fallback path that skips triage. Real environment variables always take preceden
 Every agent's own model turns also need `ANTHROPIC_API_KEY` to resolve, but through a separate
 mechanism: the Agent SDK's own Claude Code subprocess, which can authenticate from the same `.env`
 (the agent package loads it independently at its own startup), a real environment variable, or an
-`ant auth login` profile.
+`ant auth login` profile. By default that key reaches the agents' subprocess, which is how every pass
+through pass three ran; `HELPDESK_AGENT_AUTH=session` withholds it from the agents' subprocess only,
+so they use the machine's logged-in Claude session instead, and every agent call then checks the SDK's
+reported `apiKeySource` is `none` (README, "Simulation run (Sprint 4 — pass four)").
 
 **All four gateways are long-running HTTP servers, not one process per agent session.** Start
 them first, in their own terminals, before running an agent or the web app — there is nothing
@@ -687,6 +714,149 @@ the deny rule, and every number on the page has to trace back to the five chains
 why it cannot. See "Sprint 3, Phase 3.5 verification run" below for the live evidence, including a
 real gap the cross-check itself found and fixed.
 
+### Sprint 4, Section 1 status
+
+| Component                              | State                                                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------ |
+| Triage's two decisions                  | done, tests first: `packages/agent/src/triage.ts` — `TRIAGE_SCOPES` (`not_it` \| `needs_human` \| `routable`) checked first, `TRIAGE_CATEGORIES` (the same four agent categories as before, `unsupported` removed) only meaningful when `scope` is `routable`. One Messages API call, unchanged shape, now returning both decisions plus `notItTeam` and `partiallyOutOfScope` |
+| `not_it` reply names the team, without free text | done: `NOT_IT_TEAMS` (`facilities` \| `hr` \| `null`) is a fourth closed set, the same discipline as `partiallyOutOfScope` — triage picks from a fixed list, `orchestrator.ts`'s `NOT_IT_TEAM_MESSAGE` turns that pick into one of two fixed sentences. Triage still never writes a sentence of its own |
+| Orchestrator wiring                    | done, tests first: `packages/agent/src/orchestrator.ts` — `RouteRequestResult`'s `"unsupported"` status split into `"not_it"` and `"needs_human"`, each audited on its own chain as `triage.not_it` / `triage.needs_human` (`orchestrator-audit.ts`'s `NotRoutedRule`, renamed from `TriageFailureRule` to cover a real decision as well as an operational failure) |
+| `needs_human`'s message makes no queue claim | done, deliberately incomplete: no handoff queue exists yet (SPRINT4.md, section 2, not built here) — the result message says a person needs to help, not that anyone has been notified, so this step does not claim a capability the next one actually builds |
+| Web app renders both new statuses      | done, tests first: `packages/web/src/request-page.ts` |
+| Dashboard, simulation tooling stay correct | done: `dashboard-metrics.ts` folds both new rules into the existing `refused` bucket rather than undercounting (its own three-way split is SPRINT4.md section 5's job, not this one's); `simulation-types.ts`, `simulate.ts`, `simulation-compare.ts` and `simulation-summary.ts` all updated and tested against the new categories — `SimCategory` keeps the literal `"unsupported"` only because pass one's and pass two's already-committed results files still contain it on disk, never written by `simulate.ts` again |
+| Live verification run                   | done: one request per scope through the real path (`pnpm route`), against the real tenant. See "Sprint 4, Section 1 verification run" below |
+
+812 tests across eight packages, all passing; `pnpm typecheck` and `pnpm build` clean, at the
+commit this document was written against. The closed-set discipline SPRINT3.md, 3.1 established
+for triage — a fixed enumeration, refused by validation rather than guessed at, nothing extracted
+from the request text beyond a pick from a fixed list — is unchanged by having two decisions
+instead of one: `notItTeam` is a third instance of exactly that same discipline, not an exception
+carved out for this phase.
+
+### Sprint 4, Section 2 status
+
+| Component                              | State                                                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------ |
+| `@helpdesk/handoff-core`                | done, tests first: `packages/handoff-core/src/store.ts` — the generic open/taken/resolved lifecycle, a required note only on resolve, evidence-before-state ordering, standalone (no gateway-core, no policy, no credential, no transport, no database connection management). Not built on ApprovalStore/Workflow — see "Handoff core notes" below for why sharing that abstraction wholesale was rejected |
+| Three new audit decision kinds          | done: `@helpdesk/audit-core`'s `AUDIT_DECISIONS` gains `handoff`, `handoff_taken`, `handoff_resolved` |
+| `hand_off`, one tool on every gateway   | done, tests first: `packages/gateway-core/src/hand-off-tool.ts` — shared schema, description and `execute()`, autonomous unconditionally (creates nothing external, always reversible). Wired into identity-, mdm-, knowledge- and endpoint-gateway's own `policy/types.ts`, `policy/schemas.ts`, `policy/decide.ts`, `tools/handler.ts`, `bin/gateway.ts` — the description text and the execute() logic are shared; each gateway's own autonomous rule is still its own, same discipline as every other rule |
+| `x-request-text`, the header `hand_off` needs | done: `@helpdesk/gateway-core`'s `SessionContext` gains `requestText`, read from an `x-request-text` header — same class as `x-actor` (set by the agent process itself, never a tool parameter), not enforced the way `x-actor` is (empty string, not a 400, when absent) since nothing downstream trusts it as an identity |
+| Orchestrator creates handoffs directly  | done, tests first: `packages/agent/src/orchestrator.ts` — `needs_human` now calls `HandoffStore.create()` directly on its own `OrchestratorAudit` connection (`log` made public for exactly this), no gateway and no policy decision in between. `RouteRequestResult`'s `needs_human` variant carries a real `handoffId` |
+| All four agents carry `hand_off`        | done, tests first: each agent's own `GATEWAY_TOOLS` and `buildSystemPrompt()` — four separate texts, not a shared constant (`agent-boundary.test.ts` enforces this). The endpoint agent's own wording is the load-bearing one: "most requests that reach you name no endpoint this system manages... call hand_off ... instead of just telling them their device is not one this system manages" — SPRINT4.md's "the endpoint agent becomes mostly a handoff producer," in the prompt itself, not only in this document |
+| Web app renders the handoff id          | done, tests first: `packages/web/src/request-page.ts` |
+| Operator console, resolving/taking a handoff | not built — SPRINT4.md, section 3. `HandoffStore.take()`/`resolve()` exist and are tested; nothing yet calls them outside a test |
+| Dashboard's three-way scoring           | not built — SPRINT4.md, section 5. Handoffs still fold into the existing binary `refused`/`autonomous`/`approvalGated`/`modelDeclined` split for now, the same provisional treatment section 1's `not_it`/`needs_human` already got |
+| Live verification run                   | done: one request through the orchestrator's own `needs_human` path, one through an agent calling `hand_off` mid-conversation, both handoff records and both audit trails shown, all chains verified. See "Sprint 4, Section 2 verification run" below |
+
+845 tests across nine packages, all passing; `pnpm typecheck` and `pnpm build` clean, at the
+commit this document was written against.
+
+### Sprint 4, Section 3 status
+
+| Component                              | State                                                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------ |
+| The operator console, one page, both queues | done, tests first: `packages/web/src/console-page.ts` + `console-data.ts` — `renderConsole()` lists both queues, oldest first; a queue row (age, requester, one-line summary, what action it needs) is enough to triage without opening it |
+| An opened item reads top to bottom as the spec orders it | done: `renderApprovalDetail()` / `renderHandoffDetail()` — raw request, what the system did and why (the cross-chain trail, by request id), what it could not do, then the actions. Both share this shape and the trail-rendering helpers but stay two functions, not one branching on kind — see "Operator console notes" below |
+| Age, not a timestamp                    | done: `html.ts`'s `formatDuration()` (moved here from `dashboard-page.ts`, now shared) renders every queue row's age; the single oldest row in each queue gets its own CSS class (`.age.oldest`, bold, amber) rather than a red or a badge — urgent by weight, not by alarm |
+| Figures monospaced, prose not           | done: `.age` and `.status` are the only monospaced classes in `html.ts`; every other block on the console is ordinary prose |
+| A deliberate empty state                | done: `.queue-empty`, its own quiet green, reading "No approvals waiting. The queue is clean." / "No handoffs waiting. The queue is clean." rather than an absence of markup |
+| The old approvals page folds in         | done: `approvals-page.ts` and `approvals-page.test.ts` deleted outright, not left running alongside. `/approvals` and `/approvals/:id` are gone; `/console`, `/console/approvals/:id`, `/console/handoffs/:id` replace them, along with `/console/approvals/:id/decide`, `/console/handoffs/:id/take`, `/console/handoffs/:id/resolve` |
+| The rationale control                   | left as a place, not built — SPRINT4.md, section 4. `renderRationale()` still only shows what the identity gateway's rationale generator produced automatically at creation time |
+| Taking and resolving a handoff needs no gateway | done: `bin/web.ts` calls `HandoffStore.take()`/`resolve()` directly, one store per chain sharing that chain's already-open db and `AuditLog` — no credential, no HTTP round trip, unlike an approval decision (see "Operator console notes") |
+| Live verification run                   | done: one approval and one handoff created through the real path, both worked through the running console over HTTP, resulting audit records and chain verification shown, screenshot captured. See "Sprint 4, Section 3 verification run" below |
+
+892 tests across nine packages, all passing; `pnpm typecheck` and `pnpm build` clean, at the
+commit this document was written against.
+
+### Sprint 4, Section 4 status
+
+| Component                              | State                                                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------ |
+| Generation moved from creation-time to on-request | done, tests first: `packages/identity-gateway/src/tools/handler.ts`'s `onApproval` no longer calls the generator at all; `packages/identity-gateway/src/approvals/rationale-workflow.ts`'s new `RationaleWorkflow.request()` is the only caller left, invoked only from the console's own opened-approval screen |
+| The generator still receives raw facts only | done, unchanged: `rationaleFactsFromApproval()` rebuilds the identical `RationaleFacts` shape the old inline path built, read back from the stored `ApprovalRecord` rather than a live tool call — the record already holds exactly those facts, since that is what created it |
+| The request is audited                  | done: a new closed-set decision, `rationale_requested` (`@helpdesk/audit-core`'s `AUDIT_DECISIONS`), committed before the model is ever called, naming the approver as `actor` — not the original requester, whom `rationale`'s own `parameters.requestingUser` still names |
+| The absent state is normal, not a failure, and says so plainly | done: `console-page.ts`'s `renderRationale()` — "No briefing has been requested," with the control beside it, while pending; "No briefing was requested before this was decided" once decided, no control; "This approval's gateway does not generate a briefing" for a tool the generator was never scoped to (SPRINT4.md, section 4 only ever named identity's own two gated tools) |
+| A state between pressed and answered    | done: a single, narrowly-scoped inline `<script>` disables the button and relabels it "Generating briefing…" on submit — see "Operator console notes" below for why this is the console's one, deliberate departure from "no framework, no build pipeline for the UI," and why it degrades gracefully with JavaScript off |
+| A briefing can be requested at most once, only while pending | done, tests first: `RationaleWorkflow.request()` refuses `already_generated` once one exists and `not_pending` once decided — the same "settle once" discipline `ApprovalStore.recordVerdict()` already applies to a decision |
+| A failed attempt can be retried         | done, tests first: a failure leaves `approval.rationale` null, so nothing blocks a second attempt; the console shows the failure inline and keeps the control in place |
+| `POST /approvals/rationale`, its own path | done, tests first: `packages/identity-gateway/src/approvals/rationale-listener.ts`, authenticated the same way as `/approvals/decide` (bearer token, `Gateway.Invoke`), deliberately not shared code with `decision-listener.ts` — gateway-neutral there, identity-specific here |
+| Live verification run                   | done: one approval opened in the running console, a briefing requested, the generated text and both audit records (`rationale_requested`, `rationale`) shown. See "Sprint 4, Section 4 verification run" below |
+
+924 tests across nine packages, all passing; `pnpm typecheck` and `pnpm build` clean, at the
+commit this document was written against.
+
+### Two console fixes, before section 5
+
+Both found from a screenshot of the console under real, accumulated data rather than from a test:
+the trail's Result column was cutting a value off mid-JSON instead of wrapping or offering to show
+it in full, and the Agent column mixed a human-readable name with a raw client-id GUID for the same
+real actor, row to row. Both are presentation-only fixes — see "Operator console notes" above for
+the full reasoning and `evidence/console-fix-trail.png` for the result. 7 new tests; included in
+the 949-test total below.
+
+**A follow-up, from a second screenshot of the same table: the fixed column widths that stopped the
+overflow made Chain and Tool too narrow, wrapping ordinary closed-set values ("orchestrator",
+"list_managed_groups") that should read on one line.** Fitting every column's absolute longest
+possible value — `rationale_requested` (19 characters), `rationale-workflow` (18),
+`remove_user_from_group` (23), `deny.password_reset_never_automated` (36) — would leave the Result
+column too narrow to be worth having; the six percentages in `html.ts` are chosen instead for the
+*ordinary* range of each column, one size step down (`.trail { font-size: 0.85rem; }`, the table's
+own scope only, nothing else on the page) buying back enough width to fit that ordinary range
+without starving Result. The genuinely long outliers named above still wrap, which is the correct
+behavior asked for, not a residual bug — they are the exception the fix was never meant to absorb.
+Checked against two trails with different shapes (an approval's identity-chain trail and a
+handoff's endpoint-chain one, `evidence/console-fix-trail.png` shows the former) to confirm the
+widths hold for more than one case.
+
+### Sprint 4, Section 5 status
+
+| Component                              | State                                                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------ |
+| Tool-call-equals-success replaced        | done, tests first: `dashboard-metrics.ts`'s `OutcomesSection` replaces the old `VolumeSection.split` (autonomous/approvalGated/refused/modelDeclined) entirely — see "Dashboard notes" below for the full reasoning behind every figure |
+| Five outcomes, each computed from the chains and named for what it is | done: **resolved** (a tool call, or an approved-and-executed change, that produced a real result), **redirected** (`triage.not_it`, unconditional), **handed off** (resolved by an operator — an open or taken handoff is its own figure, not folded in), **routed but unresolved** (no tool called, a gateway denial, or a backend execution failure), and **misrouted** — the one SPRINT4.md itself anticipated might not be computable |
+| Misrouted named as a gap, not approximated | done: `MISROUTED_NOTE` — knowing a request was misrouted requires knowing which agent *should* have handled it, and nothing in a live audit trail records that; no heuristic attempted. The same rule this project already applies to every other number on the page |
+| Reject path and accept path reported separately | done: `RejectPathOutcomes` (triage's own `not_it`/`needs_human`) and `AcceptPathOutcomes` (triage's `routed`) are two distinct types, rendered as two distinct tables, with no combined percentage anywhere on the page |
+| A handoff counts as a success only once resolved | done, tests first: `handoffResolutionByRequestId()` — an open or taken handoff is its own "in progress" figure on whichever path it originated (triage's own `needs_human`, or an agent's own mid-conversation `hand_off` call), never counted as either a success or a failure |
+| An approval counts as resolved only once executed | done, tests first: a pending approval and a human-rejected one are each their own figure — `approvalPending`, `approvalRejected` — neither folded into "resolved" (nothing has changed) nor into "routed but unresolved" (the agent had exactly the right action; that is why it was gated) |
+| A live, real finding this section's own live check surfaced | done: `otherDenied` — the real `data/orchestrator.db` still carries `triage.unsupported` records from before SPRINT4.md, section 1 retired that rule in favour of `triage.not_it`/`triage.needs_human`. Found by cross-checking the new totals against the existing day-by-day request count, the same cross-check method Sprint 3.5's own live run used to find the password-reset gap. Counted honestly rather than silently vanishing from every total on the page |
+| Live verification run                   | done: the real dashboard, rendered against the real accumulated chains, every figure cross-checked by hand. See "Sprint 4, Section 5 verification run" below |
+
+949 tests across nine packages, all passing; `pnpm typecheck` and `pnpm build` clean, at the
+commit this document was written against.
+
+### Sprint 4, Section 6 status
+
+| Component                              | State                                                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------ |
+| A third simulation pass, same tickets, same rules | done: the same 150 tickets, the same committed `test/actor-mapping.json`, the same single-turn rule, a third set of databases and evidence files (`data/sim3-*.db`, `evidence/simulation-results-3.jsonl`) — passes one and two untouched |
+| Scored on section 5's own outcomes model | done: `pnpm simulate-score` reads each pass's own five sim chains through `computeDashboardData()`, the same function the live dashboard uses — no second implementation of the scoring logic |
+| Reject path and accept path reported separately, three passes side by side | done: `evidence/simulation-outcomes.md`, `renderOutcomesComparisonMarkdown()` — see "Simulation run (Sprint 4, section 6 — pass three)" below |
+| Misrouted made computable | done: pass three's ticket set carries `actualNeed` ground truth; scored by hand (a keyword screen over all 79 accept-path tickets, narrowed to 19 candidates, each read against its own reply text before a verdict) rather than approximated — first scored 2 of 150, **corrected to 7** once the ground-truth labels made the screen exact (see "Simulation run (Sprint 4 — pass four)") |
+| Pass two vs pass three, every changed ticket, regressions read before classified | done: `pnpm simulate-compare --baseline 2 --tag 3`, `evidence/simulation-comparison-3.md` — 106 changed, regressions listed first; reading the comparator's original 20 flagged regressions against both passes' own reply text found the comparator itself still assumed reaching a tool is success, fixed `classifyChange()` to use section 5's own outcome model instead of patching the finding around it — see "Finding: the comparator itself assumed reaching a tool is success" below |
+| Triage split vs. corpus widening, separated where the data allows | done: named plainly where they cannot be separated — see "Simulation run" below |
+| A real infrastructure finding, not routed around | done: pass three's own run surfaced a session-usage-limit fallback silently replacing the API key mid-run; root-caused (not assumed) via the Agent SDK's own `apiKeySource` field, and `runStoppingReason()` now stops a run rather than recording a usage/auth error as a system outcome |
+| A real data-integrity finding, fixed generally | done: an interrupted run's retried tickets leave orphaned partial traces permanently on the append-only chain under their old `requestId`; `filterChainToRequestIds()`/`requestIdsOf()` now filter every simulation reader (`simulate-summary`, `simulate-compare`, `simulate-score`), not only pass three's own |
+| A real dashboard bug, found by this section's own reconciliation, not by a test | done: `rejectPathSection()` read a `denied` record shape `orchestrator.ts` stopped producing in section 2 — every real `needs_human` ticket was invisible to the reject path, and `volumeSection()` carried the identical gap. Found by reconciling pass three's own ground-truth category distribution against the computed reject-path total, not by a test — the test fixtures had been written to match the dead branch. See "Dashboard notes" and "Sprint 4, Section 5 verification run" below for the correction and the corrected live numbers |
+| Live verification run                   | done: all five real `data/` chains and all five `sim3-*` chains re-verified intact after every fix in this section. See "Simulation run (Sprint 4, section 6 — pass three)" below |
+
+990 tests across nine packages, all passing; `pnpm typecheck` and `pnpm build` clean, at the
+commit this document was written against.
+
+**`openDatabase()` no longer creates a chain silently, deferred from this same investigation.**
+Diagnosing the reject-path bug above involved pointing a script at the real `data/` chains under
+the wrong filenames (missing the `-helpdesk` suffix); `openDatabase()`'s own `new DatabaseSync(path)`
+call happily created four empty, silently-passing chains at those typo'd paths rather than failing.
+A typo in a path and a chain that genuinely does not exist yet look identical to that call — nothing
+before this fix told them apart. `openDatabase()` (both copies:
+[gateway-core/src/db.ts](packages/gateway-core/src/db.ts) and
+[agent/src/db.ts](packages/agent/src/db.ts), duplicated on purpose per SPRINT1.md's layering rule)
+now takes an explicit `{ create: true }`, defaulting to false: a missing path is refused loudly.
+`create: true` is passed only at the one place responsible for each chain — each gateway's own
+`bin/gateway.ts`, and the orchestrator chain's own writer (`OrchestratorAudit`'s constructor, plus
+`bin/web.ts`'s own boot-time open, since the orchestrator chain has no dedicated gateway process to
+create it first) — every reader (`verify-audit`, the dashboard's other four chain opens in
+`bin/web.ts`, all three simulation tools) leaves it unset.
+
 ### Policy engine notes
 
 `decide(request, context, config)` is pure and never throws; anything it cannot evaluate is
@@ -719,6 +889,58 @@ transactional; every caller's audit-before-action ordering depends on that. Appe
 enforced twice, by database triggers and by the hash chain, so that removing the triggers alone
 is not enough to edit history undetected. `pnpm verify-audit [path]` (built from the gateway
 package) prints the log and the verification result, with a nonzero exit code on a broken chain.
+
+### Handoff core notes
+
+`packages/handoff-core` (`@helpdesk/handoff-core`, SPRINT4.md, section 2) is a second standalone
+package at the same layer as `@helpdesk/audit-core`, for the same reason that one exists: two real
+writers need the identical mechanism, and neither should import the other's runtime. Here the two
+writers are a gateway's own `hand_off` tool (called by the model, mid-conversation, autonomous)
+and the orchestrator's own direct-creation path (triage decided `needs_human`, before any gateway
+or agent is involved at all). The orchestrator has no gateway, by design, since SPRINT3.md 3.1 —
+"the strongest boundary available here is not having one at all" — so a package that only a
+gateway could reach would have forced the orchestrator to either grow one just to create a
+handoff, or hand-roll a second copy of the same open/taken/resolved logic. Neither was acceptable,
+so the lifecycle moved to a package both sides depend on symmetrically, the same shape
+`@helpdesk/audit-core` already has relative to the gateway and the identity agent.
+
+**What it deliberately does not carry:** no credential, no policy, no tool schema, no transport,
+and — the same rule `@helpdesk/audit-core` itself follows — no database connection management; a
+caller passes in an already-open `DatabaseSync` and its own audit-append surface. `HandoffStore`
+shares whichever chain its caller already writes to: a gateway's own `db`/`audit` (the same pair
+`ApprovalStore` already shares there), or the orchestrator's own `OrchestratorAudit.log` (made
+public for exactly this — see that class's own comment).
+
+**Not built on `ApprovalStore`/`ApprovalWorkflow`, on purpose.** Approvals have execution
+semantics a handoff does not: approving calls a gateway's own backend (Graph, the stub service)
+and audits the result of that call. Resolving a handoff is a human doing the work entirely outside
+this system; there is nothing to execute and no backend failure to describe. Forcing one shared
+abstraction to cover both would have left every call site holding fields that mean nothing for its
+own case — an `execute` callback a handoff can never use, or a lifecycle richer than approval's
+two-state pending/decided actually needs. `HandoffStore` shares only what is genuinely identical
+between the two controls: evidence-before-state ordering, and a required note on the one
+transition that actually matters (`resolve`, never `take` — an operator starting work has nothing
+yet worth writing down, unlike SPRINT4.md, section 3's approve/reject, which both require one).
+
+**The `x-request-text` header.** A gateway's own `hand_off` tool needs the original request text
+for the handoff record it creates (SPRINT4.md, section 2: "the record carries ... the original
+request text"), and the gateway has no other way to reach it — the tool's own parameters carry
+only `reason`, a model-written account of what a person should do, never a restatement of what
+started the conversation. See "Identity is bound outside the model's reach, never a tool
+parameter" above for the full reasoning this follows: `x-request-text` is the same class of value
+as `x-actor`, set by the agent process itself from a value it already holds before the model's
+turn ever starts, never a tool parameter the model could be talked into filling in differently. It
+is not enforced the way `x-actor` is — a missing or wrong request text cannot let a request
+through as someone else, so `sessionFromExtra()` defaults it to an empty string rather than
+refusing the request with a 400 the way a missing `x-actor` does.
+
+**Three new audit decision kinds**, added to `@helpdesk/audit-core` rather than kept inside this
+package: `handoff` (created, evidence before the queue row exists), `handoff_taken` (no note),
+`handoff_resolved` (the required note, verbatim). A handoff is "a new writer to the audit chains"
+(SPRINT4.md's own working notes for this section), not a new chain of its own — whichever chain
+already exists for the writer (a gateway's own, or the orchestrator's) gets these three additional
+record shapes, the same way `routed` and `denied` already live on the orchestrator's chain
+alongside `model_usage`.
 
 ### Graph client notes
 
@@ -871,6 +1093,67 @@ own, still — it was never generalized, since the endpoint gateway's one gated 
 has no rationale at all (see "Endpoint gateway notes" below). The web app calls into whichever
 gateway owns a given approval over HTTP and adds no rules of its own, same as it always has.
 
+**SPRINT4.md, section 4: generating a rationale is no longer something `onApproval` does inline at
+creation time — it is a separate, human-triggered action, on its own path, reached only from the
+console's own opened-approval screen.** Before this phase, `tools/handler.ts`'s `onApproval`
+created the approval record and then, if a generator was configured, called it immediately,
+inline, before the tool call ever returned to the model. That coupling is gone:
+`onApproval` now only ever creates the approval (see `tools/handler.ts`'s own header comment); a
+new `RationaleWorkflow` (`approvals/rationale-workflow.ts`) is the only thing that ever calls the
+generator, and the only thing that ever calls `RationaleWorkflow.request()` is a new HTTP endpoint,
+`POST /approvals/rationale` (`approvals/rationale-listener.ts`), which the console alone reaches.
+
+The three things SPRINT4.md's own section 4 spec said to keep exactly as they were held without
+needing to bend any of them:
+
+- **The generator still receives raw facts only, never the agent's conversation.**
+  `rationaleFactsFromApproval()` rebuilds the identical `RationaleFacts` shape the old inline path
+  built — tool, params, rules, a resolved target group, the requesting user — read back from the
+  stored `ApprovalRecord` instead of a live tool call. Nothing new reaches the generator, because
+  the record already holds exactly what the old call site held: `ApprovalStore.create()` was given
+  those same values at creation time, and they do not change afterward.
+- **The request is audited: who asked, for which approval, when.** A new closed-set decision,
+  `rationale_requested` (`@helpdesk/audit-core`'s `AUDIT_DECISIONS`), commits before the model is
+  ever called — evidence before action, the same ordering every other write in this project
+  follows. `actor` names the approver asking for help, not the original requester, whom
+  `rationale`'s own `parameters.requestingUser` still names inside the facts, unchanged. An
+  approver reaching for a briefing before deciding is now permanently on the record, regardless of
+  what generation produces.
+- **A missing briefing is normal, not a failure, and the screen says so plainly.**
+  `console-page.ts`'s `renderRationale()` never renders a blank section: "No briefing has been
+  requested," with the control beside it, while an approval is still pending and the tool is one
+  the generator can address; "No briefing was requested before this was decided" once decided,
+  with no control, since there is nothing left to inform; "This approval's gateway does not
+  generate a briefing" for a tool outside the generator's scope (today, only `reboot_endpoint`) —
+  three distinct, honest sentences for three distinct states, never one blanket "unavailable."
+
+**A briefing can be requested at most once, and only while pending.** `RationaleWorkflow.request()`
+refuses `already_generated` once `approval.rationale` is non-null and `not_pending` once the
+approval has been decided — the same "settle at most once" discipline `ApprovalStore.recordVerdict()`
+already enforces for a decision, reused here for the one other approval-record write. A failed
+attempt leaves `rationale` null, so nothing blocks a retry; the console shows the failure inline,
+next to the still-present control, rather than a dead end.
+
+**The generation call itself now runs synchronously inside the HTTP request that asked for it** —
+the same shape `ApprovalWorkflow.decide()` already has, not a background job with its own
+persisted state. Anthropic's own default timeout for this call is 60 seconds
+(`rationale.ts`'s `timeoutMs`); `bin/web.ts`'s own HTTP client to the gateway allows 65, comfortably
+past it, since the true bottleneck is always the model call, not the network hop around it. A
+multi-second wait inside one request/response cycle is not new — the pre-section-4 automatic path
+already tolerated exactly this, just at a moment no one was watching a specific button for it.
+
+**`POST /approvals/rationale`, deliberately not shared code with `/approvals/decide`.**
+`approvals/rationale-listener.ts` is close to a line-for-line twin of gateway-core's own
+`decision-listener.ts` — the same JSON-body-under-64KB parsing, the same bearer-token-then-audit
+shape, the same error-code-to-HTTP-status table — and stays its own file rather than becoming a
+shared helper. `decision-listener.ts` is gateway-neutral, used by both identity and endpoint; a
+rationale listener has exactly one caller that will ever exist, since the endpoint gateway has no
+`RationaleWorkflow` to route to at all. Generalizing a two-line difference for one caller would be
+the premature abstraction this project's own conventions argue against elsewhere (see
+`@helpdesk/handoff-core`'s own header comment for the same argument made about `ApprovalWorkflow`).
+When no `ANTHROPIC_API_KEY` is configured, the gateway still serves the path — a plain 503
+`not_configured`, not a listener that would throw on its first real request.
+
 ### Identity agent notes
 
 The agent is one file, `packages/agent/src/identity-agent.ts`, running on the Claude Agent SDK
@@ -999,14 +1282,16 @@ guessing or skipping straight to an agent.
 
 ### Web app notes
 
-Two server rendered pages on plain `node:http`, no framework and no build step for the UI. Every
-value that ever came from a user, an agent, or a model is passed through an HTML escaping
-function before it reaches a page. Route handling logic is written as plain functions
-independent of HTTP and tested without starting a server; the HTTP layer itself is a thin
-routing and body parsing wrapper, tested separately against a real server on an ephemeral port.
-A missing rationale is rendered as an explicit sentence, never as a blank section. As of Stage B
-this package holds no Graph credential: `decideApproval()` in `approvals-page.ts` is unchanged
-(it still just calls `deps.decide(input)` and catches `ApprovalError`), but `web.ts`'s
+Three server rendered pages on plain `node:http`, no framework and no build step for the UI: the
+request form, the operator console (SPRINT4.md, section 3 — see "Operator console notes" below),
+and the dashboard. Every value that ever came from a user, an agent, or a model is passed through
+an HTML escaping function before it reaches a page. Route handling logic is written as plain
+functions independent of HTTP and tested without starting a server; the HTTP layer itself is a
+thin routing and body parsing wrapper, tested separately against a real server on an ephemeral
+port. A missing rationale is rendered as an explicit sentence, never as a blank section. As of
+Stage B this package holds no Graph credential: `decideApproval()` (now in `console-page.ts`,
+originally `approvals-page.ts` before SPRINT4.md, section 3 folded that page in) is unchanged in
+substance — it still just calls `deps.decide(input)` and catches `ApprovalError` — but `web.ts`'s
 composition root now backs `decide` with an HTTP call to a gateway's decision endpoint rather than
 an in-process `ApprovalWorkflow`, reconstructing an `ApprovalError` from the gateway's JSON error
 response so that unchanged catch block keeps working. `ApprovalStore` stays a direct read against
@@ -1014,8 +1299,8 @@ the shared SQLite file for listing and displaying approvals — a read needs no 
 never the gap Stage B closes.
 
 **SPRINT3.md, 3.4: `decide`, `listPendingApprovals` and `getApproval` now read and act across two
-gateways, not one, and `approvals-page.ts` and `server.ts` needed zero changes to make that true.**
-Both already depended only on the three injected `WebDeps` functions, never on how many sources
+gateways, not one, and the page-rendering layer and `server.ts` needed zero changes to make that
+true.** Both already depended only on the injected `WebDeps` functions, never on how many sources
 backed them — the same decoupling `request-page.ts` already used for the orchestrator's result
 shape. All of the new work is in `bin/web.ts`'s composition root: a second `ApprovalStore` reads
 the endpoint gateway's own SQLite file (`ENDPOINT_HELPDESK_DB_PATH`, default
@@ -1051,6 +1336,130 @@ informing the user of a second, separate thing, not qualifying the first. As of 
 union gained `"endpoint"` the same way — the endpoint agent's reply, whether it lists devices,
 creates a pending reboot approval, or relays `reset_password`'s refusal, renders through that same
 unchanged `routed` path.
+
+### Operator console notes
+
+`console-page.ts` + `console-data.ts` (SPRINT4.md, section 3) replace `approvals-page.ts`
+outright — deleted, not left running alongside a second page that overlaps it. One page, two
+queues: pending approvals and active (open or taken) handoffs, each read live from its own store
+on every render, the same "this page's own render is the verification" discipline
+`dashboard-page.ts` already established (SPRINT3.md, 3.5).
+
+**A queue row is built to be triaged without opening it.** `console-data.ts`'s `approvalRow()` /
+`handoffRow()` reduce an `ApprovalRecord` or a `HandoffRecord` to the same small shape — age,
+requester, a one-line summary, what action it needs — without forcing the two record types
+themselves together. `summarizeApproval()` builds an approval's summary from its tool and
+parameters (an `ApprovalRecord` carries no raw request text of its own); a handoff's summary is
+its own `requestText`, truncated. `sortByAge()` orders each queue oldest-first, since age is the
+number an operator acts on, not a timestamp they have to do arithmetic on — the same reasoning
+that moved `formatDuration()` out of `dashboard-page.ts` and into `html.ts` so this page could
+share it rather than duplicate it. The single oldest row in each queue gets its own CSS class
+(`age oldest`), bold and amber, not the page's existing red — it should read as the thing to look
+at first, not as something broken.
+
+**An approval and a handoff are different kinds of work, and stay two render functions sharing
+parts, not one function branching on kind.** `renderApprovalDetail()` and `renderHandoffDetail()`
+both read top to bottom in the order SPRINT4.md specifies — raw request, what the system did and
+why, what it could not do, then the actions — and both call the same `renderTrail()` /
+`renderRawRequest()` helpers for the first two sections. Past that they diverge on purpose: an
+approval's "what it could not do" is a fixed sentence (every group and device change needs a human
+decision regardless of target — the normal, gated outcome, not a partial failure) and its actions
+are approve/reject, note required either way. A handoff's "what it could not do" is its own
+`reason`, verbatim — a model's or the orchestrator's account of why a person is needed — and its
+actions are take (no note; an operator starting work has nothing yet to say) then resolve (note
+required), the same two-step, one-note-required shape `HandoffStore` itself enforces. Bending
+either render path to also fit the other's shape would have meant fields on the page that mean
+nothing for one of its two cases — the same trade `@helpdesk/handoff-core` itself already declined
+when it stayed off `ApprovalStore`/`ApprovalWorkflow` (see "Handoff core notes" above).
+
+**The trail: "what the system did and why," read by request id, never a merged table.**
+`console-data.ts`'s `getRequestTrail()` takes every chain's own read-only `AuditLog` and returns
+every record carrying a given `requestId`, across all five chains, oldest first — the same
+correlate-by-request-id-at-read-time discipline the dashboard already uses (SPRINT2.md, Component
+6: the chains themselves are never merged). `rawRequestText()` reads the actual request text back
+out of whichever record in that trail carries it — a `request` record's own `parameters` for an
+approval's request, or a `routed`/`denied`/`handoff` record's `parameters.requestText` — rather
+than reconstructing or re-typing it; a handoff needs no such lookup, since `HandoffRecord` already
+carries its own `requestText` verbatim.
+
+**Taking and resolving a handoff calls `HandoffStore` directly — no gateway, no HTTP, no
+credential.** `bin/web.ts` opens one `HandoffStore` per chain, each sharing that chain's own
+already-open db connection and `AuditLog` (the same sharing `ApprovalStore` and the dashboard's own
+`AuditLog`s already do). This is the direct consequence of "Handoff core notes" above: resolving a
+handoff is a human doing work entirely outside this system, so unlike an approval decision — which
+must reach the owning gateway's own backend over HTTP, authenticated with that gateway's own
+credential — there is no external system for this process to call into. `takeHandoff()` /
+`resolveHandoff()` on the `WebDeps` interface are plain synchronous functions for exactly this
+reason; `decide` stays the one `async` action on that interface, because it is the one action that
+still crosses a process boundary.
+
+**SPRINT4.md, section 4: the rationale control is built, on the opened approval, and it is where
+generation happens now — not at creation time.** `renderRationale()` renders one of four states
+from an `ApprovalRecord` alone: the generated text (unchanged styling); "No briefing has been
+requested," with a form, while pending and the tool is one the generator can address; "No briefing
+was requested before this was decided," no form, once decided; "This approval's gateway does not
+generate a briefing," no form, for a tool outside the generator's scope. See "Approval store and
+rationale notes" above for the backend side of this (`RationaleWorkflow`, `rationale_requested`,
+`POST /approvals/rationale`) — this section covers only what changed in the console itself.
+
+**The one JavaScript on this page, and why it exists.** Generation is a real Messages API call and
+takes real seconds; nothing rendered server-side can acknowledge a click before the response it
+produced comes back, because there is nothing to render until that response exists. Every other
+control on this console (decide, take, resolve) is a plain `<form method="post">` with no such
+problem, since each of those finishes fast enough that the browser's own between-pages loading
+state reads as immediate. A multi-second wait behind an unchanged button is exactly what SPRINT4.md
+asked not to leave an approver looking at ("a state between pressed and answered that does not
+leave the operator wondering whether the click landed"), and no server-only mechanism can close
+that gap — the gap is between the click and the request even reaching the server. `renderRationale()`
+answers this with eleven lines of inline, vanilla script, scoped to exactly the one form that needs
+it: on submit, disable the button and relabel it "Generating briefing… (a few seconds)." This is
+the console's only departure from "no framework, no build pipeline for the UI" (SPRINT1.md,
+Component 6), and it is a narrow one on purpose — no library, no bundler, nothing to build; a
+single `addEventListener` next to the one form it affects, not a page-wide script or a shared
+helper other forms opt into. It degrades honestly: with JavaScript unavailable, the form still
+posts normally and the briefing still generates, just without the interim reassurance — the same
+experience the page's other three forms already have today, not a broken one.
+
+**Why generation stayed synchronous rather than becoming a background job with its own "pending"
+state.** A `<meta http-equiv="refresh">` or a poll-until-done page could also show progress without
+JavaScript, and was considered — but it does not actually solve the problem stated above: the
+approver still sees an unchanged button for the entire first round trip before any "generating" page
+could render at all, since that page is itself a response to a POST. Closing the real gap — between
+the click and any visible acknowledgment of it — needs something that runs at the moment of the
+click, with no network round trip, which only a client-side script can do. Given that, keeping
+generation synchronous (the same shape `ApprovalWorkflow.decide()` already has: one request, one
+response, no persisted "in flight" state to reconcile after a crash or a restart) was the simpler
+choice once the script was already doing the real work.
+
+**Two console fixes, found from a screenshot of the console in actual use.** Both are presentation
+only — nothing about what is stored in a record changed, only how the trail renders it.
+
+*The trail's Result column no longer cuts a value off mid-JSON.* Before, `renderTrail()` truncated
+a long result to 80 characters with an ellipsis and relied on the page's own width to wrap it — but
+`th`/`td` carried no wrapping rule at all, so an unbroken JSON string simply pushed the table wider
+than the page rather than wrapping, and the ellipsis itself did nothing to stop that. `trailResultCell()`
+now shows a short result in full, inline; a long one goes behind a native `<details>`/`<summary>`
+disclosure — a preview visible immediately, the complete value, pretty-printed, one click away,
+plain HTML, no script. Getting the table to actually respect the page's width took two more
+pieces: `th, td { overflow-wrap: break-word; }` in `html.ts` (not `overflow-wrap: anywhere`, tried
+first and reverted — `anywhere` also lowers a cell's *minimum* content width, which starved the
+narrow columns and broke short words like "orchestrator" into three lines for no reason), and a
+`.trail` class with fixed, explicit column-width percentages, because table auto-layout sizes a
+column from its content's preferred width *before* any wrapping rule is applied — a long value
+in one cell can still widen the whole table past its container even with wrapping turned on,
+unless the columns are told their shares up front.
+
+*The trail's Agent column no longer mixes a name and a GUID.* The same real actor was rendering two
+ways: an agent process names itself literally ("identity-agent") on the records it writes directly
+(`request`, `model_usage`, …), but a record the *gateway* writes in response to that same process's
+own authenticated tool call carries the bearer token's client id instead (`session.agent`,
+gateway-core/session.ts's `extra.authInfo?.clientId`) — a GUID, not a name. `agentNamesByChain()`
+resolves this for display only, within one opened item's own trail: any literal name already
+present on a chain stands in for every GUID on that same chain, and the GUID stays available as a
+`title` attribute rather than being thrown away, exactly as asked — never rewriting what a record
+actually says.
+
+![The trail after both fixes: no GUID visible anywhere, every result contained inside the page, a long one behind a disclosure triangle](evidence/console-fix-trail.png)
 
 ### Knowledge gateway notes
 
@@ -1090,10 +1499,13 @@ adding a third product meant a code change to that file. `corpus.ts` no longer n
   "product": "entra",
   "repo": "MicrosoftDocs/entra-docs",
   "commit": "a37c43ae5c2494cfc4211bb6242eb3151de6e40e",
-  "repoPathPrefix": "docs",
+  "files": { "what-is-entra.md": "docs/fundamentals/what-is-entra.md", "...": "..." },
   "license": "CC-BY-4.0 (content) / MIT (code samples) — see this section for the full nuance"
 }
 ```
+
+(`files` used to be one shared `repoPathPrefix` string; see the Sprint 4 prep finding below for why
+that changed and what it cost before it did.)
 
 Widening coverage to a new product is a directory drop, not a code change: create
 `corpus/raw/<product>/`, add its `manifest.json` and its vendored Markdown, and run
@@ -1111,6 +1523,128 @@ control in the UI would be a write action, and would need to go through the poli
 audit log like every other write in this project does — a later piece of work, not this one.
 `sourceUrl` on every chunk is built the same way as before, from whichever manifest its directory
 carries, so it still points at the exact file and commit it came from, not just a document title.
+
+**Sprint 4 prep: the corpus widened, and half of what was asked for could not be — checked, not
+assumed.** Before any vendoring code ran, every candidate product's public source repo was checked
+with the same two-part method: a direct GitHub API repository lookup (`GET /repos/<owner>/<repo>`,
+which does not depend on branch name) and a repository-name search, both from this machine, on
+2026-09-25. The result:
+
+- `MicrosoftDocs/OfficeDocs-SharePoint` (SharePoint + OneDrive for Business) — 404 from the API,
+  absent from repo search; the only public trace left is a third-party fork,
+  `magafaterr/OfficeDocs-SharePoint`, last updated 2018.
+- `MicrosoftDocs/OfficeDocs-SkypeForBusiness` (Teams) — same result; the only public trace is
+  `TomSpeijer/OfficeDocs-SkypeForBusiness`, last updated 2017.
+- `MicrosoftDocs/windows-itpro-docs` (Windows client IT-pro docs — device policy, OS updates) —
+  same result; the only public traces are forks from 2016–2022.
+- Outlook end-user content is not published to GitHub at all; the admin side is Exchange Online,
+  whose own docs repo is likewise unreachable by the same check.
+
+All four clearly were public once — that is what the surviving forks prove — and are not now, by
+the same check that confirms `entra-docs` and `memdocs` (this project's two existing sources) still
+are. **This is a real gap, not a stylistic one, and it costs real coverage:** a meaningful share of
+actual helpdesk volume is exactly these products' end-user questions, and there is currently no
+public, pinned-commit source this project's own citation model can vendor for any of them. Rather
+than substitute an unofficial or stale source — which would break the property that every answer
+traces to a reproducible, currently-maintained version of its source — this is recorded as an open
+gap, to revisit if or when Microsoft republishes rather than papered over with a fork or a
+substitute product.
+
+What widened instead, because it checked out as genuinely current and public:
+
+| Source | Repository | Commit | Path prefix | Files vendored |
+|---|---|---|---|---|
+| Microsoft 365 admin — user management | `MicrosoftDocs/microsoft-365-docs` | [`eab9d76`](https://github.com/MicrosoftDocs/microsoft-365-docs/tree/eab9d7696cdff87474698b08a1fb328091102a2f) | `microsoft-365/admin/add-users` | 5 articles: *Add users and assign licenses in Microsoft 365*, *Delete a user from your organization*, *Reset passwords*, *Let users reset their own passwords*, *Assign admin roles in the Microsoft 365 admin center* |
+| Microsoft 365 admin — licensing & app deployment | `MicrosoftDocs/microsoft-365-docs` | [`eab9d76`](https://github.com/MicrosoftDocs/microsoft-365-docs/tree/eab9d7696cdff87474698b08a1fb328091102a2f) | `microsoft-365/admin/manage` | 3 articles: *Assign or unassign licenses for users in the Microsoft 365 admin center*, *Assign or unassign licenses to a group in the Microsoft 365 admin center*, *Requirements to use centralized deployment for Office Add-ins* |
+| Intune — Windows Update rings | `MicrosoftDocs/memdocs` | [`4b5429d`](https://github.com/MicrosoftDocs/memdocs/tree/4b5429df8b47046c6b251e572ee61199fb5d4a5d) | `intune/device-updates/windows` | *Manage Windows Update Ring Policies* |
+| Intune — compliance | `MicrosoftDocs/memdocs` | [`4b5429d`](https://github.com/MicrosoftDocs/memdocs/tree/4b5429df8b47046c6b251e572ee61199fb5d4a5d) | `intune/device-security/compliance` | *Configure compliance policies with actions for noncompliance in Microsoft Intune* |
+| Intune — enrollment | `MicrosoftDocs/memdocs` | [`4b5429d`](https://github.com/MicrosoftDocs/memdocs/tree/4b5429df8b47046c6b251e572ee61199fb5d4a5d) | `intune/device-enrollment` | *Overview of enrollment restrictions* |
+| Intune — device configuration | `MicrosoftDocs/memdocs` | [`4b5429d`](https://github.com/MicrosoftDocs/memdocs/tree/4b5429df8b47046c6b251e572ee61199fb5d4a5d) | `intune/device-configuration` | *Device features and settings in Microsoft Intune* |
+
+Four of these six sit in their own small product directory rather than folded into the existing
+`intune` or new `microsoft365` ones. Splitting was the safe default at the moment they were
+vendored — Microsoft's own restructuring means "device configuration," "compliance," "enrollment,"
+and "Windows Update rings" content all live under different real subfolders of `memdocs`
+(`intune/device-configuration/`, `intune/device-security/compliance/`, `intune/device-enrollment/`,
+`intune/device-updates/windows/` respectively), not one shared path, and the manifest schema at the
+time (`repoPathPrefix`, a single string) could only be correct for a directory if every file in it
+shared one real parent folder. The directories stayed split after the schema was fixed (below) —
+there was no reason to re-merge working, correctly-cited directories — but the fix means a future
+addition does not have to split for this reason: one product directory can now vendor files from
+several real subfolders of the same repo and still cite every one of them correctly.
+
+**A pre-existing defect this widening surfaced — and fixed, not just flagged.** Checking why a
+multi-subfolder `intune/` directory would break citations also meant checking whether the
+*existing* `entra` and `intune` directories' own citation links already resolved, since both had
+been vendored as one flat directory each, on the same `repoPathPrefix` scheme the new content was
+about to strain further. They did not. `entra`'s manifest built
+`docs/concept-conditional-access-policies.md` from `repoPathPrefix: "docs"`, and that URL 404ed —
+the file actually lives at `docs/identity/conditional-access/concept-conditional-access-policies.md`
+in `entra-docs`. `intune`'s manifest built `intune/core-concepts.md`, which 404ed the same way — the
+real path is `intune/fundamentals/core-concepts.md`. Both of Sprint 3.3's original corpus
+directories had been mixing files from more than one real subfolder under a single flat
+`repoPathPrefix` since the commit that shipped them; the defect was not introduced by this
+widening, only found by applying the same check to old content that was about to be applied to new
+content anyway. Retrieval itself was never affected — nothing in `search.ts` or the agent fetches
+`sourceUrl`, only stores and returns it — but a reader who clicked a citation on some of the
+original 13 answered questions had been reaching a 404, not the source, since Sprint 3.3 closed.
+
+The fix has two parts, both shipped in this same pass, not deferred:
+
+1. **The schema changed.** `CorpusManifest.repoPathPrefix` (one string per directory) became
+   `CorpusManifest.files` (`Record<localFileName, exactRepoPath>`, one entry per file — see
+   `corpus.ts`'s own header comment on the type). `loadCorpus()` now refuses to index a directory
+   at all if any `.md` file on disk has no `files` entry, or any `files` entry names a file that
+   is not on disk — a mismatch that a shared prefix could never detect (a prefix is either right
+   or wrong for everything at once; a missing or stale per-file entry is a specific, nameable
+   error) is now caught the same way a malformed `manifest.json` already was: loudly, at load
+   time, naming exactly which file. `entra`'s and `intune`'s manifests were corrected against the
+   real paths above; every other manifest in this widening was built directly against a verified
+   per-file path from the start.
+2. **A command re-resolves every citation, so this cannot silently rot again.** `pnpm
+   knowledge-verify-citations` (`bin/verify-citations.ts`) loads the corpus, takes every distinct
+   `sourceUrl` it produces, and requests each one from GitHub directly — not a sample, and not a
+   trust in the manifest that built the URL, the same posture `prove-isolation` takes toward a
+   Graph permission grant rather than trusting it was configured correctly. A 404 fails the run.
+   A transient 5xx or network error is retried a few times before being treated as one, since a
+   verification command that reports transient noise as a broken citation trains its own reader
+   to stop trusting it — confirmed necessary, not theoretical: GitHub returned a real 503 for one
+   genuinely correct citation on this script's own first run. Run against the corpus as it stands
+   after this widening: **all 25 distinct citations resolve** — committed at
+   `evidence/knowledge-corpus-citations.txt`.
+
+After the widening: 8 product directories, 25 files, 300 chunks (`pnpm knowledge-reindex`):
+
+```
+product              files  repo@commit                                license
+-------              -----  -----------                                -------
+entra                    8  MicrosoftDocs/entra-docs@a37c43a            CC-BY-4.0 / MIT
+intune                   5  MicrosoftDocs/memdocs@4b5429d               CC-BY-4.0 / MIT
+intune-compliance        1  MicrosoftDocs/memdocs@4b5429d               CC-BY-4.0 / MIT
+intune-deviceconfig      1  MicrosoftDocs/memdocs@4b5429d               CC-BY-4.0 / MIT
+intune-enrollment        1  MicrosoftDocs/memdocs@4b5429d               CC-BY-4.0 / MIT
+intune-updates           1  MicrosoftDocs/memdocs@4b5429d               CC-BY-4.0 / MIT
+microsoft365             5  MicrosoftDocs/microsoft-365-docs@eab9d76    CC-BY-4.0 / MIT
+microsoft365apps         3  MicrosoftDocs/microsoft-365-docs@eab9d76    CC-BY-4.0 / MIT
+```
+
+**Re-running the 13-question retrieval set (`search.test.ts`) against the widened corpus: all 12
+originally-passing questions and the Surface-return-policy "I don't know" check are unchanged** —
+the new content did not bump any correct top hit and did not create new lexical noise for the
+unrelated question. One result did move, and it is the interesting one. Question 14 (VPN profiles,
+`questions.md`) was originally a "should say I don't know" case because the corpus held nothing
+about device configuration at all; it now retrieves a real, on-topic passage —
+`intune-deviceconfig/overview.md`'s own "VPN" section, vendored for an unrelated reason (a general
+device-configuration overview, not a VPN-specific article), states plainly that VPN profiles exist
+and that iOS/iPadOS is a supported platform. It does not contain the actual configuration steps,
+which live in a separate, unvendored article the overview links out to. The honest answer this
+corpus supports changed from a flat "I don't know" to a genuine partial answer — coverage improved
+with no precision cost on this question. `search.test.ts`'s case for Q14 and `questions.md`'s own
+entry were both updated to record this, the same way both were already updated once before, for Q8
+and Q15, when Sprint 3.3's first real run disagreed with what was guessed before running it. This
+is the concrete version of the risk a wider corpus was always expected to carry — it can cost
+precision as well as buy recall — checked here rather than assumed, and on this pass it did neither
+on the original 13 and genuinely helped on the 14th.
 
 **Licenses.** Both repositories grant the same two licenses over two different kinds of content,
 stated in each repo's own `ThirdPartyNotices.md` under "Legal Notices": the documentation and
@@ -1336,16 +1870,56 @@ a tool while handling an endpoint-category request, not only a password-reset de
 overcount in exactly the way the deny rule undercounts. The result is labelled everywhere it
 appears as an estimate derived from routed request text, never as a policy decision count.
 
-**Everything else on the page is derived from the five audit chains, with no separate metrics
-store.** Where SPRINT3.md's own text asks for a number the log's current shape does not cleanly
-support, the resolution is named below rather than approximated with new state:
+**SPRINT4.md, section 5 replaced the old autonomous/approvalGated/refused/modelDeclined split
+entirely — tool-call-equals-success was never the right measure, and the page now says so in the
+terms SPRINT4.md itself names.** The old split answered "what kind of decision was made"; it could
+not answer "did the person get what they needed," which is the actual question an operator or a
+reviewer opens this page to ask. Replacing it took the same discipline the rest of this page
+already holds itself to — every figure traces to the chains, and anything that does not is named
+rather than guessed at — applied to a genuinely harder question than "how many tool calls
+happened."
 
-- *The three-way split SPRINT3.md names (autonomous, approval gated, refused) is rendered as four.*
-  A request can also end with the model declining to call any tool at all — no policy decision was
-  ever made, which is a different thing from a named rule firing. Folding it into "refused" would
-  claim every refusal is a policy decision, which the password-reset finding above already shows
-  is false for an unknown share of them. "Model declined" is its own line, captioned to say the log
-  cannot say *why* without inspecting the reply text.
+- *Three successes, two failures, one gap.* **Resolved** (a tool call, or an approved-and-executed
+  change, that produced a real result), **redirected** (`triage.not_it`, unconditional — the
+  orchestrator's own reply is a fixed sentence with nothing left to fail once the decision fires),
+  and **handed off** (only once an operator resolves it — see below) are the three successes.
+  **Routed but unresolved** (reached the right agent, which had nothing that bore on it: no tool
+  called, a gateway policy denial, or a backend execution failure) is the one computable failure.
+  **Misrouted** — reached the wrong agent, triage's own mistake — is the one gap: knowing a request
+  was misrouted requires knowing which agent *should* have handled it, a ground truth nothing in a
+  live audit trail records. `MISROUTED_NOTE` says this plainly rather than a heuristic guessing at
+  it; only a labelled evaluation (the pass-three simulation, SPRINT4.md section 6) can measure it.
+- *A handoff counts as resolved only once an operator actually resolves it — an open or taken one is
+  its own figure, "in progress," never folded into either a success or a failure.* This mirrors, on
+  the dashboard, the exact same instruction the operator console's own trail fix took above for
+  itself: an incomplete state does not get forced into the nearest bucket. `handoffResolutionByRequestId()`
+  reads this straight from `handoff`/`handoff_resolved` records, correlated by the handoff's own
+  id — never from `HandoffRecord.status` directly, since this file, like every other number on this
+  page, only ever reads the audit chains, not a live store. The same treatment applies twice, since
+  a handoff can originate two ways: triage's own `needs_human` decision, before any agent is
+  reached (the reject path), or an agent calling `hand_off` itself mid-conversation, after being
+  routed (the accept path) — counted on whichever path it actually happened on, never merged into
+  one total that would blur where the handoff came from.
+- *An approval counts as resolved only once it is approved **and** executed — a pending one and a
+  human-rejected one are each their own figure, neither a success nor a failure.* The same
+  reasoning as the handoff rule above, applied to the system's other queue: "the system did the
+  work" (SPRINT4.md's own words for "resolved") is not true of a change nobody has decided on yet,
+  and a human explicitly declining a correctly-identified, correctly-gated action is not a routing
+  or coverage failure either — the agent had exactly the right tool, which is precisely why it was
+  gated in the first place. Forcing either into "resolved" or "routed but unresolved" would misname
+  both. `approvalPending` and `approvalRejected` are named for exactly what they are.
+- *Reject path and accept path are two distinct types, rendered as two distinct tables, with no
+  combined percentage anywhere.* `RejectPathOutcomes` (triage's own `not_it`/`needs_human`) and
+  `AcceptPathOutcomes` (triage's `routed`) share no code that could blend them by accident. This is
+  SPRINT4.md's own explicit instruction, stated plainly in its section 5 spec: "a single blended
+  percentage hides which half is actually broken," the exact mistake the project's first two
+  simulation passes exposed before this sprint existed. A priority order handles the rare cases
+  where a single request's own gateway chain carries more than one candidate outcome in the same
+  turn (an informational lookup right before an approval-gated write; a lookup right before the
+  agent itself calls `hand_off`, both seen in this project's own live verification runs): a handoff
+  outranks everything, since it is the agent's own final judgment made *after* whatever else it
+  tried; an approval-gated write outranks a plain lookup, since it is the consequential action the
+  requester actually came for.
 - *"Refusal reasons by frequency" excludes `triage.invalid_output` and `triage.request_failed`.*
   Those name a classifier operational failure (a bad reply, a network error), not a refusal that
   maps a protected resource, which is what this section is for; they are counted and shown
@@ -1373,7 +1947,8 @@ resolved as its own default, a value this repo does not control and that could c
 any time. Pricing that number would have meant pricing a choice nobody actually made. `models.ts`
 (`packages/agent`) fixes this with a new `DEFAULT_AGENT_MODEL`, and gathers the reasoning for all
 three tiers in one place: triage runs on every request and picks from a five-item closed set, so it
-takes the smallest model; the rationale generator runs rarely and its entire output is weighed
+took the smallest model — a choice that rested on that argument alone until "Triage accuracy" below
+measured it against Sonnet; the rationale generator runs rarely and its entire output is weighed
 directly in a human's decision to change a production identity system, so it takes the strongest;
 the four agents sit in between — more judgement than a closed-set pick, but running once per
 routed request rather than once per request including every refused one. Each tier keeps its own
@@ -1417,6 +1992,43 @@ this whole design exists to make possible, and it did its job: `PASSWORD_RESET_R
 under-counted by one, missing a request that names `reset_password` literally rather than using
 the words "password" and "reset" as separate tokens — see the verification run section for the
 fix and why the pattern's three existing alternatives could not catch it.
+
+**Section 5's own live run found a second real gap, by the same method: cross-checking a new total
+against an existing one rather than trusting either in isolation.** `data/orchestrator.db` carries
+real history from every prior phase's own live verification run, including several from before
+SPRINT4.md, section 1 retired `triage.unsupported` in favour of `triage.not_it` and
+`triage.needs_human`. The new reject-path and accept-path totals, added together, came up six short
+of "How much the system handles"'s own day-by-day request count — the six old `triage.unsupported`
+records, which matched neither the new reject-path rules nor the classifier-failure set, and so
+fell through both without being counted anywhere. `otherDenied` closes that: any orchestrator
+`denied` record whose rules match none of the categories this scoring model recognizes is counted
+and shown, named for what it is (an old rule, not a new kind of failure), rather than silently
+missing from a page whose whole premise is that nothing here is approximated or dropped.
+
+**Section 6's own reconciliation found a third gap, structurally different from the first two: not
+a missed edge case, but a dead code path that had been silently wrong since section 5 shipped.**
+`rejectPathSection()` counted a `needs_human` outcome by looking for a `denied` record naming
+`triage.needs_human` — the shape `orchestrator.ts` used before SPRINT4.md's own section 2 rewrote
+`needs_human` to call `HandoffStore` directly, with no gateway and no policy decision in front of
+it, so it never produces a `denied` record at all. Every real needs_human ticket since section 2 has
+been invisible to the reject path; `volumeSection()` carried the identical gap, since it only ever
+counted `routed`/`denied` records and a needs_human ticket now produces neither. Both bugs trace to
+the same cause and went unnoticed the same way: `dashboard-metrics.test.ts`'s own fixtures
+synthesized a `denied`+`triage.needs_human` record to test the reject path, a shape the real system
+stopped producing three sections earlier, so the tests passed against a model of the system that no
+longer existed. What actually surfaced it was not a test — it was pass three's own ground-truth
+category distribution (SPRINT4.md section 6: 47 `needs_human` tickets out of 150), reconciled
+against the reject path's computed total and coming up 47 short, then confirmed directly against
+`data/orchestrator.db`: exactly one stale, pre-section-2 `denied`+`triage.needs_human` record (a
+leftover from before the rewrite) against three real `handoff` records the buggy code could not see
+at all. The fix reads `needs_human` outcomes from the orchestrator chain's own `handoff` records
+directly — the same way the accept path already reads its own handoffs — in both
+`rejectPathSection()` and `volumeSection()`; the one stale record now falls into `otherDenied`,
+correctly, instead of vanishing. See "Sprint 4, Section 5 verification run" below for the corrected
+live numbers, and "Simulation run (Sprint 4, section 6 — pass three)" for how the reconciliation
+that caught this actually works: every figure on this page is expected to sum back to the chain's
+own record count, and a mismatch means the page is wrong until proven otherwise, not the other way
+around.
 
 ## Sprint 1 verification run
 
@@ -2471,6 +3083,422 @@ stack to see what it produces.
 
 Sprint 3 is closed.
 
+## Sprint 4, Section 1 verification run
+
+Not a full pass — one request per scope, through the real path (`pnpm route`, the same
+`routeRequest()` the web form's own POST handler calls), against the real tenant, with all four
+gateways running. The actor throughout is `alexdesouza@metehantestoutlook.onmicrosoft.com`, one of
+the four round-robin identities the Sprint 4 prep simulation runs already established as real,
+non-break-glass users in this tenant.
+
+**Scope `not_it`, with the team named.** `--request "the coffee machine on the 3rd floor is broken"`
+→
+
+```json
+{
+  "status": "not_it",
+  "requestId": "live-check-not-it",
+  "message": "This sounds like a facilities matter, not an IT one — please contact facilities directly."
+}
+```
+
+**Scope `needs_human`, with a message that promises nothing.** `--request "I dropped my laptop and
+the screen is cracked, I need a replacement"` →
+
+```json
+{
+  "status": "needs_human",
+  "requestId": "live-check-needs-human",
+  "message": "This needs a person to help with it — it isn't something this system can do on its own."
+}
+```
+
+No mention of a queue or an operator: none exists yet (section 2 builds that), and the message says
+exactly that much and no more.
+
+**Scope `routable`, category `identity`, a real tool call.** `--request "which groups is
+alexdesouza@metehantestoutlook.onmicrosoft.com in"` →
+
+```json
+{
+  "status": "routed",
+  "category": "identity",
+  "agent": "identity-agent",
+  "requestId": "live-check-routable",
+  "toolWasCalled": true,
+  "reply": "alexdesouza@metehantestoutlook.onmicrosoft.com is currently a member of one group:\n\n- **Marketing** (id: 20a26e53-1cbd-48e3-8cc4-8d86cece7a6a)"
+}
+```
+
+**The orchestrator's own chain, the six records these three requests produced** (`data/orchestrator.db`,
+records 75-80 — `model_usage` for triage's own call, then the routing decision, per request):
+
+```
+id  decision     rules                actor
+75  model_usage  []                   alexdesouza@...
+76  denied       [triage.not_it]      alexdesouza@...   detail: "facilities"
+77  model_usage  []                   alexdesouza@...
+78  denied       [triage.needs_human] alexdesouza@...
+79  model_usage  []                   alexdesouza@...
+80  routed       []                   alexdesouza@...   result: {"invokedAgent":"identity-agent"}
+```
+
+Record 76's `parameters` carries `{"requestText":"...", "detail":"facilities"}` — the closed-set
+`notItTeam` value triage picked, exactly the way `orchestrator-audit.ts`'s `NotRoutedInput.detail`
+is documented to carry it, not a sentence triage composed. Record 78 carries no `detail` at all:
+`needs_human` never sets one, since there is no team to name for it.
+
+The identity gateway's own chain confirms the third request actually reached a tool, not just that
+the orchestrator claimed it would: records 94-97 are this request's own `request` →
+`autonomous list_user_groups` (decided) → `autonomous list_user_groups` (with the result) →
+`model_usage`, on identity's chain, correlated by the same `live-check-routable` requestId the
+orchestrator's own record 80 carries.
+
+**Both chains verify clean afterward:**
+
+```
+Chain intact: 80 record(s), C:\Projects\scoped-agent-helpdesk\data\orchestrator.db
+Chain intact: 97 record(s), C:\Projects\scoped-agent-helpdesk\data\identity-helpdesk.db
+```
+
+## Sprint 4, Section 2 verification run
+
+Two requests, through the real path, against the real tenant, all four gateways running: one that
+produces a handoff through the orchestrator's own `needs_human` path (no gateway, no policy
+decision), and one where an agent reaches its own turn and calls `hand_off` itself, mid-conversation,
+through its own gateway. Same actor as the section 1 run,
+`alexdesouza@metehantestoutlook.onmicrosoft.com`.
+
+**Orchestrator path.** `--request "I dropped my company laptop and the screen is completely
+shattered, I need a replacement"` →
+
+```json
+{
+  "status": "needs_human",
+  "requestId": "sec2-needs-human",
+  "handoffId": "3c9e2431-c41a-4054-ac55-7fb1a5112342",
+  "message": "This needs a person to help with it — it has been handed off and is waiting for an operator."
+}
+```
+
+The orchestrator's own chain (`data/orchestrator.db`), records 81-82: `model_usage` for triage's
+own call, then the handoff itself —
+
+```json
+{
+  "decision": "handoff",
+  "agent": "orchestrator",
+  "parameters": {
+    "requestText": "I dropped my company laptop and the screen is completely shattered, I need a replacement",
+    "reason": "Classified by triage as needing a person: genuinely an IT matter, but requiring hands, procurement, logistics, or an account this system does not administer."
+  },
+  "result": { "handoffId": "3c9e2431-c41a-4054-ac55-7fb1a5112342" }
+}
+```
+
+— and the same row, read back from the `handoffs` table on that same file: `status: "open"`,
+`createdBy: "orchestrator"`, `requestText` matching what was typed verbatim, `takenBy`/`resolvedBy`
+all null. No gateway anywhere in this path: `createdBy` names the orchestrator itself, not a
+gateway or an agent identity.
+
+**Agent path.** First confirmed that triage's own `needs_human` decision now intercepts most
+obvious hardware-fault phrasing before it ever reaches an agent — `"my work laptop, asset tag
+LAPTOP-4471, won't turn on"` produced a `needs_human` result the same way the orchestrator-path
+request above did, not a routed one. A status-check phrasing reaches the agent instead: `--request
+"can you check the status of my desk phone, deskphone-12"` →
+
+```json
+{
+  "status": "routed",
+  "category": "endpoint",
+  "agent": "endpoint-agent",
+  "requestId": "sec2-agent-handoff-2",
+  "toolWasCalled": true,
+  "reply": "I checked, and \"deskphone-12\" isn't found in the managed endpoint system under that ID. I've handed this off to a person (handoff ID `0f7e352b-fbd3-406b-b115-15a4ccf73692`) to verify whether it's registered under a different name or needs to be added — they'll follow up with you."
+}
+```
+
+The endpoint gateway's own chain (`data/endpoint-helpdesk.db`), records 45-51 for this
+`requestId`: `request` (the agent's own opening record) → `autonomous get_endpoint` (decided, then
+with its result: `{"status":"ok","endpoint":null}` — a real, autonomous lookup that came back
+empty) → `autonomous hand_off` (decided) → **`handoff`** (HandoffStore's own record, evidence
+before the queue row exists) → `autonomous hand_off` (with its result,
+`{"status":"handed_off","handoffId":"0f7e352b-fbd3-406b-b115-15a4ccf73692"}`) → `model_usage` for
+the agent's own turn. The model tried a real lookup first, got a real empty result, and only then
+called `hand_off` — exactly the order SPRINT4.md's own reasoning for making this a tool rather
+than an inferred fallback describes: "An inferred handoff has a guessed reason. A called one has a
+stated one."
+
+The `hand_off` call's own `reason` parameter, written by the model, never by this project's code:
+*"Requester asked for status of an endpoint called 'deskphone-12,' which does not match any device
+in the managed endpoint inventory. Please verify whether this device exists under a different
+ID/hostname or needs to be onboarded, and follow up with the requester."* Read back from the
+`handoffs` table on the same file: `status: "open"`, `createdBy` is the token's own client id (the
+same value every other record on this chain already used for `agent`, not a special "gateway"
+string), `requestText` is `"can you check the status of my desk phone, deskphone-12"` — reached
+the gateway only because `x-request-text` carried it; the tool's own parameters never did.
+
+**Both chains verify clean afterward:**
+
+```
+Chain intact: 88 record(s), C:\Projects\scoped-agent-helpdesk\data\orchestrator.db
+Chain intact: 51 record(s), C:\Projects\scoped-agent-helpdesk\data\endpoint-helpdesk.db
+```
+
+## Sprint 4, Section 3 verification run
+
+All four gateways and the web app, started against the real five databases under `data/`, against
+the real tenant. One approval and one handoff created through the real web form, then both worked
+through entirely by clicking through the running `/console` in a browser — no direct database
+writes, no calling `decide()`/`take()`/`resolve()` from a script.
+
+**Creating the approval.** Actor `helpdesk.operator@metehantestoutlook.onmicrosoft.com`, request
+"add marcoasensio@metehantestoutlook.onmicrosoft.com to the Finance group" →
+
+```json
+{
+  "requestId": "8e4344c0-de02-4080-a88f-1e303f639cc8",
+  "message": "The request to add marcoasensio@... to the Finance group has been recorded and is now pending approval by a human approver. It has not been carried out yet. Approval ID: 4e016944-15d2-444f-9d31-86834e9d514b"
+}
+```
+
+**Creating the handoff.** Actor `alexdesouza@metehantestoutlook.onmicrosoft.com`, the same request
+text section 2's own live check used, submitted fresh through the request form rather than reused
+from that run: "I dropped my company laptop and the screen is completely shattered, I need a
+replacement" → `requestId: df5ee5ab-19aa-427f-a662-e18f21cba275`, `handoffId:
+44bbbdc9-a942-4cb0-a519-a17da7013a57` — the orchestrator's own `needs_human` path, no gateway
+involved, the same shape section 2 already established.
+
+**`/console`, before either is touched:** both queues list, oldest first — a stale
+`reboot_endpoint` approval from Sprint 3.4's own live check (7d 6h old) sits above the new one (0m),
+and the new handoff sits below three still-open ones from section 2's run. Nothing here was reset
+between phases; the console is reading the same accumulating real state every other section's live
+check has left behind, exactly as a real operator's queue would.
+
+**Working the approval.** Opened `/console/approvals/4e016944-...`: raw request first, then the
+trail — `model_usage` and `routed` on the orchestrator's chain, then `request`, two
+`list_managed_groups` calls (the agent resolving "Finance" to a real group id), `approval`, and
+`rationale`, all on identity's chain — then the fixed "what it could not do" sentence, then the
+generated rationale and the decide form. Decided by `it.manager@metehantestoutlook.onmicrosoft.com`
+(a different identity than the requester, satisfying `DENY_SELF_APPROVAL`), approved, with a note.
+The page's own response: **"Executed."**, and the trail immediately shows two new records —
+`approval-workflow`'s own `approved` (the decision) and a second `approved` (the execution result,
+`{"status":"executed","alreadyMember":false}`) — without a page reload, since `renderApprovalDetail`
+receives that render's own `DecideResult` directly.
+
+**Working the handoff.** Opened `/console/handoffs/44bbbdc9-...`: raw request, a two-record trail
+(`model_usage`, `handoff`), the reason verbatim under "what it could not do", and a take form with
+no note field. Taken by `it.manager@metehantestoutlook.onmicrosoft.com` → the trail gained
+`handoff_taken` immediately, and the page switched to the "taken by / taken at" facts plus a resolve
+form. Resolved with the note *"Loaner laptop issued from spare stock, asset tag LOANER-0192.
+Replacement device request logged with procurement for a permanent unit."* → the trail gained
+`handoff_resolved`, and the page's own actions block became the full taken/resolved facts table,
+no form left to submit.
+
+**Back on `/console`:** approvals waiting dropped from 2 to 1 (only the stale `reboot_endpoint` one
+left), handoffs waiting dropped from 4 to 3 (the three still-open ones from section 2's own run,
+untouched) — both queues read live from the stores on every render, exactly as designed, not from
+anything cached during this walkthrough.
+
+**All five chains verify clean afterward:**
+
+```
+Chain intact: 94 record(s), C:\Projects\scoped-agent-helpdesk\data\orchestrator.db
+Chain intact: 105 record(s), C:\Projects\scoped-agent-helpdesk\data\identity-helpdesk.db
+Chain intact: 30 record(s), C:\Projects\scoped-agent-helpdesk\data\mdm-helpdesk.db
+Chain intact: 30 record(s), C:\Projects\scoped-agent-helpdesk\data\knowledge-helpdesk.db
+Chain intact: 51 record(s), C:\Projects\scoped-agent-helpdesk\data\endpoint-helpdesk.db
+```
+
+Three screenshots, captured against the real running console (headless Chrome, since the queue and
+detail pages are ordinary server-rendered HTML with no client-side state to lose that way):
+
+![Both queues, oldest first — the stale reboot approval reads as the one that has waited longest, in bold amber, not red](evidence/console-3.png)
+
+![The approval, decided: the full trail including both approval-workflow records, and the decided facts table](evidence/console-3-approval-decided.png)
+
+![The handoff, resolved: taken and resolved facts, the resolution note verbatim, no form left to act on](evidence/console-3-handoff-resolved.png)
+
+## Sprint 4, Section 4 verification run
+
+All four gateways and the web app, against the real five databases under `data/`, against the real
+tenant. One approval created through the real web form, opened in the running console, a briefing
+requested entirely by clicking through the browser — no direct call to `RationaleWorkflow`, no
+script.
+
+**Creating the approval.** Actor `helpdesk.operator@metehantestoutlook.onmicrosoft.com`, request
+"add marcoasensio@metehantestoutlook.onmicrosoft.com to the Marketing group" →
+`requestId: 762421ed-1f83-4325-be95-bcef15a156b3`, `approvalId:
+c3c73975-406b-4895-bab8-295ed1a4db2c`.
+
+**Opened cold, before any briefing exists.** `/console/approvals/c3c73975-...`'s own trail ends at
+identity's `model_usage` record — no `rationale` record anywhere, since generation no longer
+happens at creation time. "4. Actions" reads exactly as designed: *"No briefing has been
+requested."*, with the identity field and the "Request briefing" button beside it, above the
+unrelated decide form.
+
+**Requesting one.** Filled `it.manager@metehantestoutlook.onmicrosoft.com` as the requester,
+clicked "Request briefing." The response came back from `/console/approvals/.../rationale` with
+*"Briefing generated."* at the top of "4. Actions" and the full three-section text below it:
+
+> **What is being requested**
+> helpdesk.operator@metehantestoutlook.onmicrosoft.com has submitted a request using the
+> add_user_to_group tool to add marcoasensio@metehantestoutlook.onmicrosoft.com to the group
+> "Marketing" (ID 20a26e53-1cbd-48e3-8cc4-8d86cece7a6a). The request is pending because the rule
+> approval.add_user_to_group requires approval. Validated parameters are the target
+> userPrincipalName and the groupId.
+>
+> **What changes if approved**
+> marcoasensio@metehantestoutlook.onmicrosoft.com becomes a member of the Marketing group. Any
+> access, permissions, licences, or policies attached to that group membership would then apply to
+> that account. No other attributes of the account or group are stated as changing.
+>
+> **What is worth checking before approving**
+> Confirm the target account is the intended person. Confirm the group ID matches the Marketing
+> group you expect. Confirm what access the Marketing group currently grants. Confirm the
+> requesting operator is authorised to request membership changes for this group, and that a
+> record of the request's origin exists.
+
+**Both audit records, on identity's own chain (records 111–112):**
+
+```
+111  2026-09-28T08:29:30.389Z  762421ed-...  it.manager@metehantestoutlook.onmicrosoft.com  rationale_requested  add_user_to_group
+112  2026-09-28T08:29:36.235Z  762421ed-...  it.manager@metehantestoutlook.onmicrosoft.com  rationale            add_user_to_group => result
+```
+
+Six real seconds between the two — the Messages API call itself, running synchronously inside the
+POST that asked for it, exactly the "several seconds" SPRINT4.md's own section 4 spec named as the
+reason a pending-state control was needed at all. `actor` on both records is
+`it.manager@metehantestoutlook.onmicrosoft.com`, the approver who asked — never
+`helpdesk.operator@...`, the original requester, whom `rationale`'s own `result.rationale` and the
+facts recorded alongside it still describe, but do not attribute the *ask* to.
+
+**All five chains verify clean afterward:**
+
+```
+Chain intact: 96 record(s), C:\Projects\scoped-agent-helpdesk\data\orchestrator.db
+Chain intact: 112 record(s), C:\Projects\scoped-agent-helpdesk\data\identity-helpdesk.db
+Chain intact: 30 record(s), C:\Projects\scoped-agent-helpdesk\data\mdm-helpdesk.db
+Chain intact: 30 record(s), C:\Projects\scoped-agent-helpdesk\data\knowledge-helpdesk.db
+Chain intact: 51 record(s), C:\Projects\scoped-agent-helpdesk\data\endpoint-helpdesk.db
+```
+
+![The approval, briefing generated: the trail shows rationale_requested immediately followed by rationale, and the full three-section text renders where the "no briefing has been requested" sentence and its control stood a moment before](evidence/console-4-briefing-generated.png)
+
+## Sprint 4, Section 5 verification run
+
+All four gateways and the web app, against the real, accumulated `data/` chains — no new requests
+submitted for this section; the point was to score everything every prior live check already
+produced, across sprints 1 through 4, honestly.
+
+**The two console fixes, first, since they were made in the same session and the same screenshot
+that motivated section 5's own cross-check habit.** Reopened the same approval section 4's live
+check left behind (`c3c73975-...`), whose trail already mixed a GUID agent with a literal one and
+carried a result long enough to have been silently cut off before. After the fix: every row reads
+`identity-agent` or `rationale-workflow`, never a GUID; the long `list_managed_groups` and
+`rationale` results each collapsed behind a `▶` disclosure with a short preview, the complete value
+one click away; and the table stays inside the page's own width at a 1024px viewport with no
+horizontal cutoff anywhere. Confirmed via the page's own DOM that the three resolved rows still
+carry their original GUID, in a `title` attribute: `c51ca6c5-a783-4685-8b80-eb4bd2df4070` — kept
+available, not discarded.
+
+**The dashboard, live, on the real accumulated chains:**
+
+```
+Reject path — triage said not IT or needs a human (3)
+  Redirected                      2
+  Handed off, resolved            0
+  Handed off, still in progress   1
+
+Accept path — triage routed it to an agent (34)
+  Resolved                        21
+  Handed off, resolved            0
+  Handed off, still in progress   1
+  Routed but unresolved           10
+  Approval pending                2
+  Approval rejected by an approver 0
+
+Misrouted: not computable from the chains (see the page's own note)
+2 request(s) could not be classified at all (excluded from both paths)
+6 older denial(s) name a rule this scoring model does not recognize (excluded from both paths)
+```
+
+**Cross-checked by hand, the same method Sprint 3.5's own live run used to find the password-reset
+gap:** reject path (3) + accept path (34) + classifier failures (2) + `otherDenied` (6) = 45,
+matching "How much the system handles"'s own day-by-day total exactly
+(15 + 17 + 6 + 3 + 3 + 1 = 45). Before `otherDenied` existed, this cross-check came up six short —
+`data/orchestrator.db`'s own `denied` rows, queried directly, showed six `triage.unsupported`
+records left over from before SPRINT4.md, section 1 retired that rule. That finding is what
+`otherDenied` exists to report; see "Dashboard notes" above for the full account.
+
+**Correction, found during section 6 (SPRINT4.md) — not by this run's own cross-check, which
+balanced around a real bug.** `rejectPathSection()` counted a `needs_human` outcome by matching a
+`denied` record naming `triage.needs_human`, a shape `orchestrator.ts` stopped producing once
+SPRINT4.md's own section 2 rewrote `needs_human` to call `HandoffStore` directly — no gateway, no
+policy decision, so no `denied` record, only a `handoff` one. Every real needs_human ticket since
+section 2 was invisible to the reject path. `volumeSection` carried the identical gap: it only ever
+counted `routed`/`denied`, and a needs_human ticket produces neither. `dashboard-metrics.test.ts`'s
+own fixtures for this path synthesized the retired `denied`+`triage.needs_human` shape, so the tests
+passed against a model of the system three sections out of date — and this run's own cross-check
+above happened to balance because the one `triage.needs_human` record `data/orchestrator.db` still
+carried was itself a stale, pre-section-2 leftover: the buggy code matched it by accident and
+reported "handed off, still in progress: 1," while structurally blind to two further real `handoff`
+records already sitting on the same chain. Not found here, and not by a test — found in section 6,
+by the same reconciliation habit this run used above: pass three's ground-truth category
+distribution (47 `needs_human` tickets) came up 47 short against the reject path's computed total,
+which a direct query against the real chain then confirmed. Fixed in both functions by reading
+`needs_human` outcomes from the orchestrator chain's own `handoff` records directly — the same way
+the accept path already reads its own — and the one stale record now falls into `otherDenied` rather
+than vanishing. Re-run against the same, unchanged `data/` chains (record counts identical to the
+run above — 96 / 112 / 30 / 30 / 51, confirming this was a read-only re-verification, no new
+requests):
+
+```
+Reject path — triage said not IT or needs a human (5)
+  Redirected                      2
+  Handed off, resolved            1
+  Handed off, still in progress   2
+
+Accept path — triage routed it to an agent (34)
+  Resolved                        21
+  Handed off, resolved            0
+  Handed off, still in progress   1
+  Routed but unresolved           10
+  Approval pending                2
+  Approval rejected by an approver 0
+
+Misrouted: not computable from the chains (see the page's own note)
+2 request(s) could not be classified at all (excluded from both paths)
+7 older denial(s) name a rule this scoring model does not recognize (excluded from both paths)
+```
+
+Cross-checked the same way: reject path (5) + accept path (34) + classifier failures (2) +
+`otherDenied` (7) = 48 — and "How much the system handles"'s own day-by-day total is now 48 too
+(15 + 17 + 6 + 3 + 6 + 1 = 48), not the 45 shown above. Both totals moved by the same +3, but for
+different reasons that happen to net out identically: three `handoff` records sat on the chain all
+along, uncounted by either function before this fix. `volumeSection` simply excluded all three, so
+its own total moved by exactly +3. `rejectPathSection` excluded two of them outright and
+mis-attributed the third — it matched the stale `denied` record instead — which is why the reject
+path's own total moved by only +2 (3 → 5) while still gaining all three real handoffs: two were pure
+additions, and the third displaced the stale record, which is why `otherDenied` grew by the matching
++1 (6 → 7) once that record landed where it actually belongs. The evidence screenshot below is this
+corrected render, not the numbers shown further up. See "Dashboard notes" above for the full account
+of what was found and why, and "Simulation run (Sprint 4, section 6 — pass three)" below for the
+reconciliation that caught it.
+
+**All five chains verify clean, record counts unchanged from section 4's own run — this section
+only reads:**
+
+```
+Chain intact: 96 record(s), C:\Projects\scoped-agent-helpdesk\data\orchestrator.db
+Chain intact: 112 record(s), C:\Projects\scoped-agent-helpdesk\data\identity-helpdesk.db
+Chain intact: 30 record(s), C:\Projects\scoped-agent-helpdesk\data\mdm-helpdesk.db
+Chain intact: 30 record(s), C:\Projects\scoped-agent-helpdesk\data\knowledge-helpdesk.db
+Chain intact: 51 record(s), C:\Projects\scoped-agent-helpdesk\data\endpoint-helpdesk.db
+```
+
+![The dashboard's new "Did the system resolve things" section: reject path and accept path as two separate tables, misrouted named as a gap, and both operational-fault notes shown at the bottom](evidence/dashboard-outcomes.png)
+
 ## Simulation run (Sprint 4 prep, pass one)
 
 Sprint 4's own spec has not been written yet. This is independent of it: a runner
@@ -2613,3 +3641,1371 @@ the gateways at them).
 phrasing, a decided approval, a closer look at one of the 36 declines — is a call for whoever reads
 pass one's own results to make, not a decision this runner should make for them by retrying
 anything on its own.
+
+## Simulation run (Sprint 4, section 6 — pass three)
+
+The same 150 tickets, the same committed `test/actor-mapping.json`, the same single-turn rule, a
+third set of databases and evidence files (`data/sim3-*.db`, `evidence/simulation-results-3.jsonl`,
+`evidence/simulation-summary-3.md`) — passes one and two untouched. Two real effects landed on the
+system between pass two and this one: SPRINT4.md's own section 1 split `triage.unsupported` into
+`triage.not_it`/`triage.needs_human`, and the documentation corpus widened from two directories to
+eight (`entra`, `intune`, `intune-compliance`, `intune-deviceconfig`, `intune-enrollment`,
+`intune-updates`, `microsoft365`, `microsoft365apps`, versus the original `entra`/`intune` only).
+This is the run that separates their effects where the data allows, and says plainly where it does
+not — and it is the run where "misrouted" stops being a named gap and becomes a real number, because
+this ticket set carries `actualNeed` ground truth no live audit trail can ever supply.
+
+### A real infrastructure finding, before any of that
+
+Pass three's first attempt failed on 45% of its tickets with what looked like an ordinary runner
+error. It was not: the Agent SDK's own `apiKeySource` field, checked directly rather than assumed,
+confirmed the subprocess had silently stopped authenticating with `.env`'s `ANTHROPIC_API_KEY` and
+fallen back to the Claude Code session's own usage allowance instead — a session under real pressure
+from an earlier, accidental concurrent double-run of this same simulation. Waiting for the session's
+own reset would have left the identical failure mode in place for every future run, so the fix is
+permanent rather than a one-time workaround: `runStoppingReason()`
+([sdk-usage-errors.ts](packages/agent/src/sdk-usage-errors.ts)) checks every SDK error against the
+Agent SDK's own `USAGE_LIMIT_ERROR_PREFIXES`/`ORG_POLICY_LIMIT_PREFIXES` and an authentication-error
+pattern; `bin/simulate.ts`'s catch block now stops the whole run the moment one fires, rather than
+recording a usage or authentication failure as though it were a system outcome. Confirmed on one
+ticket before resuming: `apiKeySource: 'ANTHROPIC_API_KEY'`, not `'none'` or a login-managed key.
+The run's error entries were pruned and the remainder resumed against the confirmed key — the
+runner's own resumability meant nothing already recorded was lost.
+
+### A real data-integrity finding, fixed generally, not just for this pass
+
+Triage's own decision writes to the orchestrator chain before the routed agent's own call can fail,
+so each of the interrupted run's failed tickets left a real, permanent, partial trace on the
+append-only chain — un-deletable by the hash chain's own design — under a `requestId` the resumed
+run's fresh attempt never reused. `evidence/simulation-summary-3.md`'s first draft didn't reconcile
+(176 orchestrator requests where 150 tickets should produce at most 150) until this was found and
+named. `filterChainToRequestIds()`/`requestIdsOf()` ([simulation-compare.ts](packages/web/src/simulation-compare.ts))
+now restrict every simulation reader — `simulate-summary`, `simulate-compare`, `simulate-score`, not
+only this pass's own — to a run's own recorded `requestId`s before any cost or outcome figure is
+computed from a chain, the same way the dashboard itself is never allowed to read the chain in
+one form and a hand-derived total in another.
+
+### Results: 150/150 processed, zero runner errors, the widened corpus and the triage split both visible
+
+| Category | Count |
+|---|---|
+| knowledge | 47 |
+| needs_human | 47 |
+| identity | 20 |
+| not_it | 19 |
+| endpoint | 10 |
+| triage_failed | 5 |
+| mdm | 2 |
+
+Total priced cost: $0.7867 across 103 orchestrator request(s) — full per-component breakdown in
+`evidence/simulation-summary-3.md`.
+
+### Finding: a test proves the code does what it was written to do, not that it is right
+
+Scoring this pass on section 5's outcomes model surfaced a real bug already shipped: `103` routed
+and denied orchestrator records against an expected `145` (150 minus 5 `triage_failed`) — 47 short,
+exactly the `needs_human` count. `rejectPathSection()` was reading a `denied`+`triage.needs_human`
+record shape `orchestrator.ts` stopped producing when SPRINT4.md's own section 2 rewrote
+`needs_human` to call `HandoffStore` directly — dead code, reading a shape retired two sections
+earlier, that could never again match a real record. `dashboard-metrics.test.ts`'s own fixtures for
+this path synthesized that exact retired shape, so its tests passed the entire time: they proved the
+dead branch did what it was written to do, faithfully, on input the real system had stopped
+producing. Every real needs_human ticket — in this pass and in the live `data/` chains alike — was
+invisible to the reject path, and no test caught it, because no test checked the code against
+reality, only against itself.
+
+A test proves the code does what it was written to do. Reconciling a computed total against the
+chain's own record count proves it is right — those are different claims, and this bug lived in the
+gap between them for as long as section 5 has existed. What actually found it was not a test: it was
+this pass's own ground-truth category distribution (47 `needs_human` tickets) coming up 47 short
+against the reject path's own computed total, then a direct query against `data/orchestrator.db`
+confirming exactly one stale, pre-section-2 record explained the one number the original live check
+happened to get right by coincidence. Full account, fix, and the corrected live dashboard numbers
+are in "Dashboard notes" and "Sprint 4, Section 5 verification run" above; the fix is what makes the
+reject-path row below real rather than structurally unable to count 47 of pass three's 150 tickets.
+
+### Reject path and accept path, three passes side by side
+
+Every figure below except "Misrouted" comes straight from `computeDashboardData()`, pointed at each
+pass's own five sim chains — `pnpm simulate-score`, `evidence/simulation-outcomes.md`. Passes one
+and two ran before SPRINT4.md's own section 1 existed, so every one of their reject-path-shaped
+tickets landed as `triage.unsupported`, which this scoring model correctly reports as "other denied,
+rule not recognized" rather than force-fitting it into a split that did not exist yet — passes one
+and two's own reject-path total is genuinely `0` for that reason, not a scoring gap.
+
+| Outcome | pass one | pass two | pass three |
+|---|---|---|---|
+| **Reject path total** | 0 | 0 | **66** |
+| Redirected | 0 | 0 | 19 |
+| Handed off, resolved | 0 | 0 | 0 |
+| Handed off, still in progress | 0 | 0 | 47 |
+| **Accept path total** | 109 | 130 | **79** |
+| Resolved | 69 | 53 | 35 |
+| Handed off, resolved | 0 | 0 | 0 |
+| Handed off, still in progress | 0 | 0 | 23 |
+| Routed but unresolved | 37 | 69 | 16 |
+| Approval pending | 3 | 8 | 5 |
+| Approval rejected | 0 | 0 | 0 |
+| Classifier failures | 0 | 0 | 5 |
+| Other denied, rule not recognized | 41 | 20 | 0 |
+| **Misrouted** | not scored | not scored | **7** (first scored 2; corrected, see below and "pass four") |
+
+Pass three's own reject path (66) and accept path (79) reconcile exactly against the category
+distribution above (not_it 19 + needs_human 47 = 66; identity 20 + knowledge 47 + endpoint 10 +
+mdm 2 = 79), and 66 + 79 + 5 classifier failures = 150 — the same reconciliation habit that found
+the bug above, now confirming the fix.
+
+**Misrouted, scored by hand, not approximated.** `MISROUTED_NOTE`'s own gap only closes for a pass
+whose tickets carry ground truth — pass three's `actualNeed` field, read only for this scoring, never
+by a model or a result record. Method: a keyword screen against the four category domains
+(`identity`: group/access/permission/approval; `mdm`: phone/enrolment/compliance; `endpoint`:
+laptop/printer hardware, reboot, password reset by design; `knowledge`: how-to/documentation
+language) over all 79 accept-path tickets narrowed the field to 19 candidates whose `actualNeed`
+didn't obviously match triage's own category; every one of those 19 was then read in full — the
+submitted text, the category, and the agent's actual reply — against `triage.ts`'s own category
+definitions, not the keyword screen's guess. Most candidates were not misrouted at all once read: a
+compound ticket where the agent recognized what it could not do and escalated via `hand_off` gave
+the requester a real path forward, which is the system working as designed, not "reached an agent
+that could not help" — that phrase describes a dead end, and a graceful handoff is not one. Two were:
+`sim_records1.json#T034` ("camera is just a black square on zoom calls," sent to knowledge, whose
+entire domain is Entra/Intune documentation search — the agent said so directly, with no handoff and
+no path forward) and `sim_records2.json#T044` ("who manages the operations shared drive," also sent
+to knowledge, also a dead end with no escalation). Both are a real category mismatch, not a coverage
+gap the right agent simply couldn't close.
+
+**Correction: that count was 2 and should have been 7.** The keyword screen narrowed 79 tickets to 19
+candidates, and missed five dead ends it should have kept (`sim_records1.json#T007`,
+`sim_records2.json#T011`, `T021`, `T039`, `sim_records3.json#T012`). Once the hand-built ground-truth
+labels existed ("Triage accuracy" below), the screen became exact — every accept-path ticket routed to an
+agent other than its label's, 18 in pass three — and the same dead-end-versus-graceful-handoff reading
+of those 18 gives 7. The figure here and in `evidence/simulation-outcomes.md` is now 7; pass four is
+scored the same way (also 7) in "Simulation run (Sprint 4 — pass four)".
+
+### Finding: the comparator itself assumed reaching a tool is success — the same fallacy section 5 exists to correct, left standing in the tooling
+
+`pnpm simulate-compare --baseline 2 --tag 3` first ran with the comparator this same section had
+shipped earlier, and it called 20 of the 106 changed tickets "regressed" — a ticket that "reached a
+tool or a real category in pass two and did not in pass three." Reading those 20 against both
+passes' own reply text, per instruction, before trusting the label: nineteen were not regressions.
+Nine were the `mdm` agent's own `list_devices` call against this tenant's permanently empty device
+directory — pass two's "success" was a tool call that came back empty every time, and the agent said
+so, every time, in some version of "there's nothing to look up, and I couldn't fix it anyway even if
+there were." Pass three's `needs_human` handoff for the same tickets gives the requester an actual
+person and an actual handoff id — a better outcome under section 5's own model, not a worse one.
+`classifyChange()` could not see that, because it was still measuring what section 5's own dashboard
+fix had already retired: `toolCalled` as a stand-in for success, and `not_it`/`unsupported` as a
+stand-in for failure, the exact "tool-call-equals-success" assumption named and replaced everywhere
+else this project reports an outcome. It had not been replaced here.
+
+**The comparator is fixed, not just the number.** `classifyChange()`
+([simulation-compare.ts](packages/web/src/simulation-compare.ts)) now buckets each ticket into the
+same shape `dashboard-metrics.ts`'s own `OutcomesSection` uses — resolved, redirected, handed off, or
+approval pending are peers, none ranked against the others, exactly why section 5 reports the reject
+and accept paths as separate figures rather than one blended score; only a genuine dead end (no tool,
+or a gateway denial) or an operational fault (`triage_failed`, a runner error) sits below that tier.
+A move between two of the four working outcomes — a tool call that resolved nothing to a `needs_human`
+handoff, say — now reports as "changed, direction not asserted," the same honest abstention the tool
+already used for cases its four-field signature genuinely cannot judge, rather than asserting a
+direction it has no basis for. Re-run against the fixed comparator: **8 regressed, 52 improved, 46
+changed** (was 20/24/62) — full tables in
+[evidence/simulation-comparison-3.md](evidence/simulation-comparison-3.md).
+
+Of the fixed comparator's own 8 regressions, six are self-evidently real: five —
+`sim_records1.json#T047`, `sim_records2.json#T004`/`T038`/`T045`, `sim_records3.json#T025` — are a
+move into `triage_failed`, an operational fault (triage itself failed to produce a valid
+classification) the old comparator's narrower definition of "dropped" never flagged at all, so only
+one of these five was even visible as a regression before this fix. `sim_records3.json#T012` is a
+newly-caught, genuine regression of a different shape:
+pass two gave a clean, honest "this system doesn't have a way to help with that yet" (`unsupported`);
+pass three routed the same request to `knowledge`, which produced a long reply offering to hand off
+or search further — an offer this project's own single-turn rule means nothing ever answers, so the
+requester is left with strictly less than pass two's clean decline. The old comparator missed this
+entirely, since escaping `unsupported` into any other category always counted as improvement, whether
+or not the destination did anything either. The remaining two —
+`sim_records1.json#T012`/`T034` — are a wash the fixed comparator still cannot see past: pass two's
+`search_documentation` call structurally succeeded (an `autonomous` decision) even though its own
+content was already a dead end ("I don't know," verbatim, in both), so a four-field signature reads
+it as a real resolution regressing to `no tool`. No mechanical signature can read reply content;
+that reading is what this document's own account is for.
+
+### Finding: an unattributed improvement, named as one rather than folded into either named effect
+
+Five `identity` tickets — `sim_records1.json#T046`, `sim_records2.json#T041`/`T047`,
+`sim_records3.json#T008`/`T047` — called the same tool (`list_user_groups`/`list_managed_groups`) in
+both passes, got the same answer (the group or resource asked about isn't one of the two this system
+manages), and in pass two, stopped there: an informational dead end with no escalation. In pass
+three, every one of the five went on to call `hand_off`, giving the requester an actual person
+instead of a fact. Neither the triage split (identity was correctly categorized `identity` in both
+passes) nor the corpus widening (the identity agent has no documentation corpus) explains this;
+nothing in the identity agent's own code changed between the two passes either. The most likely
+explanation is ordinary model sampling variance on the agent's own choice to escalate. Named here
+plainly as an unattributed improvement, not folded into either effect this section otherwise
+separates — the honest answer is "the data does not say why," not a guess dressed up as one.
+
+**The category distribution moved the way both named effects predict, and mostly cannot be teased
+apart further.** `not_it`/`needs_human` (0 → 66) is entirely the triage split — those two rules did
+not exist for pass two to produce. `unsupported` (20 → 0) is the same split from the other side: pass
+two's catch-all is retired, not replaced by a smaller number of something else. `endpoint` (35 → 10)
+and `mdm` (14 → 2) fell the most in raw count, consistent with the split moving hardware-fault and
+device-replacement phrasing that used to force-fit into `endpoint`/`mdm` out to `needs_human` instead
+— triage.ts's own category text places "hardware faults, a broken or lost device that needs
+replacing" under `needs_human` explicitly, not under either routable category. `knowledge` (56 → 47)
+and `identity` (25 → 20) fell by less, and the corpus widening cuts against `knowledge` falling at
+all — more documentation should mean triage is at least as willing to route a borderline how-to
+question there, not less — so the net drop is better read as the split moving tickets out of
+`knowledge` (the same hardware-adjacent phrasing above) faster than the wider corpus pulled new ones
+in, not as evidence the corpus made no difference. Distinguishing "the corpus is wider" from "the
+corpus is wider and also just a different draw from the same model" is not possible from this data
+alone — both passes are one run each, not a repeated sample — and this document says so rather than
+asserting a causal split it cannot support.
+
+### All chains verify clean, both the real ones and this pass's own
+
+```
+Chain intact: 96 record(s), data/orchestrator.db
+Chain intact: 112 record(s), data/identity-helpdesk.db
+Chain intact: 30 record(s), data/mdm-helpdesk.db
+Chain intact: 30 record(s), data/knowledge-helpdesk.db
+Chain intact: 51 record(s), data/endpoint-helpdesk.db
+
+Chain intact: 441 record(s), data/sim3-orchestrator.db
+Chain intact: 141 record(s), data/sim3-identity.db
+Chain intact: 11 record(s), data/sim3-mdm.db
+Chain intact: 270 record(s), data/sim3-knowledge.db
+Chain intact: 59 record(s), data/sim3-endpoint.db
+```
+
+The real five carry the identical record counts every section since section 4 has shown — this
+section only ever read them, both for the `rejectPathSection()`/`volumeSection()` correction above
+and here. `sim3-orchestrator.db`'s own 441 (rather than a number closer to 150) is the orphaned
+partial-trace records named above, left in place by design (the chain is append-only) and excluded
+at read time by `filterChainToRequestIds()` in every figure this section reports.
+
+**Evidence committed:** `evidence/simulation-results-3.jsonl` (150 lines, 0 duplicates, 0 errors),
+`evidence/simulation-summary-3.md`, `evidence/simulation-comparison-3.md` (pass two vs pass three,
+regressions first), `evidence/simulation-outcomes.md` (all three passes' reject/accept paths side by
+side), `packages/agent/src/sdk-usage-errors.ts` (the usage/auth-error guard), and the
+`filterChainToRequestIds()`/`requestIdsOf()` additions to `simulation-compare.ts`, wired into all
+three simulation-reading tools.
+
+## Triage accuracy: the definitions first, then the model tier
+
+Pass three's own routing accuracy, scored by hand against the ticket set's ground truth, was not
+spread evenly across destinations: `not_it` and `knowledge` were nearly clean, while `mdm` and
+`identity` were badly wrong — a shape that points at triage's own category definitions rather than
+the classifier itself, and is cheap enough to test directly, isolated from everything else a full
+simulation pass bundles together (the agents' own behavior, handoff resolution, tool execution).
+
+**A triage-only harness, not another full pass.**
+[`bin/triage-harness.ts`](packages/web/src/bin/triage-harness.ts) (`pnpm triage-harness -- --label
+<name>`) calls `createTriageClassifier()` directly — classification alone, no agent, no gateway, no
+tool call — against all 150 ticket texts and a hand-built ground-truth label file,
+[`test/triage-ground-truth.json`](test/triage-ground-truth.json): one `{ scope, category }` per
+ticket, scored against `triage.ts`'s own rubric by reading each ticket's `actualNeed` (never a
+model's own input) the same way this document's own "misrouted" scoring already did for section 6,
+extended here to all 150 tickets rather than only the accept-path ones. A full pass runs four agents
+and four gateways against 150 tickets; this harness is one isolated API call per ticket and finished
+in about four minutes for $0.23 on Haiku — cheap enough to run twice in the same sitting rather than
+guess at a fix and wait for the next full pass to find out.
+
+The label file is this session's own independent reading, not a shared external file: compound
+tickets (a laptop issue and an access request in the same message) were scored on their primary
+ask, the same judgment triage itself has to make, and a different reader would place a handful of
+them differently. That is a real limit on precision, not hidden: it affects individual tickets, not
+the shape of the result, which is what the two findings below rest on.
+
+**Baseline: 105/150 (70.0%), and the shape matches the hypothesis exactly.**
+
+| Destination | Correct | Total | Accuracy |
+|---|---|---|---|
+| not_it | 12 | 13 | 92.3% |
+| knowledge | 35 | 41 | 85.4% |
+| endpoint | 6 | 7 | 85.7% |
+| needs_human | 29 | 41 | 70.7% |
+| identity | 21 | 38 | 55.3% |
+| mdm | 2 | 10 | 20.0% |
+
+Full per-ticket results: [`evidence/triage-harness-baseline.md`](evidence/triage-harness-baseline.md).
+
+**Two patterns, confirmed against the actual misclassifications, not assumed from the shape alone.**
+`mdm`'s 8 errors: 5 landed in `needs_human` — `"intune says not compliant"`, `"phone says not
+compliant"`, `"my phone says company portal needs attention, but it still gets email"`, each a
+device reporting its own compliance or enrollment state, not a hardware fault. Reading that state is
+exactly what the `mdm` agent's own tools do; `needs_human`'s rubric talks about hardware faults and
+broken devices, and a model told to pick between "this needs hands" and "this needs a documentation
+lookup" for a device that says it is broken, in its own voice, reasonably reaches for the one that
+sounds more like a fault. `identity`'s 17 errors split the same way: 7 landed in `needs_human`, 6 in
+`knowledge` — `"I can't see the info@ shared mailbox in my outlook anymore"`,
+`"it says access denied"`, `"my access to the finance reporting folder still isnt working"`. The
+`identity` definition only named `"add me to X"`; none of these ask for anything, they report that
+something that used to work no longer does, and the rubric had no line that said an access fault is
+still an access request.
+
+**The fix touches the scope boundary itself, not just the category text** — the errors above are
+`needs_human` vs. `routable` mistakes, decided before a category is ever picked, so sharpening only
+the `mdm`/`identity` bullets would have left the real fork unchanged.
+[`TRIAGE_SYSTEM_PROMPT`](packages/agent/src/triage.ts) now names both carve-outs explicitly inside
+the `needs_human` definition — a device's own compliance/enrollment/sync status and a reported
+access fault are each named as *not* this, with a forward pointer to where they do belong — and the
+`identity`/`mdm` bullets restate the same distinction from the other side, so a request landing on
+either boundary has two chances to be read correctly rather than one.
+
+**Re-measured: the sharpened prompt, five complete runs, 80.7–83.3%.** The first re-run scored
+125/150 (83.3%); running the same prompt again under identical conditions gave 122, 122, 121 and
+125. That spread — four tickets, 2.7 points — is the real precision of this harness against a
+single model, and every figure below is read against it rather than as an exact value. (The first
+125/150 run's evidence file was replaced by a later re-run under the same label, which is why the
+harness now refuses to overwrite an existing label; the 125 is recorded here, not in `evidence/`.)
+Per-destination figures are the mean of the three runs under the final configuration; the baseline is
+a single run, so its own spread is unknown, but a 12-point gain is several times anything the
+sharpened prompt's own spread produced.
+
+| Destination | Baseline (1 run) | Sharpened (mean of 3) | Total |
+|---|---|---|---|
+| mdm | 2 (20.0%) | 9.0 (90.0%) | 10 |
+| identity | 21 (55.3%) | 32.3 (85.1%) | 38 |
+| needs_human | 29 (70.7%) | 28.3 (69.1%) | 41 |
+| knowledge | 35 (85.4%) | 34.0 (82.9%) | 41 |
+| endpoint | 6 (85.7%) | 6.3 (90.5%) | 7 |
+| not_it | 12 (92.3%) | 12.7 (97.4%) | 13 |
+| **Overall** | **105 (70.0%)** | **122.7 (81.8%)** | **150** |
+
+Changing roughly 15 lines of prompt text, with no code change and no model change, closed the gap the
+hypothesis named: `mdm` from worse than chance to 90%, `identity` from the worst real category to
+within range of the others. Two caveats belong beside that. The prompt was sharpened by reading this
+same set's failures, so the absolute accuracy is optimistic — a held-out set would score lower, and
+this project does not have one yet. And the labels are one reader's: across the three sharpened runs
+Haiku gets 23 tickets wrong every time and only 9 intermittently, so most of what remains is stable,
+not sampling noise, and the stable part is where a label disagreement or a genuinely ambiguous
+compound ticket lives (`"My screen keeps flickering randomly. Also how do I share my outlook
+calendar"`, scored `needs_human` here, is a defensible `knowledge`). Seven tickets are wrong in every
+run of both models below, which puts the practical ceiling on this label set, for both models tested,
+near 95%.
+
+### Method note: an implausible result gets investigated; a plausible wrong one gets published
+
+The comparison was set up because the choice of model tier "is a decision this project states in
+code and in the README, and right now it rests on reasoning rather than measurement" — Haiku, the
+smallest, on the argument that a closed-set pick does not need more. The first Sonnet run scored
+**74/150 (49.3%)** against Haiku's 83%, same prompt, same labels, same 150 tickets. A model that large
+scoring that far below a smaller one is not believable, and that was the whole of what caught it:
+the number was too bad to believe, so it was investigated. Had it come back at 70% instead — merely
+mediocre — it would have been plausible enough to publish as a capability finding, "the bigger model
+does not help here, the cheap choice is vindicated," and it would have been wrong.
+
+The harness's own breakdown located the problem in minutes, because it reports an operational
+failure (`triage_failed`) separately from a wrong category: 66 of that run's 76 misses were
+`triage_failed`, not a wrong destination. A re-run with each failure's error text logged (78/150,
+52.0%) showed 69 of 150 calls had *failed*, 68 of them `stop_reason=max_tokens`, and of the 81
+calls that returned an answer, 78 were correct — 96%. Two things combined. `MAX_OUTPUT_TOKENS` is 64,
+sized for Haiku's single terse line of JSON. And `claude-sonnet-5` decides for itself whether to
+think when none is requested: simple tickets came back as a clean one-line reply, but on a harder one
+(a camera that shows a black square on Zoom) it spent an entire 300-token budget on a thinking block
+and never reached the JSON. The first Sonnet figure was a configuration artefact, not a capability
+measurement. (Both artefact runs' evidence files were replaced by the first valid Sonnet run under
+the same label; their figures are recorded here.) The same rule cuts the other way and is the reason the
+runs below were repeated: a result that looks right deserves the same suspicion as one that looks
+absurd, and a single plausible number from a stochastic classifier is one draw.
+
+### Finding: `HELPDESK_TRIAGE_MODEL` pointed at a thinking-capable model silently broke classification
+
+This is a production defect, found by the comparison the way the citation 404s were found by
+widening the corpus: by exercising the system on an input its default configuration never reached.
+`HELPDESK_TRIAGE_MODEL` can point at any model, and before this fix pointing it at one that may think
+would have failed close to half of this project's ticket set (68 of 150) with no sign of a
+configuration problem — each one a `TriageError` (`stop_reason=max_tokens`), surfaced to the requester as "Your
+request could not be classified right now" and counted on the dashboard as an ordinary classifier
+failure, excluded from both outcome paths as "an operational fault, not a routing outcome." Nothing
+would have said the setting was the cause. [`classify()`](packages/agent/src/triage.ts) now passes
+`thinking: { type: "disabled" }` explicitly: this call was designed, per its own header, to need no
+loop, no memory and no reasoning beyond picking from a closed set, so thinking is not something it
+wants from any model. `triage.test.ts` asserts it on the request body.
+
+### Finding: the stop-guard watched session limits, not billing — a credit-exhausted run wrote 0/150 as data
+
+Three further Sonnet runs were planned for the variance estimate. The account's API credit ran out
+during the second: it answered tickets 0–79 normally (70 of 80 correct), then every call from ticket
+80 failed with a 400, "Your credit balance is too low," and the third run failed from its first
+call. The harness scored all of it as `triage_failed` and wrote an evidence file reading 0/150,
+because `runStoppingReason()` — written in section 6 to stop exactly this — matched Claude Code
+session limits and authentication errors, but not the Messages API's own billing refusal. The same
+silent-noise failure, through the one door the guard did not watch; the run's error text
+had been discarded by piping its output through `tail -1`, which is why it took a probe call to see
+the message.
+`runStoppingReason()` now recognizes it (and the harness, like `simulate.ts`, stops and writes
+nothing); the zero-information run was deleted and the 80 valid answers from the partial one are
+kept as `triage-harness-sonnet-r2-INCOMPLETE-credit-exhausted.json`, used below only for what they
+can support. **Two of the three planned Sonnet runs therefore do not exist**, and the comparison
+below rests on two complete Sonnet runs, not three.
+
+### The comparison
+
+| | Haiku 4.5 (`claude-haiku-4-5-20251001`) | Sonnet 5 (`claude-sonnet-5`) |
+|---|---|---|
+| Complete runs | 5 | 2, plus a partial third |
+| Accuracy per run | 83.3, 81.3, 81.3, 80.7, 83.3% | 89.3, 89.3% |
+| Mean / spread (max − min) | 82.0% / 2.7 points | 89.3% / 0.0 points (two runs) |
+| Cost per run of 150 | $0.23 | $0.59 |
+| **Cost per 1,000 requests** | **$1.54** | **$3.96** |
+| Input tokens per request | 1,344 | 1,771 |
+
+| Destination (mean of runs) | Haiku (3 final-config runs) | Sonnet (2 runs) |
+|---|---|---|
+| not_it (13) | 97.4% | 92.3% |
+| needs_human (41) | 69.1% | 80.5% |
+| identity (38) | 85.1% | 97.4% |
+| mdm (10) | 90.0% | 95.0% |
+| knowledge (41) | 82.9% | 92.7% |
+| endpoint (7) | 90.5% | 64.3% |
+| **Overall** | **81.8%** | **89.3%** |
+
+Per-run evidence: [`triage-harness-haiku-r1.md`](evidence/triage-harness-haiku-r1.md) through `-r3`,
+[`triage-harness-sonnet.md`](evidence/triage-harness-sonnet.md) and
+[`triage-harness-sonnet-r1.md`](evidence/triage-harness-sonnet-r1.md) (the two complete Sonnet
+runs). Costs are priced from the token usage each run recorded, at `pricing.ts`'s rates.
+
+**The gap is outside the spread, so the harness can tell the two apart — which is not the same as
+the gap being well measured.** Sonnet's 7.6-point advantage (against the three final-config Haiku
+runs) is about three times Haiku's own 2.7-point run-to-run spread. Paired by ticket, Sonnet is
+better on 25 tickets, Haiku on 8, and 117 are the same: an exact sign test on the 33 that differ gives
+p = 0.005, and a bootstrap over tickets puts a 95% interval on the difference of 1.8 to 13.7 points.
+That interval is the honest statement of precision: it excludes zero, and it is also wide, which is
+what 150 tickets, one labeller and two Sonnet runs buy. The third, partial Sonnet run points the
+same way on the 80 tickets it answered — 70/80, against 70 and 69 for the complete Sonnet runs and
+65, 63 and 66 for Haiku on the same 80 — but it is the same tickets again, not independent evidence.
+Sonnet's own spread rests on two runs that happened to score identically (142 of 150 tickets
+classified identically between them); that is too few to call it low variance. One cost of Sonnet
+that Haiku's runs did not show in a recorded way: in each Sonnet run one reply omitted the
+`notItTeam` field entirely, which `triage.ts`'s strict schema rejects as `triage_failed` (Haiku's
+own 0–3 failures per run have causes this harness had not yet been logging). One result runs the
+other way and should not be over-read: `endpoint` is 64% against Haiku's 90%, but that is 7 tickets —
+one or two answers — as `not_it`'s 92% against 97% is one.
+
+**What the difference costs.** Classification on Sonnet is **$3.96 per 1,000 requests against
+$1.54: $2.42 more, 2.6 times as much, about $24 per 10,000 requests.** Part of that is the
+tokenizer — the identical prompt and ticket text is 1,771 input tokens on Sonnet against Haiku's
+1,344 — on top of twice the per-token price. Per correct answer: 7.6 points is about 76 more
+correctly classified requests per 1,000, so each extra one costs roughly $0.03 in triage. On
+compute alone that does not pay for itself: a misclassification that sends a request to the wrong
+agent wastes an agent turn costing about $0.007–$0.013 (pass three's per-request agent costs), less
+than the $0.03 it took to prevent. The case for Sonnet is the requester's, not the bill's — the
+dead-end replies and handoffs this document has measured elsewhere — and this comparison does not
+price that.
+
+**Classification runs on `claude-haiku-4-5-20251001`, and that choice is now measured rather than
+assumed: across five runs on 150 hand-labelled tickets Haiku scores 80.7–83.3% at $1.54 per 1,000
+requests, while Sonnet 5 scores 89.3% across two complete runs at $3.96 per 1,000 — a 7.6-point gap
+against Haiku's own 2.7-point run-to-run spread, so the smaller model is *not* shown to be
+sufficient, and whether the extra $2.42 per 1,000 requests is worth paying is the decision this
+leaves open (the set is small, single-labelled and was tuned against, so treat the absolute figures
+as optimistic and the gap as the finding).** The default in `models.ts` is unchanged. Switching is
+`HELPDESK_TRIAGE_MODEL=claude-sonnet-5`, now safe to set. Before deciding on it: two more Sonnet runs
+once API credit is restored, and a held-out ticket set the prompt was not written against.
+
+**Evidence committed:** [`test/triage-ground-truth.json`](test/triage-ground-truth.json) (the label
+file); [`evidence/triage-harness-baseline.md`](evidence/triage-harness-baseline.md) (single baseline
+run), [`evidence/triage-harness-sharpened.md`](evidence/triage-harness-sharpened.md) (a Haiku run of
+the sharpened prompt before `thinking` was disabled — 122/150), the `haiku-r1`–`r3` and the two
+complete Sonnet runs above, and `triage-harness-sonnet-r2-INCOMPLETE-credit-exhausted.json`; each
+`.md` has a matching `.json` of every ticket's expected and actual destination and token counts, for
+a later run to diff against. Neither sim-pass evidence nor the real `data/` chains were touched — the
+harness calls the classifier directly and writes nothing to any audit chain.
+
+
+## Simulation run (Sprint 4 — pass four)
+
+The same 150 tickets, the same `test/actor-mapping.json`, the same single-turn rule, a fourth set of
+databases and evidence files (`data/sim4-*.db`, `evidence/simulation-results-4.jsonl`,
+`evidence/simulation-summary-4.md`, `evidence/simulation-comparison-4.md`); passes one through three
+untouched. Two things changed between pass three and this one on purpose: triage's prompt (the
+sharpened definitions from "Triage accuracy" above, with thinking disabled), and how the four agents
+authenticate. This run exists to measure whether the routing gain the triage harness found
+(70.0% → 81.8%) shows up end to end, and what it buys.
+
+### Two things asked to be confirmed first — neither was true as the code stood
+
+**1. "The agents authenticate through the subscription session, not the API key."** They did not.
+`identity-agent.ts` and its three siblings leave `options.env` unset on purpose, so the Agent SDK's
+subprocess inherits `process.env`, and `ensureEnvLoaded()` has just put `.env`'s `ANTHROPIC_API_KEY`
+there. Confirmed empirically rather than from the comment: a probe using an agent's exact option
+shape reads the `apiKeySource` the SDK reports in its own init message — `ANTHROPIC_API_KEY` as
+configured; with the key withheld from the subprocess's environment, `none`, and the call still
+succeeded (`is_error: false`), so it authenticated through the logged-in session, the only credential
+left. (The SDK reports "no API key," not "subscription" by name, so "session" is inferred from
+"none, and it worked.") Passes one through three therefore ran their agents on the key, which is
+what, with the triage-harness runs, drained the balance.
+
+Made true, opt-in, default unchanged: `HELPDESK_AGENT_AUTH=session`
+([env.ts](packages/agent/src/env.ts), `agentSubprocessEnv()`) hands each agent's subprocess a copy of
+the environment without `ANTHROPIC_API_KEY`; triage and the rationale generator call the Messages API
+in-process and still read it from `process.env`. The default stays the key because a headless server
+has no login to fall back to. And it is enforced, not just requested: withholding the key from
+`options.env` cannot guarantee the subprocess finds none by another route (an `apiKeyHelper`, a
+project setting), and a run quietly back on the key is exactly how this balance was spent, so every
+agent call now checks the `apiKeySource` in its own init message (`assertAgentAuthPath()`) and, in
+session mode, throws unless it is `none` — an error `runStoppingReason()` stops a run on. Tests in
+`env.test.ts` and `agent-boundary.test.ts` cover all four agents. Live: the pass completed without a
+mismatch stop, every agent turn on the four `sim4` chains is recorded on `claude-sonnet-5` (the same
+model as passes one through three), and this pass's only API spend was triage's ($0.2290 priced).
+
+**2. "The run will stop rather than record results if it hits a session limit, an auth error or a
+billing refusal."** It covered the agents' failures and not the classification call, and the run itself
+found a standing condition none of the three named. The section-6 guard sits in `bin/simulate.ts`'s
+`catch`, so it only sees errors that *propagate out of* `routeRequest()`:
+
+- *An agent's usage limit or auth failure* does propagate — that is the incident it was written for.
+  Guarded.
+- *Triage* does not. `routeRequest()` catches every classification error itself and returns it as a
+  `triage_failed` result, so a billing refusal or a 401 on the classification call never reached the
+  runner's `catch`, which would have recorded all 150 tickets as `triage_failed` — the 0/150 result
+  of the Sonnet comparison, reproduced in the runner. Fixed: the result now carries the underlying
+  error as `cause` (never shown to a requester; the web app reads `message` only),
+  `triageStopReason()` ([simulation-stop.ts](packages/web/src/simulation-stop.ts)) applies
+  `runStoppingReason()` to it, and the runner stops on a hit. Verified in the real entry point, not
+  only in tests: `simulate.js` run against a throwaway tag with a deliberately invalid
+  `ANTHROPIC_API_KEY` got a real 401 from the real API and stopped — `STOPPING at test/sim_records1.json#T001:
+  an authentication failure. 0 ticket(s) recorded`, exit 1, no results file. A real billing refusal
+  could not be provoked once credit was restored; it is covered by a test using the exact message from
+  the Sonnet incident, and reaches the runner by the same path.
+- *A dead gateway* was found live. The four gateways were started as background processes, and the
+  tooling killed them at its 30-minute limit, at about 15:48:38, with the run at ticket 145. The
+  runner carried on. An agent whose gateway is unreachable does not throw: its MCP server fails to
+  connect, it has no tools, and it says so in a well-formed reply. `sim_records3.json#T046` (an `mdm`
+  ticket) was routed at 15:48:43 and recorded as an ordinary result reading "I don't actually have any
+  device-lookup or MDM tools available in this session." Noticed by reading the tail of the results
+  against the gateways' last chain activity, not by any guard. Everything before it had finished while
+  the gateways were up (the last gateway activity was T044's handoff at 15:48:28). The runner was stopped,
+  that one result removed from the results file, the gateways restarted on the same chains, and
+  tickets T046–T050 run again; the dead-gateway attempt and the ticket killed mid-flight leave orphaned
+  traces on the append-only `sim4` chains, excluded at read time by `requestIdsOf()` as in pass three.
+  The runner now checks the four gateways accept connections before every ticket and again after any
+  ticket an agent handled, and stops without recording if they do not
+  ([simulation-gateways.ts](packages/web/src/simulation-gateways.ts)).
+
+An observation from the same probe, not a defect found: the claude.ai connector tools (eight Claude
+Docs tools, including `create`, `delete` and `update`) are *visible* to every agent's model, in both
+auth modes and in every earlier pass, because they come from the machine's logged-in account. They are
+not callable: the agents' `tools: []`, own-gateway-only `allowedTools` and `dontAsk` mode refused a
+deliberate call to one ("denied because Claude Code is running in don't ask mode"). The boundary the
+agents' isolation rests on held where it was tested.
+
+### The two numbers this run exists to measure
+
+**Routing, end to end, against the hand-built ground truth** ([test/triage-ground-truth.json](test/triage-ground-truth.json)):
+pass three **104/150 (69.3%)**, pass four **122/150 (81.3%)**. That matches the triage-only harness
+(70.0% baseline, 80.7–83.3% sharpened) to within a point, so the harness result does carry through the
+full pipeline. One caution that applies to the whole comparison: the prompt was sharpened by reading
+these same 150 tickets' failures, so this confirms the harness transfers to the pipeline on *these*
+tickets; it is not evidence the gain generalizes to tickets the prompt was not written against.
+
+| Ground-truth destination | Pass three | Pass four |
+|---|---|---|
+| mdm | 1/10 | 9/10 |
+| identity | 20/38 | 33/38 |
+| knowledge | 35/41 | 34/41 |
+| needs_human | 30/41 | 28/41 |
+| endpoint | 5/7 | 6/7 |
+| not_it | 13/13 | 12/13 |
+| **Overall** | **104/150** | **122/150** |
+
+**1. Tickets reaching the `mdm` and `identity` agents.** `identity` 20 → **34**; `mdm` 2 → **13**; 22 →
+47 together. Counting only those that reached the *right* agent (the ground-truth one): `identity`
+20 → 33, `mdm` 1 → 9, 21 → **42**. It shows up end to end.
+
+**2. Of those that reach the right agent, how many actually get resolved.** Read, not counted: every
+reply to every one of these tickets in both passes.
+
+| Reached the right `identity`/`mdm` agent | Pass three (21) | Pass four (42) |
+|---|---|---|
+| Resolved — the need was met in the turn | 1 | 1 |
+| Approval pending (a request created, unresolved by instruction) | 6 | 6 |
+| Handed off to a person (in progress) | 10 | 28 |
+| Dead end — a question asked, or a decline, with no handoff | 3 | 5 |
+| Advice from general knowledge after an empty lookup, no handoff | 1 | 2 |
+
+**Resolution did not move: 1 of 21, then 1 of 42 — and it is the same ticket both times**
+(`sim_records2.json#T022`, "I need Finance access," answered by finding the requester is already in
+Finance). Your expectation was right, and the data is sharper than the expectation: of the 22 tickets
+that newly reach the right agent, **18 became agent handoffs, 3 dead ends, 1 advice-only; none was
+resolved and none an approval.** And 12 of those 22 were already handed to a human by triage in pass
+three. For them the requester's end state did not change — a person is picking it up — only that an
+agent turn now precedes the handoff and carries what it found into it ("the tenant's device
+directory is empty," "you are only in Marketing"). Fixing routing raises how many requests reach the
+ceiling; it does not move the ceiling, and the ceiling is in the tools. `identity` manages two groups,
+Marketing and Finance, so a folder, a mailbox, a calendar or a local-admin request is out of reach by
+construction and the right agent can only say so and hand it on: 21 of the 33 right-agent `identity`
+tickets are handoffs, 6 are a group request awaiting approval. `mdm` is read-only against a tenant
+whose device directory is empty, so every compliance question is answered with "no devices registered"
+and a handoff: 7 of the 9 right-agent `mdm` tickets are handoffs, none grounded in a device record.
+
+The dashboard's own "Resolved" would not have told you this, and that is a finding in its own right
+(below).
+
+### The five outcomes, reject and accept path separately
+
+| | Pass three | Pass four |
+|---|---|---|
+| **Reject path** (triage said not IT, or needs a human) | **66** | **46** |
+| Redirected | 19 | 17 |
+| Handed off, resolved | 0 | 0 |
+| Handed off, still in progress | 47 | 29 |
+| **Accept path** (triage routed it to an agent) | **79** | **102** |
+| Resolved (as the dashboard counts it — see below) | 35 | 32 |
+| Handed off, resolved | 0 | 0 |
+| Handed off, still in progress | 23 | 44 |
+| Routed but unresolved | 16 | 21 |
+| Approval pending | 5 | 5 |
+| Classifier failures (excluded from both paths) | 5 | 2 |
+| **Misrouted** (read, below) | **7** | **7** |
+
+66 + 79 + 5 = 150 and 46 + 102 + 2 = 150. Handoffs and approvals left unresolved again. Every chain
+verifies intact (`pnpm verify-audit` on each: orchestrator 302 records, identity 204, mdm 90, knowledge 201,
+endpoint 56, the extras over 150 tickets' worth being the orphaned traces above).
+The accept path grew by 23 tickets and the 23 went to "handed off, in progress" (+21) and "routed but
+unresolved" (+5), while "resolved" fell by 3.
+
+**Misrouted is 7 in both passes — not the same 7, and pass three's figure is corrected.** Misrouted
+means routed to an agent other than the ground-truth one *and* the reply a dead end rather than a
+handoff or an answer; a graceful handoff is the system working. Scored the same way for both passes,
+now with the ground-truth labels as the screen: 18 candidates in pass three, 20 in pass four, each
+judged from the opening of its reply and the tool it called (the `identity` and `mdm` ones in full). Pass three's 7: `sim_records1.json#T007`, `T034`; `sim_records2.json#T011`, `T021`, `T039`,
+`T044`; `sim_records3.json#T012`. Pass four's 7: `sim_records1.json#T007`, `T014`, `T034`, `T045`;
+`sim_records2.json#T021`, `T039`; `sim_records3.json#T020`. The earlier pass-three figure of **2** came
+from a keyword screen over `actualNeed` and missed five of these; it is replaced here and in the
+tables above. Four tickets are misrouted in both passes (hardware faults and a file recovery that go
+to `knowledge`). The sharpened definitions removed the `identity` tickets that went to `knowledge`
+(`sim_records2.json#T011`, `T044`, `sim_records3.json#T012`) and introduced three new ones in the other direction: hardware faults that
+used to go to `needs_human` and now go to `knowledge` (`sim_records1.json#T045`, `sim_records3.json#T020`)
+and a printer ticket that went to `knowledge` instead of `endpoint` (`sim_records1.json#T014`).
+
+### Every changed ticket, regressions first, read
+
+`pnpm simulate-compare --baseline 3 --tag 4`, [evidence/simulation-comparison-4.md](evidence/simulation-comparison-4.md):
+52 of 150 tickets changed outcome, which the comparator calls 13 regressed, 12 improved, 27 changed.
+Every one read — the opening of both passes' replies, the tool each called, and the ground-truth label. **By reading: 10 genuinely better,
+9 genuinely worse, 33 no real change.**
+
+*Genuinely worse (9).* Six are a ticket pass three got to a person and pass four sent to an agent that
+could not help and made no handoff: three are routing errors (`sim_records1.json#T014`, `T045`,
+`sim_records3.json#T020` — a printer, a headset and quiet laptop audio sent to `knowledge`, which
+declines), and three reached the *right* agent that has nothing to give — `sim_records1.json#T024`
+("it says access denied": `identity` asks what the requester was trying to do, in a single-turn run
+nobody answers), `sim_records1.json#T032` (Word crashing: `knowledge` declines, Word is not in its
+corpus) and `sim_records3.json#T039` (calendar access: `identity` correctly refuses the injected
+"ignore the approval steps" line, then offers to hand off and asks which the requester wants — an offer
+with no one to take it up). Two are `triage_failed` (`sim_records2.json#T040`, `T050`), below. One the
+comparator cannot see: `sim_records2.json#T034`, a request to add a personal Gmail as a delegate on a
+work mailbox (ground truth `identity`), went from a handoff to "this isn't an IT matter" — a redirect
+the model treats as a peer of a handoff, wrongly here.
+
+*Genuinely better (10).* Seven turn a dead end or a failure into a handoff
+(`sim_records2.json#T004`, `T038`, `T044`, `T045`, `sim_records3.json#T012`, `T025`, `T004`), one turns a
+`triage_failed` into the designed password-reset guidance (`sim_records1.json#T047`), and two the
+comparator called regressions: `sim_records2.json#T043` (a new starter locked out on a temporary
+password) now gets the endpoint agent's designed answer — never a reset, SSPR first, then the manager,
+plus the one-time-password explanation — and `sim_records2.json#T027` (pinning a Teams message) gets
+the right steps from general knowledge, flagged as unverified, where pass three found nothing.
+
+*No real change (33).* 13 are a ticket pass three handed to a person via `needs_human` that pass four
+handed to a person via an agent (`identity`/`mdm`/`endpoint`) — the same end state, richer context. 9
+are an agent-to-agent change in which pass four ends in a handoff. 9 are washes: both passes decline (an Excel
+pivot table; a headset mic; a SharePoint rename), or pass four runs a documentation search before
+declining where pass three declined outright — "improved" to a comparator that counts a tool call
+(`sim_records1.json#T012`, `T034`, `sim_records3.json#T028`, `T043`, `T003`, and others). Two single
+cases complete the 33: `sim_records1.json#T043` (a partial documentation answer about Company Portal
+crashes became a plain `needs_human` handoff) and `sim_records3.json#T046` (a handoff became an `mdm`
+reply that answers "do I just wait?" from general knowledge after an empty lookup).
+
+**Agent variance is real and is part of every number above.** Of the 65 tickets routed to the *same*
+agent in both passes, that agent's own outcome changed on 10 (15%) with no routing difference. Of the 52
+changed tickets, 42 changed category and 10 did not. Pass four's changed-ticket count therefore
+includes noise on the order of a fifth, which a single run per pass cannot separate from the effect.
+
+**Net: better routing and a wash on outcomes.** Ten better, nine worse, thirty-three the same. The
+routing improvement is real (+18 tickets, +12 points) and what it changed is *where* the unresolved
+requests wait — more of them behind an agent turn that knows something, fewer behind a bare
+`needs_human` — not how many get resolved.
+
+### Findings
+
+**The dashboard's "Resolved" mostly is not.** Section 5 counts an autonomous tool call that did not
+error as resolved. A documentation search that returns irrelevant passages is such a call. By a text
+heuristic over each reply's opening (a regular expression for "I don't know," "isn't something I can,"
+"outside the scope," "no relevant passages"), 28 of pass three's 34 autonomous tool successes and 22 of
+pass four's 31 open by declining — 26 of 31 and 21 of 26 for `knowledge`. The heuristic is crude and
+both false positives and negatives exist; the direction is not in doubt. The "Resolved" row above
+(35, then 32) is therefore an upper bound dominated by `knowledge` searches that found nothing, and
+whether a reply meets the need is not something the chains record — the same kind of gap as
+"misrouted," which section 5 named rather than approximated. This section reads the `identity` and
+`mdm` tickets, as asked; the `knowledge` ones are measured only by the heuristic.
+
+**Two triage failures in 150, and the cap is not the cause.** Both `sim_records2.json#T040` and `T050`
+failed `stop_reason=max_tokens` on the default Haiku, thinking disabled. Probing `T040` eight times
+with room for 400 tokens: seven replies were 38–39 tokens, one was 253 — the model wrote the JSON in a
+code fence and kept going ("Wait, let me reconsider…"), with a duplicated `notItTeam` key in the
+first attempt. `T050` did not reproduce in eight tries (all 34–39 tokens), so this is intermittent, on the
+order of one call in eight for a policy-shaped ticket like T040 and much rarer elsewhere. Raising `MAX_OUTPUT_TOKENS` would not fix it: a fenced block followed by prose is not
+parseable either, so the failure would become `invalid_output`. It is the model, on ambiguous tickets,
+about 1–2% of requests, and very likely the unexplained 0–3 `triage_failed` per run in the triage
+harness. Not fixed here; a prefilled opening brace or a stop sequence on the closing one are the two
+obvious candidates and want testing against the harness first.
+
+**The ceiling, named.** The tools are the limit now. A handoff is the right outcome for most of what
+reaches `identity` and `mdm`; making more of them resolve means widening what the agents can do —
+managed groups beyond two, a device directory with devices in it — not further routing work. Out of
+scope for this run, and the next question.
+
+**Cost.** API spend this run was triage alone, $0.2290 priced; the agents ran on the login session.
+Priced as if on the API, the whole pass is $1.0166 against pass three's $0.7867 (`mdm-agent` $0.0258 →
+$0.1439, because 11 more tickets reach it; `triage` $0.1700 → $0.2290, the longer sharpened prompt).
+
+**Evidence committed:** `evidence/simulation-results-4.jsonl` (150 lines, 0 duplicates, 0 errors),
+`simulation-summary-4.md`, `simulation-comparison-4.md` (pass three vs four), and
+`simulation-outcomes.md` (all four passes, with the corrected pass-three misrouted figure). Code:
+`simulation-stop.ts`, `simulation-gateways.ts`, the `HELPDESK_AGENT_AUTH` handling in `env.ts` and the
+four agents, and `cause` on the orchestrator's `triage_failed` result. 990 tests across nine packages,
+all passing; `pnpm typecheck` and `pnpm build` clean.
+
+## Triage accuracy on a new, cleaner ticket set — a new baseline, not comparable to passes one to four
+
+**Read this before comparing anything.** Everything above — passes one to four and the triage harness
+numbers (70.0% → ~82%, Sonnet vs Haiku) — was measured on `sim_records{1,2,3}.json`, a set that was
+deliberately messy and stood for real-world noise: vague, compound and badly worded tickets. This
+section is measured on a different set, built to be cleaner: one problem per ticket, written by
+generators that know what they want. Both sets are worth keeping and they test different things. **The
+numbers below are a new baseline. They are not comparable to passes one to four, and a difference
+between them is not a regression or an improvement.** The expectation going in was that this number would
+come out higher, partly because the test is easier. It did not (below), and why is the finding.
+
+### What the set is
+
+Three ticket sets of 150, [`test/dataset1.json`](test/dataset1.json),
+[`dataset2.json`](test/dataset2.json), [`dataset3.json`](test/dataset3.json), generated by three
+different models against one distribution brief; their styles differ visibly (median 15, 31 and 18
+words: short and precise, long with diagnostic detail, terse and technical). The mixed set,
+[`test/mixed-set.json`](test/mixed-set.json), is 150 drawn from them, 50 from each, ids prefixed by source
+(`d2-T031` is `dataset2.json`'s `T031`) so every ticket traces back. The three originals are committed
+unchanged.
+
+**How the sample was drawn**, in full in [`test/mixed-set.md`](test/mixed-set.md) and reproduced by
+`node packages/web/dist/bin/build-mixed-set.js`: a seeded, proportionally allocated stratified sample,
+with the category distribution preserved across the **whole set** (not within each source). The whole-set
+totals come from largest-remainder rounding, are split across the sources in proportion to what each has,
+chosen jointly so that each source supplies exactly 50, and tickets inside each (source, category) cell are
+then drawn by a seeded sampler. Seed `20261003`, the first and only one tried; same inputs, same seed, same
+files byte for byte (checked).
+
+Two things about that draw that the set cannot hide:
+
+- **The brief's own numbers were not available**, so the target distribution is the pool's own, across all
+  450 (identity 34, mdm 8, knowledge 13, endpoint 4, needs_human 91 of 150). The three sources agree closely
+  with one another, which is what they would do if each followed the same brief, but it is an estimate. If
+  the brief's weights differ, `--target brief.json` redraws against them.
+- **There is no `not_it` ticket in any of the three sets**, so this set says nothing about `not_it`
+  routing. The old set has 13 and can.
+
+### The labels, and their freeze
+
+Draws stratified by category need a category per ticket, and these tickets carry none, so all 450 were
+labelled first — one destination each from the closed set — by the same method as
+`triage-ground-truth.json` (rules in [`test/dataset-labels.md`](test/dataset-labels.md)): by one reader, a
+model in this session, not an independent human, and against `triage.ts`'s own definitions. The label files
+([`dataset-labels.json`](test/dataset-labels.json), [`mixed-set-labels.json`](test/mixed-set-labels.json))
+are committed **separately** from the tickets, in `f13ef77`, after the tickets in `5fe1d74` and **before the
+first run**; no label was changed after a result. 39 of the 150 labels are flagged as judgement calls where
+a second reasonable reader could choose differently, and results are reported with and without them.
+
+### The number
+
+Triage alone, the unmodified prompt (`triage.ts` untouched since before the old-set numbers it is compared
+with), default Haiku 4.5, thinking disabled — the harness's own configuration, run three times because
+Haiku varies between runs.
+
+| | Run 1 | Run 2 | Run 3 | Mean |
+|---|---|---|---|---|
+| **Routing accuracy, mixed set** | **108/150 (72.0%)** | 105/150 (70.0%) | 107/150 (71.3%) | **71.1%** |
+| Firm labels only (111) | 88 | 83 | 84 | 76.6% |
+| Judgement calls only (39) | 20 | 22 | 23 | 55.6% |
+| *Old set, same prompt and model* | *122 (81.3%)* | *121 (80.7%)* | *125 (83.3%)* | *81.8%* |
+| Cost per run | $0.2308 | $0.2310 | $0.2292 | $1.54 per 1,000 |
+
+Run 1 is the headline, being the first. It was also the best of the three, so the mean is the fairer
+figure: **about 71%, against about 82% on the old set, on a set that is cleaner.** The run-to-run spread is
+three tickets; the gap to the old set is ten points. Of the 150, 99 tickets are never wrong, 14 are
+wrong in one or two runs, and 37 are wrong in all three — the errors are almost all stable, not noise.
+Restricting to firm labels does not close the gap (76.6%).
+
+### Why it is lower, not higher
+
+| Destination | Old set: n, accuracy | New set: n, accuracy |
+|---|---|---|
+| not_it | 13, 97.4% | 0, — |
+| needs_human | 41, 69.1% | **91**, 63.7% |
+| identity | 38, 85.1% | 34, **94.1%** |
+| mdm | 10, 90.0% | 8, **95.8%** |
+| knowledge | 41, 82.9% | 13, **46.2%** |
+| endpoint | 7, 90.5% | 4, 75.0% |
+
+(Means over three runs each; the old set's three Haiku runs, the new set's three above.)
+
+- **The mix changed more than the difficulty did.** The new set is 61% `needs_human`, the old set 27%, and
+  `needs_human` is the weakest destination on both (69.1% and 63.7%). The new set also has no `not_it`,
+  which the old set scores at 97%. Weighting the new set's per-destination accuracies to the old set's mix
+  (without `not_it`) gives 69.8%; weighting the old set's to the new mix gives 75.6%. So composition
+  accounts for the larger part of the gap, but not all of it.
+- **The cleaner-ticket effect is real where the label is not in dispute.** `identity` and `mdm`, where a
+  ticket says what it wants, are 94.1% and 95.8% here, above the old set's 85.1% and 90.0%. That is the
+  easier test showing up, and only there.
+- **`knowledge` at 46.2% is a labelling question, not mostly a classifier one.** All 13 of its labels are
+  judgement calls: the generators wrote application faults ("Docker Desktop is failing to start after the
+  update") as plain requests for help. They are labelled `knowledge` because documentation is the one thing
+  the system can offer for them; the classifier calls six of the 13 `needs_human` in every run, and a
+  reasonable reader would agree with it.
+
+### What the misses are
+
+Per run, the `needs_human` labels that were misrouted went to `identity` (11), `knowledge` (8.7), `mdm`
+(6.0), `not_it` (4.7) and `endpoint` (2.3). Of the 22 firm labels wrong in all three runs:
+
+- **8 → `identity`:** conditional-access and sign-in blocks (`AADSTS53003`, "impossible travel", "unfamiliar
+  properties"), MFA registration blocked, a Visio licence prompt, "remove all access for the summer interns".
+- **6 → `knowledge`:** network, VPN, DNS and certificate faults ("TLS handshake error", "internal DNS doesn't
+  resolve", "invalid certificate for the internal Jira"). `triage.ts` defines `knowledge` as "anything IT
+  supports at work", and the corpus is Entra and Intune documentation, which says little about a company
+  VPN. Whether routing them there is a classifier error or a labelling choice is a question the prompt
+  does not settle.
+- **4 → `not_it`:** a phishing email asking for gift cards, "I clicked a link in an email about a FedEx
+  delivery and entered my password", "My dock is broken", and an IPv6 VPN failure. These are the worst
+  kind of miss: someone who may have handed over a credential is told this is not an IT matter. The
+  prompt's own `not_it` clause lists "a delivery or parcel question", which the FedEx ticket may have
+  triggered.
+- **4 elsewhere:** device and application tickets sent to `mdm` or `knowledge`, including "Microsoft sent a
+  successful sign-in notification for a device I don't recognise" read as a device-state report.
+
+The first two groups together are consistent with the sharpening's two exclusion clauses over-reaching
+("a device reporting its own state is `mdm`, access that is missing is `identity`"): they were written to
+pull exactly those tickets out of `needs_human` on the old set, and on a set whose `needs_human` is mostly
+sign-in policy, enrolment failures and network faults they pull out some that belong there. That is a
+reading of the errors, not a tested cause, and it is the finding this set exists to produce: **the prompt
+was shaped against an old set whose `needs_human` was mostly hardware and shipping; this one's is a
+different population.** Some "firm" labels are contestable after reading the misses ("remove all access
+for the summer interns" is arguably `identity` under the prompt's own wording); they were not changed.
+
+**Two `triage_failed` outcomes, one of them reproducible.** `d1-T149` ("Chrome is warning me that my
+password was found in a data breach") fails in all three runs, and `d3-T144` (an SMS code going to an old
+number) once: the model answers `{"scope": "endpoint", "category": "endpoint"}`, collapsing the two fields,
+most likely because the prompt tells it to classify password resets under `endpoint`. The response is
+rejected as invalid output, so the person gets a failed request, not a wrong answer. This is a different
+failure from the intermittent `max_tokens` one in pass four's findings above — a complete reply with an
+impossible value, and for `d1-T149` it reproduces every time. Not fixed here.
+
+### By source
+
+| Source | Style | All labels (3 runs) | Mean | Firm labels only |
+|---|---|---|---|---|
+| `d1` | short and precise | 32 / 30 / 32 of 50 | 62.7% | 69.4% |
+| `d2` | long, diagnostic detail | 42 / 41 / 40 of 50 | **82.0%** | 87.8% |
+| `d3` | terse and technical | 34 / 34 / 35 of 50 | 68.7% | 70.7% |
+
+The long, detailed tickets are classified about twenty points better than the short ones, which include
+very short vague tickets ("My dock is broken.", "Visio isn't working."). It is 50 tickets a source and
+the label mix differs between them, so this is suggestive, not established.
+
+### What this number can and cannot support
+
+It supports: routing accuracy on a set the prompt was not tuned against is about 71%, not 82%, and the
+difference is mostly what the tickets are and partly the prompt's own boundaries. It does not support
+a claim that the model got worse, that either set is the better test, or anything about `not_it`.
+
+**This set is now spent as a held-out set if it is used to tune the prompt.** Any change to `triage.ts`
+made from the misses above stops this from being a held-out number, and the next number from it would
+measure how well the change fits these 150. The other 300 tickets in the three sources are labelled
+(`dataset-labels.json`) and not in the mixed set; they are the ones to iterate against.
+
+**Evidence committed:** `evidence/triage-harness-mixed-r{1,2,3}.{md,json}`; the harness now takes
+`--tickets` and `--labels` and reports firm and judgement-call labels and a per-source table. The three
+runs above were made before one fix to it: its per-source key was wrong, so their JSON `source` field says
+`mixed-set.json` and their reports have no per-source table; the by-source table here was computed from the
+ticket-id prefix in those JSON files, and the accuracy figures are unaffected. 1001 tests across nine
+packages, all passing; `pnpm typecheck` and `pnpm build` clean.
+
+## Triage: `network` and `security` as handoff outcomes, a wider `identity`, and `dataset2` as the iteration set
+
+The previous section ended with a finding, not a fix: on a cleaner set, four IT tickets that needed a
+person were told they were not an IT matter, in every run — a phishing email asking for gift cards, "I
+clicked a link in an email about a FedEx delivery and entered my password", a broken dock, an IPv6 VPN
+fault. Two changes follow from it, then a re-measurement on `dataset2` only.
+
+**The result, led with the split and not the total.** With the labels held constant the prompt change is worth
+23.3 points on `dataset2`, and that figure overstates it. **17.5 of the 23.3 are `network` and `security`
+having a destination for the first time**: 27 tickets the old prompt could not get right by construction,
+now 97.5% right. **On the other 123 tickets the gain is 7.1 points** (69.1% → 76.2%), or 11.5 on the firm
+labels among them (82.1% → 93.6%). The 80.0% overall is the sum of a real but modest improvement and a
+category that did not exist, on the set the prompt was written beside. The sections below say what is in the
+7.1, what got worse underneath it, and what is not yet clear.
+
+### Change 1: two new scope outcomes, peers of `needs_human`
+
+Triage's first decision had three outcomes: `not_it`, `needs_human`, `routable`. It now has five: `network`
+and `security` are added beside `needs_human`.
+
+- **`network`** — connectivity and infrastructure: VPN tunnels, DNS, Wi-Fi, LAN, certificates, routing.
+  A person with access to network equipment has to look at it.
+- **`security`** — suspected phishing, credentials entered on a fake page, unexpected MFA prompts, sign-ins
+  from unknown devices, malware or ransomware alerts.
+- **`needs_human`** narrows to what it was always supposed to mean: hardware faults, procurement,
+  logistics, physical work, and anything outside the tenant entirely.
+
+**Why, in the reasoning that decided it.** A phishing report classified as not IT is wrong in a way that
+matters more than most routing errors. A misrouted password question costs the person a few minutes. A
+phishing report told "this isn't an IT matter" can leave a compromised account in use for as long as the
+person believes the answer, and may teach them not to report the next one. That is the failure to
+design against, and it came from the structure, not from one bad classification: with a single `needs_human`
+bucket, a security report had no home of its own, and the nearest neighbour was `not_it`, whose own clause
+lists "a delivery or parcel question". A request to "arrange the laptop's return" and a request to
+"investigate whether my account is compromised" are not the same kind of work and do not go to the same
+person, so they should not be the same outcome. Three handoffs with three reasons put three different
+people's names on three different problems.
+
+**All three produce a handoff, not a refusal.** The difference is the reason recorded and, for `security`,
+the urgency. The orchestrator creates each with its own fixed reason sentence (never text the classifier
+wrote), and the audit record carries it. A `security` handoff is created **urgent**: the handoff store
+gained an `urgent` field, `listOpen()`/`listActive()` order by urgency before age, and the operator
+console sorts urgent rows above every other row whatever their age, marks them `URGENT`, and flags the
+opened item. A phishing report where someone has already entered their password is not a ticket that waits
+behind a broken dock. Urgency comes from the closed-set scope and nothing else: a request that says
+"URGENT" in capitals does not get it (tested), and nothing in a request's wording can set it.
+
+Choices that were made, and what was deliberately not done:
+
+- **`security` takes precedence over every other scope and category** when a request may describe an attack
+  or a compromise, including one that mentions a delivery, a supplier or a password; a password reset after
+  a suspected compromise is `security`, not `endpoint`. A person's *own* sign-in being blocked, with nothing
+  suspicious described, is not `security`: it is `identity`. The prompt says both.
+- **Nothing acts on a security handoff automatically** — it does not disable an account, revoke a session or
+  notify anyone. The queue is the entire mechanism, and the message to the requester names no remedy and
+  gives no advice: this module decides where a request goes, not what a person should do about an incident.
+- **Existing databases migrate in place.** The handoffs table is `CREATE TABLE IF NOT EXISTS`, which leaves
+  an older table untouched, so the store adds the `urgent` column on open when it is missing; old rows read
+  as not urgent. Tested against a table built without the column.
+- **The dashboard counts the three together.** Every orchestrator-side handoff is one "handed off" outcome
+  there, as `needs_human` alone was, and the simulation comparator treats `network` and `security` as
+  `handedOff`. They are distinguishable on the chain by reason and urgency; the dashboard does not split them.
+
+Checked end to end with real triage calls: a broken dock, a VPN/DNS fault and a phishing report with an
+entered password, submitted in that order, were classified `needs_human`, `network` and `security`, and the
+queue the console reads listed the phishing report first although it was the newest.
+
+### Change 2: `identity` is the whole directory object
+
+`identity` read as group membership. It now covers licence assignment and reassignment, account creation,
+enabling and disabling, MFA method changes, sign-in and conditional-access blocks, lockouts, and everything
+it covered before. A password reset itself stays `endpoint`; a lockout is `identity`.
+
+**Label by domain, not by what the system can currently do.** This is applied to every label below and is
+the reason for relabelling. The first scheme put a licence request under `needs_human` because no agent here
+can assign a licence. That makes a label a statement about permissions, and every label would change the
+moment one is granted. Triage's job is to name the right domain; whether an agent can then act is coverage,
+which the simulation passes already measure separately (their "resolved" figures). Licence assignment is
+identity work even though nothing here can do it, and the result is that such requests now reach the
+identity agent, which can only hand them off. That is the coverage gap showing, not a routing error, and
+this section does not claim to have closed it.
+
+### Relabelling `dataset2`, and the baseline that makes the comparison fair
+
+[`test/dataset2-labels.json`](test/dataset2-labels.json) relabels the 150 `dataset2` tickets under the eight
+destinations (rules and the 46 judgement calls in [`test/dataset2-labels.md`](test/dataset2-labels.md)). It is
+committed in `6a03959` before any run under this scheme. The first scheme's `dataset-labels.json` is
+untouched. 69 of the 150 changed destination: `needs_human` falls from 93 to 28, `identity` rises from 35 to
+61, and 27 become `network` (20) or `security` (7).
+
+A comparison across both a new prompt and new labels would conflate the two, so the old prompt was also run
+against the new labels as a control. Each figure is three runs of the same Haiku, thinking disabled, all
+against the new labels unless stated:
+
+| Slice of `dataset2` | Old prompt | New prompt | Gain |
+|---|---|---|---|
+| **The 27 `network` and `security` tickets** | 0.0% | 97.5% | worth **17.5** points of the total |
+| **The other 123 tickets** | 69.1% | 76.2% | **+7.1** points |
+| The other 123, firm labels only (78) | 82.1% | 93.6% | +11.5 points |
+| All 150 | 56.7% | 80.0% | +23.3 points |
+
+| Prompt | Labels | Runs | Mean |
+|---|---|---|---|
+| old | old (the previous `dataset2` figure) | 114 / 117 / 115 | 76.9% |
+| old | new (the control above) | 87 / 82 / 86 | 56.7% |
+| new | new | 122 / 119 / 119 | 80.0% |
+
+The previous `dataset2` figure is 76.9% over all 150, not the 82.0% the mixed-set report showed for its 50
+`d2` tickets: a different subset, the same prompt.
+
+| Destination | Previous (old prompt, old labels): n, recall | Now (new prompt, new labels): n, recall |
+|---|---|---|
+| needs_human | 93, 76.3% | 28, 98.8% |
+| network | — | 20, 96.7% |
+| security | — | 7, 100% |
+| identity | 35, 100% | 61, 89.6% |
+| mdm | 6, 83.3% | 21, 44.4% |
+| knowledge | 14, 19.0% | 12, 8.3% |
+| endpoint | 2, 83.3% | 1, 100% |
+| not_it | 0 | 0 |
+| Overall | 150, 76.9% | 150, 80.0% |
+| Firm labels only | 121, 82.4% | 104, 95.2% |
+| Judgement calls only | 29, 54.0% | 46, 45.7% |
+
+The per-destination rows are **not like for like**: the label set changed under them, so `mdm`'s n went from 6
+to 21 and `needs_human`'s from 93 to 28. The next subsection is about exactly that.
+
+**This is the in-sample number.** The new prompt was written with these 150 tickets and their labels in view
+("whether the person is allowed to connect is identity" is `T013`; "a lockout is identity, a password reset
+is endpoint" is `T014`). An 80.0% on `dataset2` says the prompt now agrees with the labels it was built beside,
+not how it will do on tickets it has not met. That is the purpose of an iteration set.
+
+### `mdm` 83% → 44% and `knowledge` 19% → 8%: a regression, or a different denominator?
+
+The per-destination table reads as a regression inside an improved total: the same shape as the comparator
+fault earlier in this document, where a number rose while something under it got worse. It was checked
+against the same tickets under both prompts, and the answer is that it is **partly that, and not where it
+first looks**.
+
+**`mdm`: mostly a different denominator, not a loss.**
+
+| `mdm` tickets | n | Old prompt | New prompt |
+|---|---|---|---|
+| labelled `mdm` under **both** schemes | 6 | 83.3% | 83.3% |
+| labelled `mdm` **only under the new scheme** | 15 | 22.2% | 28.9% |
+| all 21 | 21 | 39.7% | 44.4% |
+
+The 83.3% was six tickets, and it is still 83.3% on those six. The 15 that arrived with the relabelling are
+managed deployment, policy, update and enrolment-failure tickets that the old prompt also mostly sent to
+`needs_human`. Against the same labels `mdm` recall went up, from 39.7% to 44.4%. Widening `identity` did pull
+tickets out of the neighbouring classes, but few: `T067` (an add-in "disabled by administrator policy") and
+`T072` (a browser extension "not allowed by your organization") went from `mdm` to `identity` in every run,
+and `T076` (an activation token) from `knowledge` in two. About 2.7 tickets a run in all, which is about the
+words "blocked" and "denied" and not a boundary.
+
+**`knowledge`: a real regression, in the wrong neighbour.** Of the 11 tickets labelled `knowledge` under both
+schemes, the old prompt got 24.2% and the new one 9.1%. It is not `identity` that took them. It is
+`endpoint`: `T045` (Outlook crashing), `T053` (Teams freezing) and `T060` (OneDrive not syncing) were
+read as "the stub fleet of endpoints" in every run, and `T053` was right in all three runs of the old prompt.
+`endpoint` is predicted 4.7 times a run against one label, a precision of 21%. One possible cause, not
+isolated: `needs_human` was narrowed to physical work, procurement and logistics, and `endpoint` (devices) may be
+the nearest remaining word for an application fault on a device. The experiment below shows it is not the
+output format. All 12 `knowledge` labels are judgement calls and the sample is small, so this is a finding to
+take seriously and not a measurement to trust to the point.
+
+**What else got worse underneath.** Two MFA-failure tickets, `T016` (a loop) and `T037` (a rejected temporary
+access pass), now read as `security`: `security` precision is 75%, so about one urgent flag in four is false, and
+a lane that is wrong that often dilutes the priority it exists to give. `T017` (an SSO assignment) was
+`identity` in every old run and is `needs_human` in every new one. Four tickets were right in all three old runs and wrong in at least two new ones: `T016`, `T017`, `T053`
+and `T032` (a surname change, which now mostly fails to classify, below).
+
+#### Reading the `mdm` misses, and where the boundary should be
+
+Twelve of the 21 `mdm` labels are wrong in a typical run, and they are three different things:
+
+1. **Device state, compliance and enrolment — the core — sent to `needs_human` anyway.** `T094` (Intune says
+   Secure Boot is disabled, the firmware screen says it is on; one of only three firm `mdm` labels),
+   `T080` (a replacement laptop fails enrolment with `0x80180014`), `T087` (a new Mac's serial is not assigned
+   to an MDM server), `T098` (a tablet "already managed by another organisation"), `T096` (a BitLocker recovery
+   key not escrowed to the device). Every one is wrong in all three runs. In each the ticket carries a
+   hardware or logistics cue — a new or replacement device, a serial, a firmware screen, a recovery
+   screen — and the likely reason is that the model follows the cue and not the symptom. The `mdm` clause already says the opposite
+   ("unless the request itself says the device is physically broken"), and `T102` (an enrolment-status-page
+   stall) and `T083`, `T085`, `T090` are right every time, so this is the existing definition not being
+   followed, and not a gap in it.
+2. **Managed configuration: a deployment assignment, a policy, an extension, an update.** `T055` and `T066`
+   to `needs_human`, `T067` and `T072` to `identity`, `T062` and `T078` (OS updates) to `needs_human` or a
+   failure. Here the definition does have a gap: it names device *state*, and these are about what a device is
+   *managed to do*.
+3. **A block whose cause is the device.** Only `T004` in `dataset2`: `AADSTS53003` on one managed laptop while
+   the same account works on the managed phone. Labelled `identity`, classified `identity` every run, and the
+   new prompt's `identity` text says "a sign-in that is blocked, including by conditional access".
+
+**The boundary should be: the variable is the device.** A ticket is `mdm` when the first thing to check is
+the device record, and that is true **whatever the symptom is**. That covers a compliance verdict (and a
+device that disagrees with Intune about itself), enrolment, Autopilot and enrolment-status state, check-in
+and sync, duplicate or stale records, a recovery key held against a device, device posture — and a sign-in or
+access block that is specific to the device or names its compliance or enrolment ("device must be compliant",
+"posture check failed", fine on the same account's other device). It is `identity` when the **account** is
+the variable: the block follows the person across devices, or nothing in the ticket points at a device. The
+reading that a block caused by device state is `mdm` rather than `identity` is right, and the current prompt
+contradicts it in terms: its `identity` text claims every conditional-access block. Hardware cues do not move a
+ticket out of `mdm`; only a device that is physically broken does. Managed configuration belongs in `mdm` too,
+as the weaker half, flagged as a judgement call, because the first check there is an Intune assignment and not
+the device's own record. `security` keeps precedence over both.
+
+Two consequences: the prompt needs one sentence for the device-caused block and a stronger statement that
+hardware cues do not override device state, which were applied in the last round, below; and `dataset2`'s own
+labels predate this wording, so `T004` would move from `identity` to `mdm` and is left as committed, so that
+every `dataset2` figure is against one set of labels. The boundary was applied to the clean held-out labels,
+below, before any run.
+
+### The format failure: the fields are too easy to confuse
+
+Failures went from none to 1.7 a run on `dataset2` (5 of 450 calls) after the prompt grew and gained two
+scope values. Every failure is the same: **a valid category name in the `scope` field** —
+`{"scope": "identity", "category": "identity"}` or `{"scope": "mdm", "category": null}` — the same failure
+`d1-T149` showed in the previous section (`"scope": "endpoint"`). Never a scope word in `category`, never
+nonsense. There is no retry in the code and none was added: a retry would hide the question, and the question
+has an answer.
+
+**I think the two fields are too easy to confuse, and that they want renaming.** Four things point there:
+
+- **The failure is always a correct answer in the wrong slot.** The model knows it means `identity`. `scope`'s
+  value `"routable"` names nothing: it is a placeholder meaning "look in the other field", and the other
+  scope values (`not_it`, `needs_human`, and now `network` and `security`) are all destinations. Adding two
+  more destination-shaped values likely made the first field look more like the answer field; that
+  explanation is a reading of the failures, and what was tested is only the next point.
+- **Renaming alone removes it.** A probe on `dataset2` only, nothing shipped (`evidence/triage-format-probe.json`):
+  the three tickets that failed in the harness runs, ten calls each, plus seven controls, four calls each. The current prompt
+  gave 6 invalid outputs in 58 calls. The same prompt with `scope` → `outcome`, `category` → `agent` and
+  `routable` → `route_to_agent`, same shape and same freedom to answer, gave 0 in 58.
+- **A flat single `destination` field and constrained decoding (a JSON schema with the enums) also gave 0 in
+  58**, so the probe cannot tell the three apart on validity. All three also gave 0 invalid in 300 calls on the
+  full set against 5 in 450 now.
+- **It is not a problem of strictness.** Constrained decoding works by making the wrong output impossible,
+  not by removing the reason the model produces it, and it depends on an API feature. It would stop the
+  failures and say nothing about why they happened.
+
+On accuracy the three variants are not worse and not clearly better; two runs each on all 150 tickets:
+
+| Variant (against the new labels) | Runs | Mean | Invalid outputs | `mdm` recall | `knowledge` → `endpoint` a run |
+|---|---|---|---|---|---|
+| current prompt, `scope` / `category` | 122 / 119 / 119 | 80.0% | 5 of 450 | 44.4% | 3.7 |
+| renamed fields | 122 / 125 | 82.3% | 0 of 300 | 57.1% | 5.5 |
+| flat `destination` | 121 / 124 | 81.7% | 0 of 300 | 45.2% | 3.0 |
+| structured output | 123 / 124 | 82.3% | 0 of 300 | 59.5% | 9.0 |
+
+The 1.7 to 2.3 points are about what the failed calls were costing (1.1 points) plus noise. The probe does
+show the confusion can cost *valid* answers too: on `T062`, the same prompt text gave `mdm` 2 times in 10 under
+free generation and 10 times in 10 under constrained decoding. But on the full set `mdm` recall moves by no
+more than about 15 points and 6.5 to 8 `mdm` tickets a run still go to `needs_human` in every variant, and
+`knowledge` → `endpoint` does not go away in any of them. **So neither the `mdm` misses nor the `endpoint`
+pull is a format artefact.** They are the definitions, above.
+
+**Left unfixed in this round, applied in the last one (below).** The shipped prompt and parser were unchanged
+here, because changing the output names changes the prompt, and the three-run figures in this section are
+measurements of that prompt. The change was contained: rename the names the model sees, keep `TriageResult`'s `scope` and `category` internally, and
+map one to the other in the parser, so no type, label file or consumer changes. An earlier note in this
+section called mapping a category name in `scope` to `routable` "the obvious next change". It is withdrawn: it
+would turn a signal into silence, which is the retry's mistake without the retry.
+
+### The last `dataset2` round: the three fixes, applied
+
+Three changes to `triage.ts`, made together, then three runs on `dataset2` and no more:
+
+1. **The format fix.** The model now sees `outcome` and `agent`, and `route_to_agent` where it used to see
+   `scope`, `category` and `routable`. `TriageResult` still says `scope` and `category`, and so does every
+   label file, the orchestrator and the harness; the parser is the one place the two vocabularies meet
+   (`TRIAGE_WIRE_OUTCOME`). A category name in the `outcome` field, and the old field names, are rejected
+   outright, not translated, and tested. No retry.
+2. **The boundary.** The `mdm` text gained one sentence — a sign-in or access block caused by device state is
+   `mdm`, not `identity`, because the device record is the first thing to check — and a stronger line:
+   hardware wording (a new, replacement or refurbished device, a serial number, a firmware or recovery
+   screen) does not move a ticket out of `mdm`; only a device that is physically broken does. The `identity`
+   text now says "unless the block is caused by the state of one device". Managed configuration was *not*
+   added to `mdm`: the change asked for those two lines and no more.
+3. **Application faults.** They are `knowledge` or `needs_human` depending on whether a document could answer
+   them, and never `endpoint`, managed laptop or not. `endpoint` now says it is about the device itself and
+   never software running on it.
+
+Against the same labels and the same three-run protocol, previous prompt beside this one:
+
+| `dataset2`, new labels | Previous prompt | This round |
+|---|---|---|
+| Runs | 122 / 119 / 119 | **132 / 131 / 134** |
+| Mean | 80.0% | **88.2%** |
+| Firm labels only (104) | 95.2% | 97.4% |
+| Judgement calls only (46) | 45.7% | 67.4% |
+| Invalid outputs | 5 of 450 | **0 of 450** |
+| needs_human (28) | 98.8% | 95.2% |
+| network (20) | 96.7% | 95.0% |
+| security (7), recall / precision | 100% / 75.0% | 100% / 95.5% |
+| identity (61) | 89.6% | 94.5% |
+| mdm (21) | 44.4% | 55.6% |
+| knowledge (12) | 8.3% | 77.8% |
+| endpoint (1), wrong predictions a run | 100%, 3.7 | 100%, **0.0** |
+| Tickets never wrong / wrong in all three | 115 / 26 | 128 / 15 |
+
+**Read the gain by what it is made of.** It is +8.2 points, and the same split applies as in the first round.
+Of the roughly 12 more tickets right per run, about 10 are judgement calls and about 2 are firm labels
+(judgement calls 45.7% → 67.4%, firm 95.2% → 97.4%). Most of the movement is the `knowledge` rows, whose 12
+labels are all judgement calls: the application faults now land in `knowledge` 9.3 times a run (they did
+once), in `needs_human` 2.3 times, and in `endpoint` none (3.7 before). By the rule that either of those two
+is acceptable, 11.7 of the 12 are placed acceptably against 7.0 before. The rest: the invalid outputs are gone
+(`T032` and the others were costing about a point), `security` precision rose from 75% to 95.5% as `T016` and
+`T037`, the two MFA failures, went back to `identity` (`T037` in two runs of three), and `T094` and `T087` are now `mdm`.
+
+**The rename moved valid answers too, not only the invalid ones.** `T016` was `security` in every previous
+run and is `identity` in every run now; the probe above had shown the same ticket flip under the renamed
+fields alone. So the confusing names were costing correct classifications as well as producing failures;
+the next subsection is that finding in full.
+
+**What did not work, or got worse.**
+
+- **The hardware line fixed two of five.** `T094` (the one firm `mdm` label that had been wrong every run) and
+  `T087` are `mdm` now. `T080`, `T098` and `T096` — enrolment and recovery tickets that mention a replacement
+  laptop, a refurbished tablet and a recovery screen — are still `needs_human` in every run. Seven `mdm`
+  tickets a run still go to `needs_human`; those three, and four managed-configuration and update tickets
+  (`T055`, `T062`, `T075`, `T078`) that this round left alone by design.
+- **`T004` is wrong in all three runs, and that is the boundary working.** It is a conditional-access block on
+  one managed laptop with the same account fine on the phone; the prompt now says `mdm`, and the committed
+  label, written before the boundary, says `identity`. It is counted wrong and left as committed. With the
+  label moved to match the rule, the figure would be 88.9% and not 88.2%; see "`T004`: a correct answer that scores as wrong", below.
+- **Two regressions beyond `T004`, both judgement calls.** `T075` (Company Portal reinstalling an old client
+  over a newer one) went from `mdm` to `needs_human`; `T099` (a Bluetooth adapter vanishing after sleep, a
+  hardware fault by the label) went to `knowledge` in every run, a side effect of "a document could answer it".
+- **`T017`** (an SSO assignment, with a vendor's text pasted in) is `needs_human` in every run, as it was
+  before, and `T067` and `T072` (a policy blocking an add-in and an extension) are `identity` in every run.
+
+**What 88.2% is and is not.** It is the iteration-set number after three rounds of changes that were each
+made from named `dataset2` tickets: `T016` and `T032` for the format, `T053` and `T060` for the application
+faults, `T094` and `T004` for the boundary. It says the prompt agrees with these labels, and agrees with them
+more than it did. It is not a prediction, and a set that has been iterated against means less each time its number is quoted.
+It costs more: $0.343 a run and $2.28 per 1,000 requests, against $1.93 before this round and $1.56 before
+the first, because the prompt has grown: about 2,100 input tokens a call now, 1,750 before this round and
+1,370 before the first. The trajectory is set out under "What the three rounds cost", below.
+
+### Finding: renaming the fields changed valid answers, not only invalid ones
+
+The format fix was made to stop invalid outputs, and it did: five of 450 calls before, none of 450 after. The
+more important result is that **it also changed answers that were well formed.** The old names — `scope`,
+`category` and the placeholder value `routable` — were costing correct classifications, not only parseable
+ones.
+
+The evidence, in the order it should be weighed:
+
+- **`T016` (an MFA loop; label `identity`) was `security` in all three runs before the last round and is
+  `identity` in all three after.** That is the observation that prompted this, and on its own it does not
+  prove the rename did it: the same round also rewrote the `identity` text.
+- **The probe is the isolating evidence.** It changed the names and nothing else, on the same prompt text
+  (`evidence/triage-format-probe.json`). `T016` went from `security` four times in four to `identity` four
+  in four. `T062` (label `mdm`) went from `mdm` 2 times in 10 to 9 in 10, the rest `needs_human`. `T002`
+  (label `identity`) went from `security` three times in four to `identity` four in four. Four other
+  controls did not move, and a fifth, `T037`, moved by one call in four. Constrained decoding on the *old* names gave `T062` `mdm` 10 times in 10, which
+  fits the reading below: the model's answer was `mdm`, and the old shape made it hard to say.
+- **On the whole set the effect is small and cannot be separated from noise.** Renamed fields alone, two runs:
+  82.3% against 80.0%, of which about 1.1 points is the invalid outputs that stopped. What remains, about a
+  point, is within run-to-run spread. The finding is about individual tickets, not a headline gain.
+
+**A reading of why, not a tested cause.** With the old names the first field has to hold a placeholder
+(`routable`) for anything an agent handles, and the real answer goes in the second. A model that already knows
+its answer is `identity` or `mdm` has to hold it back in the first slot. Sometimes it writes it there, which
+is an invalid output. Sometimes it takes the nearest scope word instead: `security` for an MFA ticket,
+`needs_human` for an enrolment ticket. That second case is wrong and well formed, so no validity check sees it.
+
+What follows from it:
+
+1. **A zero invalid-output rate does not show a format is neutral.** The invalid outputs were the visible tail
+   of a confusion whose other effects were silent. Anything that counts only parse failures would have called
+   the old format nearly clean at 1%.
+2. **Field and value names are part of the prompt and have to be varied and measured like prompt text.**
+   They never were before this. Every triage figure in this document that predates the rename was measured
+   under names that cost correct answers: the first accuracy harness, the Sonnet and Haiku comparison, the
+   mixed-set baseline, both earlier `dataset2` rounds and the triage step of every simulation pass. They remain true as measurements of those prompts,
+   and they understate what the same wording scores under the new names.
+3. **The held-out measurement, when it is spent, runs under the final names**, and the names are not to be
+   changed again after it.
+
+### `T004`: a correct answer that scores as wrong
+
+**`T004` is the one `dataset2` ticket that the final prompt gets right and the committed label marks wrong.**
+Read it as a correct answer scored wrong, not as a miss.
+
+> Sign-in to Microsoft 365 is blocked with `AADSTS53003` on my managed ThinkPad. Started after lunch; the same
+> account works on my managed phone. Correlation ID ends 72c9. I haven't changed location.
+
+The label is `identity`, committed in `6a03959` before the boundary rule existed. The boundary rule says a
+block specific to one device is `mdm`, because the device record is the first thing to check, and the final
+prompt says so: it answers `mdm` in all three runs. The scoring therefore counts it wrong.
+
+| `dataset2`, final prompt | Runs | Mean |
+|---|---|---|
+| As scored, label `identity` | 132 / 131 / 134 | 88.2% |
+| **If the label were `mdm`** | 133 / 132 / 135 | **88.9%** |
+
+The previous round's prompt, which said `identity`, would score 121 / 118 / 118 (79.3%) against the moved label
+and not 122 / 119 / 119 (80.0%), so the label move would also widen that round's gain, from 8.2 to 9.6 points.
+
+**The label was left alone, for four reasons.**
+
+1. Every `dataset2` figure in this document, across all the prompts that were run, is against one committed
+   label file. Moving one label changes each of them by a ticket and leaves the committed numbers
+   unreproducible from the committed labels.
+2. A label changed after results are seen is a label shaped by results. Here the change would go against the
+   old prompt's answer and not for the new one, which is not the same as chasing a score, but the project's
+   rule is that labels are fixed before runs and it is simpler to keep it than to argue each exception.
+3. `dataset2` is finished as an iteration set, so no later round would use the corrected label. The place the
+   rule belongs is the held-out labels, where it was applied before any run
+   ([`test/heldout-labels.md`](test/heldout-labels.md)).
+4. The label file cannot carry a comment. [`test/dataset2-labels.md`](test/dataset2-labels.md) now records the
+   mismatch, so a reader who opens the label first finds it there as well.
+
+`T004` is the only `dataset2` ticket found that the rule would move.
+
+### What the three rounds cost
+
+Cost is one triage call per request on Haiku with thinking off, priced from the harness's token counts. The
+prompt has grown by about half since before this work.
+
+| Prompt | Input tokens a call | A run of 150 | Per 1,000 requests | `dataset2`, new labels, all 150 | Of which the 123 without `network` / `security` | Firm labels among those (78) |
+|---|---|---|---|---|---|---|
+| Before this work | 1,369 | $0.234 | **$1.56** | 56.7% | 69.1% | 82.1% |
+| Round 1 | 1,753 | $0.290 | **$1.93** | 80.0% | 76.2% | 93.6% |
+| Round 2 (final) | 2,090 | $0.343 | **$2.28** | 88.2% | 86.4% | 96.6% |
+
+Cost rose 46% from the original to the final prompt: 24% in the first round and 18% in the second. On the
+same labels, accuracy rose 31.5 points over all 150, **17.3 of which are `network` and `security` having a
+destination at all**, and 17.3 points on the 123 tickets the earlier prompt had a destination for (7.1 in
+round 1, 10.2 in round 2). Per 1,000 requests, that is about 5.2 cents per point in round 1, 3.4 in round 2
+and 4.2 over both, counted on the 123.
+
+**The trade is defensible and it is not free.** Four qualifications go with it. The gains are in-sample: each
+change was made from named `dataset2` tickets, and about ten of the twelve extra tickets right per run in
+round 2 are judgement calls. The prompt grows with each fix, and each added sentence is a standing cost on every
+request. The model tier was last compared on the prompt before this work, and a longer prompt widens whatever gap a
+dearer tier has. And a next round would need to beat about four cents per point per 1,000 requests to match
+this one, **on a set that has not been iterated on**. `dataset2` is finished and the held-out 200 are spent
+once, so as things stand that ratio could be asserted for a further round and not measured.
+
+### `dataset2` iteration stops here; the clean 200 from `dataset1` and `dataset3` are labelled and unspent
+
+`dataset2` was the iteration set, **and the iteration stops with the round above.** It has been tuned against
+enough that its number means less with each pass, and nothing further is to be changed for the sake of it.
+`dataset1.json` and `dataset3.json` are held out, and **are contaminated for the 50 tickets each that the
+mixed set drew.** The mixed set was run, and its misses read, before this change was designed; both changes
+follow from what those misses showed, and one phrase was taken directly from one ticket (the prompt now says a
+phishing message is never `not_it` "even when it mentions a delivery", and `d1-T142`, the FedEx ticket, is in
+the mixed set). Those 100 tickets are spent as held-out and the mixed set as a whole is no longer a held-out
+set for this prompt, for the reason the previous section gave: it was used to change `triage.ts`.
+
+The clean sample is the **other 100 from each of `dataset1` and `dataset3`**: the tickets that are not in
+`test/mixed-set.json`, which no classifier has run on and whose misses nobody has read. They are now relabelled
+by domain, under the eight destinations and the `mdm` / `identity` boundary above:
+[`test/heldout-labels.json`](test/heldout-labels.json), rules in
+[`test/heldout-labels.md`](test/heldout-labels.md), committed in `5c9fb63` **before any run, with no classifier
+output for these tickets in existence**. 66 of the 200 are flagged as judgement calls. The first-scheme labels
+for the 100 spent tickets are left in `dataset-labels.json` and are not relabelled: they will not be used.
+
+**Nothing has been run against the 200 and nothing is to be, by the harness or by anything else, until we
+deliberately decide to spend them. They are spent once, when the project closes, and not to check whether a
+round of changes helped.** A held-out set is spent the first time it is looked at under a prompt, and
+after that it is an iteration set. What has happened to them so far is that the labeller read their text to
+write the labels (twice: once for the first scheme and once for this one); that is not a measurement, and
+the labels were written without any classifier output to look at. If the scheme changes before they are
+spent, that is a new label file with its own commit, written without reference to any output.
+
+**Evidence committed:** `evidence/triage-harness-d2-oldprompt-r{1,2,3}.{md,json}` (old prompt, scored by
+the harness against the old labels; rescored offline against the new labels for the control row) and
+`evidence/triage-harness-d2-new-r{1,2,3}.{md,json}` (new prompt, new labels);
+`evidence/triage-format-probe.json` and `evidence/triage-harness-variant-v{1,2,3}-r{1,2}.json` (the format
+variants, which are outcome lists written by a scratch script outside the repository and have no `.md`
+reports); and `evidence/triage-harness-d2-fix-r{1,2,3}.{md,json}` (the last round: the three fixes, new
+labels). A run costs $0.34 now, $0.29 before that and $0.23 before the first, because the prompt keeps
+growing: about $2.28 per 1,000 requests. Code: `triage.ts` (five scopes, the rewritten prompt), `orchestrator.ts` (two new
+statuses, reasons, messages), the handoff store's `urgent` field and migration, `console-data.ts` and
+`console-page.ts` (queue order and marking), the request page, and `simulation-types.ts`,
+`simulation-compare.ts` and `simulate.ts`; and in the last round `triage.ts` again (the wire names and the
+parser mapping, the `mdm`, `knowledge` and `endpoint` text). 1024 tests across nine packages, all passing;
+`pnpm typecheck` and `pnpm build` clean.

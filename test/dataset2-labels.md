@@ -81,3 +81,17 @@ scheme. They were **not** written blind to every earlier result: 50 of these tic
 whose first-scheme misses had been read before this scheme was defined, so for those 50 the labeller knew
 what the classifier had done. The labels were assigned from the definitions above, not from those outputs,
 but the knowledge was there.
+
+## Known mismatch: `T004`
+
+`T004` is labelled `identity` and is, under the later rule, an `mdm` ticket. It is a conditional-access
+block (`AADSTS53003`) on one managed laptop while the same account works on the same person's managed
+phone. The rule — a sign-in or access block specific to one device is `mdm`, because the device record is
+the first thing to check — was written after these labels were committed, and the final prompt applies it:
+it answers `mdm` for `T004` in every run. The scoring therefore counts a correct answer as wrong.
+
+The label is left as committed so that every `dataset2` figure is against the same labels, and because a
+label changed after results are seen should not be changed at all. With the label moved to `mdm` the
+final prompt's mean would be 88.9% rather than 88.2%. No other `dataset2` ticket was found that the rule
+would move. The rule is applied in [`heldout-labels.md`](heldout-labels.md), before any run. The README
+has the figures, under "`T004`: a correct answer that scores as wrong".
