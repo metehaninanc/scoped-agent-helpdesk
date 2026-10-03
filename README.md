@@ -5178,10 +5178,18 @@ this document is traceable to evidence, and this section says plainly where the 
 | `b23fe55`, `e53a686`, `011dbc6`, `ae1f086` | The agent package: failure recognition, the database guard, the orchestrator chain, the four agents and `HELPDESK_AGENT_AUTH`. |
 | `dc5b5ab`, `1d58de9`, `14b528f` | The web package: simulation tooling, the dashboard's outcomes section, the console wiring. |
 | `c983a72` | Root scripts and the lockfile. |
+| `2fcc649` | `web`: requests are written to the chain paths the app reads (the bug the walkthrough found). |
+| `f409b7a`, `1ed024f` | The injection suite: the set, the check, `prove-injection`, and its two full runs. |
+| `bbba6a4`, `0eeb709` | The walkthrough recorder, and the recording with a fresh `prove-isolation` run. |
+| `d38068d` | Root scripts for the two. |
+| `eb05b25` | The README for the injection suite and the walkthrough. |
 
-**What was and was not checked.** `c983a72` is the tip of that series, and it was checked as a clean clone:
-installed offline from the committed lockfile with `--frozen-lockfile` (nothing downloaded), built,
-type-checked, and all 1,024 tests passed. **No commit before it was built on its own**, and the first
-several cannot have been: they depend on `packages/handoff-core`, the gateways and the lockfile, which arrive
-in later commits, and each such commit says so in its message. Several files, `README.md` among them, were
+**What was and was not checked.** `c983a72` and, after the injection suite and the walkthrough, `eb05b25` were each
+checked as a clean clone: installed from the committed lockfile with `--frozen-lockfile`, built, type-checked,
+and every test run: 1,024 passed at `c983a72`, 1,057 at `eb05b25`. The first check installed offline, with
+nothing downloaded. By the second the local package store had lost some tarballs, so it installed with
+`--prefer-offline`: 61 packages from the store and 87 downloaded from the registry at the versions and hashes the
+lockfile pins. **No other commit was built on its own**, and the early ones cannot have been: they depend on
+`packages/handoff-core`, the gateways and the lockfile, which arrive in later commits, and each such commit says
+so in its message. The commit after `eb05b25` changes `README.md` only. Several files, `README.md` among them, were
 committed whole and so carry work from more than one period. Nothing was rewritten to hide any of this.
