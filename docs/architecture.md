@@ -6,6 +6,8 @@ Section titles quoted in the text, such as "Endpoint gateway notes", are the tit
 
 ## What this is
 
+> **Written for Sprint 1, and kept as written.** The system it describes has grown: triage now sits in front of four agents (identity, MDM, knowledge, endpoint), each behind its own gateway, with an operator console for handoffs, a dashboard and a prompt-injection suite. The root README has the current summary; the problem and the claim below still hold.
+
 This is a small identity helpdesk: a web form where someone can ask a question about group
 membership or ask for a group membership change, an AI agent that answers the question or
 requests the change, and a human approver who reviews and decides on any change before it

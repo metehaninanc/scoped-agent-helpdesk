@@ -6,6 +6,8 @@ Section titles quoted in the text, such as "Endpoint gateway notes", are the tit
 
 ## Status
 
+> Each table and test count below is as of the sprint it names and is kept as written: 283 tests at Sprint 1, 427 at Sprint 2, 990 at the end of pass four, 1,058 at the final pass (see "Repository history", below).
+
 | Component            | State                                                |
 | --------------------- | ---------------------------------------------------- |
 | 1. Policy engine      | done, tests first: `packages/identity-gateway/src/policy`      |

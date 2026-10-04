@@ -19,6 +19,8 @@ This section is a summary, written when the README was split; the sections below
 
 ### What Sprint 1 deliberately does not include
 
+> **The scope as drawn in Sprint 1, kept as written.** Since then the gateways gained an HTTP transport with bearer-token validation (Sprint 2, Stage B), three more agents arrived (MDM in Sprint 2, knowledge and endpoint in Sprint 3) with triage in front of them (Sprint 3), and a prompt-injection suite exists (Sprint 4). Still true: the web app's identity field is a plain text input, and there is no ledger anchoring.
+
 Microsoft Graph access uses a certificate credential (no client secrets). The gateway is
 reachable only over stdio, on the same host as the agent that spawns it; there is no HTTP
 transport and no OAuth on the gateway itself. The web app's identity field is a plain text
@@ -34,6 +36,8 @@ purpose, so that Sprint 1 stays small enough to actually finish and be evaluated
 > **Moved:** *What Sprint 2, Stage B adds* is now in [architecture.md](architecture.md#what-sprint-2-stage-b-adds).
 
 ### What is still open after Sprint 2
+
+> **As of the end of Sprint 2, kept as written.** Two items have closed since: triage between agents (Sprint 3.1, as the last sentence below says) and the prompt-injection suite (Sprint 4, `pnpm prove-injection`). The merged read-only view across chains, the fuller MCP authorization model, Entra login on the web app and ledger anchoring remain open.
 
 A merged, read-only view across the two gateways' separate audit chains (SPRINT2.md, Component 6
 describes this as a small reader that verifies each chain independently before merging by
