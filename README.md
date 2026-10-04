@@ -1,8 +1,10 @@
 # scoped-agent-helpdesk
 
-A helpdesk where AI agents handle identity, device, documentation and endpoint requests against a real Microsoft Entra tenant, and a deterministic policy engine, not the model, decides what any of them may do. Every tool call is autonomous, approval-gated by a human, or never automated, decided by code the model never touches, and every decision, refusals included, is written to a hash-chained audit log before anything happens. Triage sends each request to one of four agents or hands it to a person, and each agent reaches only its own gateway with its own credential. This repository is the build, the evidence and the measurements, including the ones that came out badly.
+A helpdesk where AI agents handle identity, device, documentation and endpoint requests against a real Microsoft Entra tenant.
 
-**[Watch the 5:23 walkthrough](evidence/walkthrough.mp4)** (silent, captioned). **If you read one more thing, read [docs/findings.md](docs/findings.md):** the bugs and wrong assumptions this project turned up, including dead code that passed its own tests, a comparator that counted reaching a tool as success, and a documentation repository that disappeared.
+A deterministic policy engine, not the model, decides what any of them may do. Every tool call is autonomous, approval-gated by a human, or never automated, decided by code the model never touches, and every decision, refusals included, is written to a hash-chained audit log before anything happens. Triage sends each request to one of four agents or hands it to a person, and each agent reaches only its own gateway with its own credential. This repository is the build, the evidence and the measurements, including the ones that came out badly.
+
+**[Watch the 5:23 walkthrough](evidence/walkthrough.mp4)** (silent, captioned). **If you read one more thing, read [docs/findings.md](docs/findings.md):** the bugs and wrong assumptions this project turned up, including dead code that passed its own tests, a comparator that counted reaching a tool as success, and documentation repositories that disappeared.
 
 ```mermaid
 flowchart TD
@@ -38,12 +40,12 @@ flowchart TD
 
 Final pass: 150 synthetic tickets, single turn, one test tenant. Each line carries its own caveat.
 
-- **Routing: 133 of 150 (88.7%), in-sample:** the prompt was tuned on these tickets, so it predicts nothing about unseen ones; the held-out 200 are unspent.
-- **Replies: 102 of 150 acted or said why they stopped; 48 did not** (39 got a fixed "needs a person"), classified by hand by a model, not a human.
-- **Refused on authority: 7 of 85 routed tickets, none done,** but the agent declined first, so this pass does not show the gate refusing.
-- **Resolved: 0 of 85, a property of the test tenant** (no devices, two managed groups, a corpus that misses the tickets), not of the system.
-- **Load: nothing closed without a person; 73 of 150 got a structured handoff, 65 a bare label, 12 no one,** same hand classification.
 - **Boundary checks: `prove-isolation` 22 of 22; `prove-injection` exits 1** (no action achieved, 3 route changes), one run, and a re-run flipped one attempt.
+- **Refused on authority: 7 of 85 routed tickets, none done,** but the agent declined first, so this pass does not show the gate refusing.
+- **Replies: 102 of 150 acted or said why they stopped; 48 did not** (39 got a fixed "needs a person"), classified by hand by a model, not a human.
+- **Routing: 133 of 150 (88.7%), in-sample:** the prompt was tuned on these tickets, so it predicts nothing about unseen ones; the held-out 200 are unspent.
+- **Load: nothing closed without a person; 73 of 150 got a structured handoff, 65 a bare label, 12 no one,** same hand classification.
+- **Resolved: 0 of 85, a property of the test tenant** (no devices, two managed groups, a corpus that misses the tickets), not of the system.
 
 ## Running it
 

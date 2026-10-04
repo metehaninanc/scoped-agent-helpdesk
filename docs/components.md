@@ -630,7 +630,7 @@ answer can always be traced back to an exact, reproducible version of its source
 | Entra | `MicrosoftDocs/entra-docs` | [`a37c43a`](https://github.com/MicrosoftDocs/entra-docs/tree/a37c43ae5c2494cfc4211bb6242eb3151de6e40e) | `docs/` | 8 articles: *What is Microsoft Entra?*, *Learn About Groups, Group Membership, and Access*, *How to manage groups*, *Understand Microsoft Entra role concepts*, *Manage Microsoft Entra user roles*, *Build Conditional Access policies in Microsoft Entra*, *Conditional Access Setup: Users, Groups, Agents, and Workload Identities*, *What are Microsoft Entra registered devices?* |
 | Intune | `MicrosoftDocs/memdocs` | [`4b5429d`](https://github.com/MicrosoftDocs/memdocs/tree/4b5429df8b47046c6b251e572ee61199fb5d4a5d) | `intune/` | 5 articles: *Get started with Microsoft Intune*, *Microsoft Intune core concepts*, *Step 5 – Enroll devices in Microsoft Intune*, *Device compliance policies in Microsoft Intune*, *Create device compliance policies in Microsoft Intune* |
 
-> **Correction, 2026-10-04:** `MicrosoftDocs/memdocs` no longer resolves (404, unauthenticated and through `gh api`), so every `memdocs` link in this section is dead. The vendored copies in `corpus/raw/` are unaffected and are now the only copy at that commit; the table is left as it was written. See "The documentation repository that disappeared" in [findings.md](findings.md).
+> **Correction, 2026-10-04:** `MicrosoftDocs/memdocs` no longer resolves (404, unauthenticated and through `gh api`), so every `memdocs` link in this section is dead. The vendored copies in `corpus/raw/` are unaffected and are now the only copy at that commit; the table is left as it was written. See "The documentation repositories that disappeared" in [findings.md](findings.md).
 
 Both are checked into `corpus/raw/<entra|intune>/`, read from disk once at process startup
 (`corpus.ts`'s `loadCorpus()`) and never fetched again — this gateway has no network access to
@@ -710,7 +710,7 @@ What widened instead, because it checked out as genuinely current and public:
 | Intune — enrollment | `MicrosoftDocs/memdocs` | [`4b5429d`](https://github.com/MicrosoftDocs/memdocs/tree/4b5429df8b47046c6b251e572ee61199fb5d4a5d) | `intune/device-enrollment` | *Overview of enrollment restrictions* |
 | Intune — device configuration | `MicrosoftDocs/memdocs` | [`4b5429d`](https://github.com/MicrosoftDocs/memdocs/tree/4b5429df8b47046c6b251e572ee61199fb5d4a5d) | `intune/device-configuration` | *Device features and settings in Microsoft Intune* |
 
-> **Correction, 2026-10-04:** `MicrosoftDocs/memdocs` no longer resolves (404, unauthenticated and through `gh api`), so every `memdocs` link in this section is dead. The vendored copies in `corpus/raw/` are unaffected and are now the only copy at that commit; the table is left as it was written. See "The documentation repository that disappeared" in [findings.md](findings.md).
+> **Correction, 2026-10-04:** `MicrosoftDocs/memdocs` no longer resolves (404, unauthenticated and through `gh api`), so every `memdocs` link in this section is dead. The vendored copies in `corpus/raw/` are unaffected and are now the only copy at that commit; the table is left as it was written. See "The documentation repositories that disappeared" in [findings.md](findings.md).
 
 Four of these six sit in their own small product directory rather than folded into the existing
 `intune` or new `microsoft365` ones. Splitting was the safe default at the moment they were

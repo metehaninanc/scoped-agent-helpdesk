@@ -142,4 +142,4 @@ Without `--tickets` it runs the original mixed ticket files; the final pass used
 
 **`pnpm record-walkthrough`** needs Chrome (`CHROME_PATH`) and ffmpeg (`FFMPEG`), starts its own private stack, and overwrites `evidence/walkthrough.mp4` and `.md`. Run with `--scenes title` it wrote a 0:12 video. `--scenes` takes the scene names and `--keep-frames` keeps the screenshots.
 
-**`pnpm knowledge-reindex`** reports what the corpus folder holds, and **`pnpm knowledge-verify-citations`** checks every citation URL over the network, exits 1 if any does not resolve, and overwrites `evidence/knowledge-corpus-citations.txt`. Nine of the 25 now return 404; see "The documentation repository that disappeared" in [findings.md](findings.md).
+**`pnpm knowledge-reindex`** reports what the corpus folder holds, and **`pnpm knowledge-verify-citations`** checks every citation URL over the network, exits 1 if any does not resolve, and overwrites `evidence/knowledge-corpus-citations.txt`. Nine of the 25 now return 404; see "The documentation repositories that disappeared" in [findings.md](findings.md).
