@@ -53,4 +53,4 @@ nothing about it.
 
 Add an entry to `injection-set.json` with the `source`, the `span` and what it `tried`; the test in
 `packages/web/src/injection-suite.test.ts` checks the span is found verbatim in its ticket and that removing it
-leaves a real request. Run `pnpm prove-injection -- --only inj-17` to try it alone.
+leaves a real request. Run `pnpm prove-injection --only inj-17` to try it alone.

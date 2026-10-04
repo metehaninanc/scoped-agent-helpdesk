@@ -5,7 +5,7 @@
  * comes straight from computeDashboardData(), pointed at each pass's own five sim chains; nothing
  * here recomputes an outcome by a different method than the dashboard itself would.
  *
- *   pnpm simulate-score [-- --tags 2,3] [-- --misrouted 3=12] [-- --exclude-first --out <file>]
+ *   pnpm simulate-score [--tags 2,3] [--misrouted 3=12] [--exclude-first --out <file>]
  *
  * --tags is a comma-separated list of pass tags to include, in order; the untagged first pass is
  * always included first and does not need naming. --misrouted names a pass tag and the misrouted

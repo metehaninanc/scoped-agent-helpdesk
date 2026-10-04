@@ -4,7 +4,7 @@
  * usage and cost live from that run's five sim chains via the same computeDashboardData() the
  * live dashboard uses, verifies all five chains, and writes that run's summary file.
  *
- *   pnpm simulate-summary [-- --tag <name>]
+ *   pnpm simulate-summary [--tag <name>]
  *
  * --tag matches bin/simulate.ts's own: with no tag, reads evidence/simulation-results.jsonl and
  * data/sim-*.db, writes evidence/simulation-summary.md; with `--tag 2`, the same for the second

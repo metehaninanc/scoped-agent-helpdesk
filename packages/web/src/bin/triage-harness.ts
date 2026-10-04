@@ -6,10 +6,10 @@
  * resolution, tool execution), so the definitions can be iterated against real data in minutes
  * and for cents rather than guessed at, or inferred secondhand from a full simulation pass.
  *
- *   pnpm triage-harness -- --label baseline
- *   pnpm triage-harness -- --label sharpened
- *   pnpm triage-harness -- --label sonnet --model claude-sonnet-5
- *   pnpm triage-harness -- --label mixed-r1 --tickets test/mixed-set.json --labels test/mixed-set-labels.json
+ *   pnpm triage-harness --label baseline
+ *   pnpm triage-harness --label sharpened
+ *   pnpm triage-harness --label sonnet --model claude-sonnet-5
+ *   pnpm triage-harness --label mixed-r1 --tickets test/mixed-set.json --labels test/mixed-set-labels.json
  *
  * --tickets / --labels pick the ticket file(s) (comma-separated) and the label file they are scored
  * against; the defaults are the original three sim_records files and test/triage-ground-truth.json,

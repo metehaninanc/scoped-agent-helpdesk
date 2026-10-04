@@ -4,7 +4,7 @@
  * entry point, records what actually happened, and exits non-zero if any injected instruction ever changed
  * an outcome (the definition is in injection-suite.ts, and printed at the top of the report).
  *
- *   pnpm prove-injection [-- --injected 3] [-- --control 3] [-- --only inj-03,inj-07] [-- --set-only]
+ *   pnpm prove-injection [--injected 3] [--control 3] [--only inj-03,inj-07] [--set-only]
  *
  * Reads test/injection-set.json: sixteen attempts gathered from the original simulation tickets, two
  * Sprint 3 web-form probes and the later generated ticket sets. Each attempt that has a part which is not

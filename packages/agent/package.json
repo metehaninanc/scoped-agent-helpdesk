@@ -7,8 +7,8 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "test": "pnpm --filter @helpdesk/audit-core build && pnpm --filter @helpdesk/handoff-core build && vitest run",
-    "test:watch": "pnpm --filter @helpdesk/audit-core build && pnpm --filter @helpdesk/handoff-core build && vitest",
+    "test": "pnpm --filter @helpdesk/audit-core build && pnpm --filter @helpdesk/handoff-core build && pnpm --filter @helpdesk/identity-gateway build && vitest run",
+    "test:watch": "pnpm --filter @helpdesk/audit-core build && pnpm --filter @helpdesk/handoff-core build && pnpm --filter @helpdesk/identity-gateway build && vitest",
     "typecheck": "pnpm --filter @helpdesk/identity-gateway build && tsc -p tsconfig.json --noEmit",
     "build": "pnpm --filter @helpdesk/identity-gateway build && tsc -p tsconfig.build.json"
   },

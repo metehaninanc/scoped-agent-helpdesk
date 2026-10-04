@@ -715,10 +715,10 @@ Stage A is complete.
 | Component                             | State                                                                 |
 | --------------------------------------- | ------------------------------------------------------------------------ |
 | 1. Agent credentials                    | done, live: `pnpm token-smoke`                                           |
-| 2. HTTP transport                       | done, tests first: `packages/identity-gateway/src/tools/http-listener.ts` |
+| 2. HTTP transport                       | done, tests first: `packages/identity-gateway/src/tools/http-listener.ts` (since Sprint 3.2: `packages/gateway-core/src/http-listener.ts`) |
 | 3. Token validation                     | done, tests first: `packages/identity-gateway/src/auth`                  |
 | 4. Cross-gateway and endpoint-coverage proof | done: `pnpm prove-isolation` (7 checks), `evidence/isolation-run.txt` |
-| 5. Web app loses its Graph credential    | done, tests first: `packages/identity-gateway/src/approvals/decision-listener.ts` |
+| 5. Web app loses its Graph credential    | done, tests first: `packages/identity-gateway/src/approvals/decision-listener.ts` (since Sprint 3.4: `packages/gateway-core/src/approvals/decision-listener.ts`) |
 | 6. Both audit chains verify clean       | done — see the Sprint 2 verification run below                          |
 
 Stage B is complete. Sprint 2's full definition of done is exercised end to end in the
@@ -4006,7 +4006,7 @@ the classifier itself, and is cheap enough to test directly, isolated from every
 simulation pass bundles together (the agents' own behavior, handoff resolution, tool execution).
 
 **A triage-only harness, not another full pass.**
-[`bin/triage-harness.ts`](packages/web/src/bin/triage-harness.ts) (`pnpm triage-harness -- --label
+[`bin/triage-harness.ts`](packages/web/src/bin/triage-harness.ts) (`pnpm triage-harness --label
 <name>`) calls `createTriageClassifier()` directly — classification alone, no agent, no gateway, no
 tool call — against all 150 ticket texts and a hand-built ground-truth label file,
 [`test/triage-ground-truth.json`](test/triage-ground-truth.json): one `{ scope, category }` per
@@ -5236,6 +5236,7 @@ hour to an hour; `--only inj-05` runs one attempt and `--set-only` checks the se
 **[Watch the walkthrough](evidence/walkthrough.mp4)** (5:23, silent, captioned). It shows, in order:
 
 | From | Length | Scene |
+|---|---|---|
 | 0:00 | 0:12 | Title |
 | 0:12 | 0:30 | A request that resolves |
 | 0:42 | 1:18 | The approval gate, with a briefing |
@@ -5271,7 +5272,7 @@ The recording also re-ran `pnpm prove-isolation` (22 of 22), so `evidence/isolat
 ## Pass five: the final full pass
 
 **What was run.** `dataset2`'s 150 tickets, submitted through `routeRequest()` (the function the web form calls) by
-`pnpm simulate -- --tag 5 --tickets test/dataset2.json --actor-mapping test/actor-mapping-dataset2.json`, against four
+`pnpm simulate --tag 5 --tickets test/dataset2.json --actor-mapping test/actor-mapping-dataset2.json`, against four
 gateways on their own ports and the five `sim5` chains. The same rules as passes one to four: one agent turn per
 ticket, no clarifying question answered (there is no mechanism to answer one), each ticket recorded as it finishes,
 the run stopping on a usage, billing or authentication condition and not recording it. Every agent call asserted that
@@ -5306,7 +5307,7 @@ Where triage sent the 150: `identity` 59, `needs_human` 39, `network` 19, `mdm` 
 
 ### The five outcomes, reject path and accept path apart
 
-From `pnpm simulate-score -- --tags 5 --exclude-first`, the same computation the live dashboard uses over the pass's
+From `pnpm simulate-score --tags 5 --exclude-first`, the same computation the live dashboard uses over the pass's
 own chains ([`evidence/simulation-outcomes-5.md`](evidence/simulation-outcomes-5.md)). Handoffs and approvals are left
 unresolved, as before. These are recorded as the dashboard's outcome model produces them; they are not the headline,
 for the reason in the next subsection.

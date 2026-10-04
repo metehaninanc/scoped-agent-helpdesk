@@ -1,7 +1,7 @@
 /**
  * Records the five-minute walkthrough: a silent, captioned video of the real system doing its work.
  *
- *   pnpm record-walkthrough [-- --scenes title,resolves] [-- --keep-frames]
+ *   pnpm record-walkthrough [--scenes title,resolves] [--keep-frames]
  *
  * It starts a private copy of the stack (four gateways on ports 3031-3034 against fresh data/demo-*.db
  * chains, and the web app on 3100), drives a headless Chrome over the DevTools protocol, takes screenshots,

@@ -5,7 +5,7 @@
  * of five databases (data/sim-*.db by default) so this run's evidence never mixes with or
  * overwrites the five chains under data/ that carry every verification run from Sprints 1 through 3.
  *
- *   pnpm simulate [-- --tag <name>] [-- --limit <n>] [-- --tickets <file[,file]> --actor-mapping <file>]
+ *   pnpm simulate [--tag <name>] [--limit <n>] [--tickets <file[,file]> --actor-mapping <file>]
  *
  * --tickets names the ticket file(s) to submit instead of the three sim_records files, and --actor-mapping the
  * synthetic-address-to-real-user file that goes with them. Pass five (the dataset2 pass) used both:
