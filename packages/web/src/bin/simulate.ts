@@ -5,7 +5,13 @@
  * of five databases (data/sim-*.db by default) so this run's evidence never mixes with or
  * overwrites the five chains under data/ that carry every verification run from Sprints 1 through 3.
  *
- *   pnpm simulate [-- --tag <name>] [-- --limit <n>]
+ *   pnpm simulate [-- --tag <name>] [-- --limit <n>] [-- --tickets <file[,file]> --actor-mapping <file>]
+ *
+ * --tickets names the ticket file(s) to submit instead of the three sim_records files, and --actor-mapping the
+ * synthetic-address-to-real-user file that goes with them. Pass five (the dataset2 pass) used both:
+ * `--tag 5 --tickets test/dataset2.json --actor-mapping test/actor-mapping-dataset2.json`. A mapping is a
+ * property of a ticket set, built once by the same round-robin over the same four real users and then committed,
+ * so a different ticket set needs its own file and the original is never touched.
  *
  * --tag names a second (third, ...) independent run against its own databases and its own results
  * file, so a later pass can sit side by side with an earlier one rather than overwriting it: with
@@ -79,7 +85,6 @@ export function summaryPath(tag?: string): string {
   return resolve(tag ? `evidence/simulation-summary-${tag}.md` : "evidence/simulation-summary.md");
 }
 
-const ACTOR_MAPPING_PATH = resolve("test/actor-mapping.json");
 const DELAY_MS = Number.parseInt(process.env.SIM_DELAY_MS ?? "1500", 10);
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -116,7 +121,7 @@ async function main(): Promise<void> {
   // committing to the full file, never for skipping tickets that look out of scope; resumability
   // means a later invocation with no --limit still picks up everything this one left undone.
   // --tag names an independent, side-by-side run — see file header.
-  const { values } = parseArgs({ options: { limit: { type: "string" }, tag: { type: "string" } }, strict: true });
+  const { values } = parseArgs({ options: { limit: { type: "string" }, tag: { type: "string" }, tickets: { type: "string" }, "actor-mapping": { type: "string" } }, strict: true });
   const limit = values.limit !== undefined ? Number.parseInt(values.limit, 10) : undefined;
   const tag = values.tag;
 
@@ -125,9 +130,11 @@ async function main(): Promise<void> {
 
   mkdirSync(dirname(RESULTS_PATH), { recursive: true });
 
-  const loaded = loadTickets();
+  const ticketFiles = values.tickets ? values.tickets.split(",").map((f) => f.trim()).filter(Boolean) : undefined;
+  if (ticketFiles && !values["actor-mapping"]) throw new Error("--tickets needs its own --actor-mapping: the original mapping covers the original tickets only");
+  const loaded = loadTickets(ticketFiles);
   const distinctAddresses = [...new Set(loaded.map((l) => l.ticket.submittedBy))];
-  const mapping = loadOrBuildActorMapping(ACTOR_MAPPING_PATH, distinctAddresses);
+  const mapping = loadOrBuildActorMapping(resolve(values["actor-mapping"] ?? "test/actor-mapping.json"), distinctAddresses);
 
   const alreadyDone = readExistingKeys(RESULTS_PATH);
   console.error(`[simulate]${tag ? ` [tag ${tag}]` : ""} ${loaded.length} ticket(s) total, ${alreadyDone.size} already recorded, ${loaded.length - alreadyDone.size} remaining`);
