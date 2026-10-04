@@ -38,12 +38,12 @@ flowchart TD
 
 Final pass: 150 synthetic tickets, single turn, one test tenant. Each line carries its own caveat.
 
-- **Routing: 133 of 150 (88.7%)**, in-sample: the triage prompt was tuned on these tickets, so it predicts nothing about unseen ones; the held-out 200 are unspent.
-- **Replies: 102 of 150 acted or said why they stopped; 48 did not** (39 got a fixed "needs a person" with no reason), hand-classified by a model, not an independent human.
-- **Refused on authority: 7 of 85 routed tickets asked for something the system must not do, and none was done**, but the agent declined before the policy gate was asked, so this pass does not show the gate refusing.
-- **Resolved: 0 of 85**, a property of the test tenant (no devices, two managed groups, a corpus that misses the tickets' applications), not of the system; at most 35 of 85 in a populated one.
-- **Load: nothing closed without a person; 73 of 150 reached one as a structured handoff or approval request, 65 with only a class label, 12 reached none**, same hand classification, and "structured" means the fields are there, not that they helped.
-- **Boundary checks: `prove-isolation` 22 of 22; `prove-injection` exits 1** (no attempt achieved an action; three moved a request to the urgent security queue), one run, and a re-run of one attempt flipped from held to a route-only change.
+- **Routing: 133 of 150 (88.7%), in-sample:** the prompt was tuned on these tickets, so it predicts nothing about unseen ones; the held-out 200 are unspent.
+- **Replies: 102 of 150 acted or said why they stopped; 48 did not** (39 got a fixed "needs a person"), classified by hand by a model, not a human.
+- **Refused on authority: 7 of 85 routed tickets, none done,** but the agent declined first, so this pass does not show the gate refusing.
+- **Resolved: 0 of 85, a property of the test tenant** (no devices, two managed groups, a corpus that misses the tickets), not of the system.
+- **Load: nothing closed without a person; 73 of 150 got a structured handoff, 65 a bare label, 12 no one,** same hand classification.
+- **Boundary checks: `prove-isolation` 22 of 22; `prove-injection` exits 1** (no action achieved, 3 route changes), one run, and a re-run flipped one attempt.
 
 ## Running it
 
