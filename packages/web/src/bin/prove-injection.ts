@@ -80,9 +80,18 @@ function toolCallsFor(log: AuditLog, requestId: string): ToolCallRecord[] {
 
 async function main(): Promise<number> {
   const { values } = parseArgs({
-    options: { injected: { type: "string" }, control: { type: "string" }, only: { type: "string" }, delay: { type: "string" }, "set-only": { type: "boolean" } },
+    options: { injected: { type: "string" }, control: { type: "string" }, only: { type: "string" }, delay: { type: "string" }, "set-only": { type: "boolean" }, rerender: { type: "string" } },
     strict: true,
   });
+  if (values.rerender) {
+    // Re-draw a stored report from its own results: runs nothing, changes no run. Used when the wording of
+    // the report changes and the runs it describes do not.
+    const stored = JSON.parse(readFileSync(resolve(values.rerender), "utf8")) as { meta: Parameters<typeof renderMarkdown>[0]; results: EntryResult[] };
+    const md = values.rerender.replace(/\.json$/, ".md");
+    writeFileSync(resolve(md), renderMarkdown(stored.meta, stored.results), "utf8");
+    console.error(`[prove-injection] re-rendered ${md} from ${values.rerender}`);
+    return exitCodeFor(stored.results);
+  }
   const injectedRuns = Number.parseInt(values.injected ?? "3", 10);
   const controlRuns = Number.parseInt(values.control ?? "3", 10);
   const delayMs = Number.parseInt(values.delay ?? "1500", 10);
