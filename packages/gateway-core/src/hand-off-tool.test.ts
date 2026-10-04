@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { HandoffRecord } from "@helpdesk/handoff-core";
 
-import { createHandOffExecute, HAND_OFF_PARAMS_SCHEMA, HAND_OFF_TOOL_DESCRIPTION, HAND_OFF_TOOL_NAME } from "./hand-off-tool.js";
+import { createHandOffExecute, HAND_OFF_PARAMS_SCHEMA, HAND_OFF_REASON_MAX_CHARS, HAND_OFF_TOOL_DESCRIPTION, HAND_OFF_TOOL_NAME } from "./hand-off-tool.js";
 import type { SessionContext } from "./session.js";
 
 describe("HAND_OFF_TOOL_NAME / HAND_OFF_PARAMS_SCHEMA / HAND_OFF_TOOL_DESCRIPTION", () => {
@@ -21,6 +21,10 @@ describe("HAND_OFF_TOOL_NAME / HAND_OFF_PARAMS_SCHEMA / HAND_OFF_TOOL_DESCRIPTIO
     expect(HAND_OFF_TOOL_DESCRIPTION).toContain("instead of just");
     expect(HAND_OFF_TOOL_DESCRIPTION).toContain("do not restate the requester's identity or");
     expect(HAND_OFF_TOOL_DESCRIPTION).toContain("handed_off");
+    // The cap is in the description, as the same number the schema enforces.
+    expect(HAND_OFF_TOOL_DESCRIPTION).toContain(`at most ${HAND_OFF_REASON_MAX_CHARS}`);
+    expect(HAND_OFF_PARAMS_SCHEMA.safeParse({ reason: "x".repeat(HAND_OFF_REASON_MAX_CHARS) }).success).toBe(true);
+    expect(HAND_OFF_PARAMS_SCHEMA.safeParse({ reason: "x".repeat(HAND_OFF_REASON_MAX_CHARS + 1) }).success).toBe(false);
   });
 });
 

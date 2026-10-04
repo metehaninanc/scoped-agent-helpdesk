@@ -33,8 +33,13 @@ import type { SessionContext } from "./session.js";
 
 export const HAND_OFF_TOOL_NAME = "hand_off";
 
+/** The longest `reason` the schema accepts, and the number the description tells the model. A model cannot respect a
+ * cap it was never told about: the injection suite found twelve hand_off calls refused as malformed, eleven of them
+ * from injected requests, because a model describing an injection it declines writes 500 to 700 characters. */
+export const HAND_OFF_REASON_MAX_CHARS = 500;
+
 export const HAND_OFF_PARAMS_SCHEMA = z.strictObject({
-  reason: z.string().min(1).max(500),
+  reason: z.string().min(1).max(HAND_OFF_REASON_MAX_CHARS),
 });
 
 export const HAND_OFF_TOOL_DESCRIPTION = [
@@ -43,7 +48,8 @@ export const HAND_OFF_TOOL_DESCRIPTION = [
   "administer, or any other case where a human has to take over. Call this instead of just",
   "explaining that you cannot help — a handoff is a real, recorded outcome, not a dead end.",
   "",
-  "reason: a short account, in your own words, of what a person needs to do. This is shown to",
+  "reason: a short account, in your own words, of what a person needs to do, at most " + HAND_OFF_REASON_MAX_CHARS,
+  "characters: a longer one is refused as malformed and has to be sent again. This is shown to",
   "the operator who picks it up and to nobody else; do not restate the requester's identity or",
   "the original wording, only what remains to be done.",
   "",
