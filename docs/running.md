@@ -103,3 +103,43 @@ into for every submitted request, exposed on its own as a CLI for the same reaso
 `data/orchestrator.db` by default, without the web app in the way. `--identity-db`, `--mdm-db` and
 `--knowledge-db` forward to whichever agent triage picks, the same way `pnpm web`'s own
 `HELPDESK_DB_PATH` does internally.
+
+## Every other command, checked from a fresh clone
+
+Added when the README was split, and not part of the original "Running it" above. On 2026-10-04 each command below was run from a fresh clone of the pushed branch, with `.env` copied in and the data directory empty, and each worked as described. The four commands that are documented above (`pnpm install`, `build`, `test`, `typecheck`) work in any order from a clean checkout; `pnpm test` did not until the agent package's test script was fixed (see [findings.md](findings.md)). Pass flags without a `--` before them.
+
+**Needs the four real gateways running (ports 3001 to 3004).** `pnpm prove-isolation` rewrites `evidence/isolation-run.txt` with its own run, so run it in a scratch clone, or restore the committed copy afterwards. `pnpm reset-password-smoke` needs the endpoint gateway. `pnpm graph-smoke`, `pnpm mdm-graph-smoke` and `pnpm token-smoke` only read from the tenant and need no gateway. `pnpm verify-audit [path]` defaults to `data/identity-helpdesk.db`.
+
+**`pnpm prove-injection`** needs four more gateways, on their own ports and databases (these are what `injection-env.ts` points the agents at):
+
+```
+node packages/identity-gateway/dist/bin/gateway.js  --port 3021 --db data/inj-identity.db
+node packages/mdm-gateway/dist/bin/gateway.js       --port 3022 --db data/inj-mdm.db
+node packages/knowledge-gateway/dist/bin/gateway.js --port 3023 --db data/inj-knowledge.db
+node packages/endpoint-gateway/dist/bin/gateway.js  --port 3024 --db data/inj-endpoint.db
+HELPDESK_AGENT_AUTH=session pnpm prove-injection
+```
+
+`--only inj-05` runs one attempt, `--set-only` checks the set without a model call, and `--injected` and `--control` set the number of runs a side. A full run takes half an hour to an hour and overwrites `evidence/injection-run.md` and `.json`; a partial run overwrites them too, so run it in a scratch clone.
+
+**`pnpm simulate`** will not start unless four gateways are already running against that run's own chains, and `*_GATEWAY_URL` must point at them before the runner starts. For `--tag 9`:
+
+```
+node packages/identity-gateway/dist/bin/gateway.js  --port 3011 --db data/sim9-identity.db
+node packages/mdm-gateway/dist/bin/gateway.js       --port 3012 --db data/sim9-mdm.db
+node packages/knowledge-gateway/dist/bin/gateway.js --port 3013 --db data/sim9-knowledge.db
+node packages/endpoint-gateway/dist/bin/gateway.js  --port 3014 --db data/sim9-endpoint.db
+IDENTITY_GATEWAY_URL=http://127.0.0.1:3011 MDM_GATEWAY_URL=http://127.0.0.1:3012 \
+KNOWLEDGE_GATEWAY_URL=http://127.0.0.1:3013 ENDPOINT_GATEWAY_URL=http://127.0.0.1:3014 \
+pnpm simulate --tag 9 --limit 1
+```
+
+Without `--tickets` it runs the original mixed ticket files; the final pass used `--tickets test/dataset2.json --actor-mapping test/actor-mapping-dataset2.json`. It is resumable, and writes `evidence/simulation-results-<tag>.jsonl`.
+
+**Commands that need chains this repository does not hold.** The chains behind each pass are `data/*.db`, which are gitignored. `pnpm simulate-score`, `pnpm simulate-compare` and `pnpm simulate-summary` read them, so on a fresh clone they stop with "No audit database at data/sim...", which is the intended guard and not a fault. They work on a machine that ran the pass; the results they produced are the files in `evidence/`. `pnpm simulate-score` also reads the first pass's untagged chains unless given `--exclude-first`; scoring one pass on its own is `pnpm simulate-score --tags 5 --exclude-first --out <file>`.
+
+**`pnpm triage-harness --label <name>`** classifies tickets with no agents and no gateways: `--tickets` and `--labels` name the ticket and label files, `--model` the model, and `--overwrite` replaces an existing label. On 2026-10-04, `--label tidy-check --tickets test/dataset2.json --labels test/dataset2-labels.json` scored 135 of 150 (90.0%) for $0.34, kept as `evidence/triage-harness-tidy-check.md`. It is one more draw on the in-sample set, run to check the command and not a new measurement.
+
+**`pnpm record-walkthrough`** needs Chrome (`CHROME_PATH`) and ffmpeg (`FFMPEG`), starts its own private stack, and overwrites `evidence/walkthrough.mp4` and `.md`. Run with `--scenes title` it wrote a 0:12 video. `--scenes` takes the scene names and `--keep-frames` keeps the screenshots.
+
+**`pnpm knowledge-reindex`** reports what the corpus folder holds, and **`pnpm knowledge-verify-citations`** checks every citation URL over the network, exits 1 if any does not resolve, and overwrites `evidence/knowledge-corpus-citations.txt`. Nine of the 25 now return 404; see "The documentation repository that disappeared" in [findings.md](findings.md).

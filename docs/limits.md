@@ -4,6 +4,17 @@ What this system does not do and where its ceiling is: the scope drawn on purpos
 
 Section titles quoted in the text, such as "Endpoint gateway notes", are the titles from the project's original single-file README; [the index](README.md) says where each one is now.
 
+## The ceiling, in short
+
+This section is a summary, written when the README was split; the sections below it say each point in full, in the words they were written in.
+
+- **The claim is narrow.** Every action the agent can request falls into one of three classes, decided by code the model never touches, and every decision is recorded first. That is what the evidence supports. It is not "the system is secure", and it is not "the system resolves tickets".
+- **Resolution is bounded by tools and tenant, not routing.** Of the 85 tickets that reached an agent in the final pass, none was resolved. Four were resolvable with what exists (three reached the approval gate), 31 were blocked by the environment (no devices, two managed groups, a corpus that misses the applications), 42 need tools that do not exist, 7 were refused on authority and 1 is not automatable. At most 35 of 85 move with environment changes alone; see "In a populated tenant" below.
+- **The gate was not shown refusing in the passes.** In pass five the agent declined every request the system must not carry out, so the policy engine was never asked; the refusals the gate itself makes are evidenced by `pnpm reset-password-smoke`, the gateways' tests and the injection suite.
+- **Routing is measured in-sample.** The triage prompt was tuned on `dataset2`, so 88.7% there predicts nothing about unseen tickets, and the held-out 200 are unspent ([measurements.md](measurements.md), [triage-accuracy.md](triage-accuracy.md)).
+- **Everything is single-turn, on one test tenant, with synthetic tickets.** No clarifying question is answered. Injection is tried in the request text only, three runs a side, and its route check is noisy at the margin ([findings.md](findings.md)). The classifications behind the load and capability figures were made by a model reading the replies, not by an independent human.
+- **The audit chain makes editing detectable, not impossible.** A tail marker catches most deleted or rewritten tails, but anyone with write access to the database file can rewrite the marker too, and the hash is not published anywhere outside the file ("The hash chain", in [security.md](security.md)).
+
 ## Scope
 
 ### What Sprint 1 deliberately does not include
