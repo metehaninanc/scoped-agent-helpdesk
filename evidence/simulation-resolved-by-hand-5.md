@@ -13,6 +13,11 @@ is not resolution.
 **The result: 0 of 10.** The dashboard counts 10 resolved among the 85 tickets that reached an agent. By hand,
 none is. Two of them are correct answers of "not through this system", which a more generous rule might count.
 
+**This is a property of the test environment, not a statement about capability.** The tenant has no registered
+devices, two managed groups and a documentation corpus that does not cover the applications the tickets ask about, so
+the rate is zero whatever the code does. It is recorded here and is not the pass's headline; the headline is the three
+measurements in [`simulation-capability-5.md`](simulation-capability-5.md).
+
 | Ticket | Agent | What it did | By hand |
 |---|---|---|---|
 | T007 | identity | Looked up the managed groups; `Data-Platform-Readers` is not one. Said it cannot be requested here and pointed to whoever administers it. | Not resolved. A correct "not here". |
