@@ -1,0 +1,39 @@
+Knowledge corpus citation check — every distinct sourceUrl the corpus can produce, resolved
+against GitHub directly, not assumed from the manifest that built it.
+Run at: 2026-09-25T15:43:20.471Z
+Distinct citations checked: 25
+
+A citation is what a reader reaches by clicking the source document and heading this gateway
+cites for every fact it states (SPRINT3.md, 3.3). A 404 here means that claim is false for
+that citation regardless of whether retrieval itself works, since retrieval never fetches
+sourceUrl — it only stores and returns it.
+
+status    source title                                                url
+--------------------------------------------------------------------------------------------------------------------------------------------
+OK        Learn About Groups, Group Membership, and Access            https://github.com/MicrosoftDocs/entra-docs/blob/a37c43ae5c2494cfc4211bb6242eb3151de6e40e/docs/fundamentals/concept-learn-about-groups.md
+OK        Manage Microsoft Entra user roles                           https://github.com/MicrosoftDocs/entra-docs/blob/a37c43ae5c2494cfc4211bb6242eb3151de6e40e/docs/fundamentals/how-to-assign-roles-to-users.md
+OK        How to manage groups                                        https://github.com/MicrosoftDocs/entra-docs/blob/a37c43ae5c2494cfc4211bb6242eb3151de6e40e/docs/fundamentals/how-to-manage-groups.md
+OK        What is Microsoft Entra?                                    https://github.com/MicrosoftDocs/entra-docs/blob/a37c43ae5c2494cfc4211bb6242eb3151de6e40e/docs/fundamentals/what-is-entra.md
+OK        Build Conditional Access policies in Microsoft Entra        https://github.com/MicrosoftDocs/entra-docs/blob/a37c43ae5c2494cfc4211bb6242eb3151de6e40e/docs/identity/conditional-access/concept-conditional-access-policies.md
+OK        Conditional Access Setup: Users, Groups, Agents, and Workload Identities  https://github.com/MicrosoftDocs/entra-docs/blob/a37c43ae5c2494cfc4211bb6242eb3151de6e40e/docs/identity/conditional-access/concept-conditional-access-users-groups.md
+OK        What are Microsoft Entra registered devices?                https://github.com/MicrosoftDocs/entra-docs/blob/a37c43ae5c2494cfc4211bb6242eb3151de6e40e/docs/identity/devices/concept-device-registration.md
+OK        Understand Microsoft Entra role concepts                    https://github.com/MicrosoftDocs/entra-docs/blob/a37c43ae5c2494cfc4211bb6242eb3151de6e40e/docs/identity/role-based-access-control/concept-understand-roles.md
+OK        Device features and settings in Microsoft Intune            https://github.com/MicrosoftDocs/memdocs/blob/4b5429df8b47046c6b251e572ee61199fb5d4a5d/intune/device-configuration/overview.md
+OK        Step 5 – Enroll devices in Microsoft Intune                 https://github.com/MicrosoftDocs/memdocs/blob/4b5429df8b47046c6b251e572ee61199fb5d4a5d/intune/device-enrollment/enroll-devices.md
+OK        Overview of enrollment restrictions                         https://github.com/MicrosoftDocs/memdocs/blob/4b5429df8b47046c6b251e572ee61199fb5d4a5d/intune/device-enrollment/restrictions.md
+OK        Configure compliance policies with actions for noncompliance in Microsoft Intune  https://github.com/MicrosoftDocs/memdocs/blob/4b5429df8b47046c6b251e572ee61199fb5d4a5d/intune/device-security/compliance/configure-noncompliance-actions.md
+OK        Create device compliance policies in Microsoft Intune       https://github.com/MicrosoftDocs/memdocs/blob/4b5429df8b47046c6b251e572ee61199fb5d4a5d/intune/device-security/compliance/create-policy.md
+OK        Device compliance policies in Microsoft Intune              https://github.com/MicrosoftDocs/memdocs/blob/4b5429df8b47046c6b251e572ee61199fb5d4a5d/intune/device-security/compliance/overview.md
+OK        Manage Windows Update Ring Policies                         https://github.com/MicrosoftDocs/memdocs/blob/4b5429df8b47046c6b251e572ee61199fb5d4a5d/intune/device-updates/windows/manage-update-rings.md
+OK        Microsoft Intune core concepts                              https://github.com/MicrosoftDocs/memdocs/blob/4b5429df8b47046c6b251e572ee61199fb5d4a5d/intune/fundamentals/core-concepts.md
+OK        Get started with Microsoft Intune                           https://github.com/MicrosoftDocs/memdocs/blob/4b5429df8b47046c6b251e572ee61199fb5d4a5d/intune/fundamentals/get-started.md
+OK        Add users and assign licenses in Microsoft 365              https://github.com/MicrosoftDocs/microsoft-365-docs/blob/eab9d7696cdff87474698b08a1fb328091102a2f/microsoft-365/admin/add-users/add-users.md
+OK        Assign admin roles in the Microsoft 365 admin center        https://github.com/MicrosoftDocs/microsoft-365-docs/blob/eab9d7696cdff87474698b08a1fb328091102a2f/microsoft-365/admin/add-users/assign-admin-roles.md
+OK        Delete a user from your organization                        https://github.com/MicrosoftDocs/microsoft-365-docs/blob/eab9d7696cdff87474698b08a1fb328091102a2f/microsoft-365/admin/add-users/delete-a-user.md
+OK        Let users reset their own passwords                         https://github.com/MicrosoftDocs/microsoft-365-docs/blob/eab9d7696cdff87474698b08a1fb328091102a2f/microsoft-365/admin/add-users/let-users-reset-passwords.md
+OK        Reset passwords                                             https://github.com/MicrosoftDocs/microsoft-365-docs/blob/eab9d7696cdff87474698b08a1fb328091102a2f/microsoft-365/admin/add-users/reset-passwords.md
+OK        Assign or unassign licenses for users in the Microsoft 365 admin center  https://github.com/MicrosoftDocs/microsoft-365-docs/blob/eab9d7696cdff87474698b08a1fb328091102a2f/microsoft-365/admin/manage/assign-licenses-to-users.md
+OK        Requirements to use centralized deployment for Office Add-ins  https://github.com/MicrosoftDocs/microsoft-365-docs/blob/eab9d7696cdff87474698b08a1fb328091102a2f/microsoft-365/admin/manage/centralized-deployment-of-add-ins.md
+OK        Assign or unassign licenses to a group in the Microsoft 365 admin center  https://github.com/MicrosoftDocs/microsoft-365-docs/blob/eab9d7696cdff87474698b08a1fb328091102a2f/microsoft-365/admin/manage/manage-group-licenses.md
+
+All 25 citations resolve.

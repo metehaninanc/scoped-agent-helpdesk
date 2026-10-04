@@ -1,14 +1,19 @@
 /**
- * Parameter schema for the one Sprint 3.3 tool. Same role as the other two gateways' schemas.ts:
- * the single definition of "validated parameters", reused by both the MCP tool registration and
- * decide().
+ * Parameter schemas for this gateway's tools: the one Sprint 3.3 tool, plus `hand_off`
+ * (SPRINT4.md, section 2 — identical on every gateway, schema imported from
+ * @helpdesk/gateway-core rather than redeclared here). Same role as the other three gateways'
+ * schemas.ts: the single definition of "validated parameters", reused by both the MCP tool
+ * registration and decide().
  */
 import { z } from "zod";
+
+import { HAND_OFF_PARAMS_SCHEMA, HAND_OFF_TOOL_NAME } from "@helpdesk/gateway-core";
 
 import type { ToolRequest } from "./types.js";
 
 export const toolParamSchemas = {
   search_documentation: z.strictObject({ query: z.string().min(1).max(300) }),
+  [HAND_OFF_TOOL_NAME]: HAND_OFF_PARAMS_SCHEMA,
 } as const;
 
 export type ToolName = keyof typeof toolParamSchemas;

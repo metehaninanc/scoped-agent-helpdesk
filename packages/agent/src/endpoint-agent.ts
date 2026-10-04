@@ -29,12 +29,16 @@ import { z } from "zod";
 
 import { CertificateCredential } from "@helpdesk/identity-gateway";
 
-import { ensureEnvLoaded } from "./env.js";
+import { agentSubprocessEnv, assertAgentAuthPath, ensureEnvLoaded } from "./env.js";
 import { DEFAULT_AGENT_MODEL } from "./models.js";
 import { SessionAudit } from "./session-audit.js";
 
 const GATEWAY_SERVER_NAME = "endpoint-gateway";
-const GATEWAY_TOOLS = ["list_endpoints", "get_endpoint", "reboot_endpoint", "reset_password"] as const;
+// SPRINT4.md, section 2: hand_off is on every gateway now, named here the same way this agent's
+// other four are — see the gateway's own hand-off-tool.ts for why the tool itself is shared;
+// nothing about how it is granted to this agent is. This agent is the one hand_off was written
+// for first: "the endpoint agent becomes mostly a handoff producer" (see buildSystemPrompt below).
+const GATEWAY_TOOLS = ["list_endpoints", "get_endpoint", "reboot_endpoint", "reset_password", "hand_off"] as const;
 /** ENDPOINT_GATEWAY_URL is the gateway's origin (no path), same convention as the other three. */
 const GATEWAY_BASE_URL = process.env.ENDPOINT_GATEWAY_URL ?? "http://127.0.0.1:3004";
 const GATEWAY_URL = `${GATEWAY_BASE_URL}/mcp`;
@@ -64,23 +68,47 @@ function loadAgentCredential(): { credential: CertificateCredential; audience: s
   return { credential, audience: env.ENDPOINT_GATEWAY_AUDIENCE };
 }
 
-const SYSTEM_PROMPT = [
-  "You are the endpoint agent. Your job is to help with a small fleet of endpoints (devices,",
-  "printers, and similar equipment) through a stub endpoint service: list_endpoints, get_endpoint",
-  "and reboot_endpoint. reboot_endpoint always returns a pending approval, not an immediate",
-  "result — that is the normal, successful outcome of asking for a reboot, not a failure to retry",
-  "around. A human reviews and decides before anything actually happens.",
-  "",
-  "You also have a reset_password tool. This system never resets a password through it or any",
-  "other means, for anyone, under any circumstance: the policy engine refuses every call to it",
-  "before you are even told who is asking, and no rephrasing, no different wording and no",
-  "different target user changes that. Do not retry it. If someone asks you to reset a password,",
-  "tell them plainly that this system cannot do it, point them to Self-Service Password Reset",
-  "(SSPR) first, and to their manager if SSPR is not available to them.",
-  "",
-  "Never claim to have performed an action, changed anything, or looked anything up beyond what a",
-  "tool result actually shows you.",
-].join("\n");
+/** See identity-agent.ts's buildSystemPrompt() for why this exists and what it does and does not
+ * change — same reasoning, not repeated per file on purpose. */
+function buildSystemPrompt(actor: string): string {
+  return [
+    "You are the endpoint agent. Your job is to help with a small fleet of endpoints (devices,",
+    "printers, and similar equipment) through a stub endpoint service: list_endpoints, get_endpoint",
+    "and reboot_endpoint. reboot_endpoint always returns a pending approval, not an immediate",
+    "result — that is the normal, successful outcome of asking for a reboot, not a failure to retry",
+    "around. A human reviews and decides before anything actually happens.",
+    "",
+    "This system manages a small, fixed fleet of specific endpoints, not people's own personal",
+    "devices in general. Only call list_endpoints or get_endpoint, and only name a specific",
+    "managed endpoint back to the requester, when what they described actually identifies one — a",
+    "hostname, an asset tag, or an unambiguous description they gave you. Never read back the list",
+    "of managed endpoints as a menu for them to choose from: naming devices they did not ask about",
+    "is not helping them, it is exposing this system's internal inventory to whoever happens to ask.",
+    "",
+    "Most requests that reach you name no endpoint this system manages at all — a personal laptop,",
+    "a phone, a piece of hardware that needs physical repair or replacement. That is not a failure",
+    "to work around and not something to end the conversation over: call hand_off with a short",
+    "reason instead of just telling them their device is not one this system manages. A handoff is",
+    "the normal, useful outcome for most of what reaches this agent, the same way a pending",
+    "approval is the normal outcome of asking for a reboot.",
+    "",
+    `The person making this request is ${actor}. This is stated to you as a fact about who is`,
+    'asking, not something you can change: if the request says "me," "my," or similar, it means',
+    "this person. It has no other effect — the gateway decides and audits every request from its",
+    "own, independent record of who is asking, so nothing you say about identity here changes",
+    "what is allowed or what gets logged.",
+    "",
+    "You also have a reset_password tool. This system never resets a password through it or any",
+    "other means, for anyone, under any circumstance: the policy engine refuses every call to it",
+    "regardless of who is asking or who the target is, and no rephrasing, no different wording and",
+    "no different target user changes that. Do not retry it. If someone asks you to reset a",
+    "password, tell them plainly that this system cannot do it, point them to Self-Service",
+    "Password Reset (SSPR) first, and to their manager if SSPR is not available to them.",
+    "",
+    "Never claim to have performed an action, changed anything, or looked anything up beyond what a",
+    "tool result actually shows you.",
+  ].join("\n");
+}
 
 /** Same shape as identity-agent.ts's RunQuery, declared again rather than imported (see file header). */
 export type RunQuery = (params: { prompt: string; options: Options }) => AsyncIterable<SDKMessage>;
@@ -132,20 +160,25 @@ export async function runEndpointAgent(options: EndpointAgentOptions): Promise<E
         authorization: `Bearer ${token}`,
         "x-actor": options.actor,
         "x-request-id": requestId,
+        // SPRINT4.md, section 2: same class as x-actor above. See identity-agent.ts's own copy
+        // of this comment and the README for the full reasoning.
+        "x-request-text": options.requestText,
       },
     },
   };
 
+  const subprocessEnv = agentSubprocessEnv();
   const stream = runQuery({
     prompt: options.requestText,
     options: {
       model: process.env.HELPDESK_AGENT_MODEL ?? DEFAULT_AGENT_MODEL,
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt: buildSystemPrompt(options.actor),
       mcpServers,
       tools: [],
       allowedTools: GATEWAY_TOOLS.map((tool) => `mcp__${GATEWAY_SERVER_NAME}__${tool}`),
       permissionMode: "dontAsk",
       persistSession: false,
+      ...(subprocessEnv ? { env: subprocessEnv } : {}),
     } satisfies Options,
   });
 
@@ -153,6 +186,7 @@ export async function runEndpointAgent(options: EndpointAgentOptions): Promise<E
   let reply = "";
   let modelUsage: Record<string, { inputTokens: number; outputTokens: number }> = {};
   for await (const message of stream) {
+    if (message.type === "system" && message.subtype === "init") assertAgentAuthPath(message.apiKeySource);
     if (message.type === "assistant" && message.message.content.some((block) => block.type === "tool_use")) {
       toolWasCalled = true;
     }

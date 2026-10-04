@@ -1,0 +1,9 @@
+{
+  "product": "intune-updates",
+  "repo": "MicrosoftDocs/memdocs",
+  "commit": "4b5429df8b47046c6b251e572ee61199fb5d4a5d",
+  "files": {
+    "manage-update-rings.md": "intune/device-updates/windows/manage-update-rings.md"
+  },
+  "license": "CC-BY-4.0 (content) / MIT (code samples) — see README.md, \"Knowledge gateway notes\""
+}

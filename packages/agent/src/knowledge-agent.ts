@@ -27,12 +27,15 @@ import { z } from "zod";
 
 import { CertificateCredential } from "@helpdesk/identity-gateway";
 
-import { ensureEnvLoaded } from "./env.js";
+import { agentSubprocessEnv, assertAgentAuthPath, ensureEnvLoaded } from "./env.js";
 import { DEFAULT_AGENT_MODEL } from "./models.js";
 import { SessionAudit } from "./session-audit.js";
 
 const GATEWAY_SERVER_NAME = "knowledge-gateway";
-const GATEWAY_TOOLS = ["search_documentation"] as const;
+// SPRINT4.md, section 2: hand_off is on every gateway now, named here the same way this agent's
+// one other tool is — see the gateway's own hand-off-tool.ts for why the tool itself is shared;
+// nothing about how it is granted to this agent is.
+const GATEWAY_TOOLS = ["search_documentation", "hand_off"] as const;
 /** KNOWLEDGE_GATEWAY_URL is the gateway's origin (no path), same convention as the other two. */
 const GATEWAY_BASE_URL = process.env.KNOWLEDGE_GATEWAY_URL ?? "http://127.0.0.1:3003";
 const GATEWAY_URL = `${GATEWAY_BASE_URL}/mcp`;
@@ -62,20 +65,36 @@ function loadAgentCredential(): { credential: CertificateCredential; audience: s
   return { credential, audience: env.KNOWLEDGE_GATEWAY_AUDIENCE };
 }
 
-const SYSTEM_PROMPT = [
-  "You are the knowledge agent. Your only job is to answer documentation and how-to questions",
-  "about Microsoft Entra and Microsoft Intune, using only the search_documentation tool you have",
-  "been given. You have no other tools and no other way to act on a request. You cannot look",
-  "anything up in the tenant, change anything, or perform any action — you can only search a",
-  "fixed set of documentation and report what it says.",
-  "",
-  "Every fact you state must be grounded in a passage search_documentation returned, and you",
-  "must cite that passage's source document and heading when you state it. If the search comes",
-  "back with no passages, or with passages that do not actually answer the question, say plainly",
-  "that you don't know rather than answering from anything you know from your own training.",
-  "Never claim to have performed an action, changed anything, or looked anything up in the",
-  "tenant: you have not, and cannot.",
-].join("\n");
+/** See identity-agent.ts's buildSystemPrompt() for why this exists and what it does and does not
+ * change — same reasoning, not repeated per file on purpose. This agent has no tool parameter
+ * that would ever use it (search_documentation takes a query, not a user), but it is included for
+ * the same reason every other part of this agent's shape mirrors the other three: consistency
+ * across files a reviewer expects to look alike, not because this file has "add me" to resolve. */
+function buildSystemPrompt(actor: string): string {
+  return [
+    "You are the knowledge agent. Your only job is to answer documentation and how-to questions",
+    "about Microsoft Entra and Microsoft Intune, using only the search_documentation tool you have",
+    "been given. You have no other tools and no other way to act on a request. You cannot look",
+    "anything up in the tenant, change anything, or perform any action — you can only search a",
+    "fixed set of documentation and report what it says.",
+    "",
+    `The person making this request is ${actor}. This is stated to you as a fact about who is`,
+    "asking; you have no tool that takes a user as a parameter, so it should rarely matter, but it",
+    "has no effect on what you are allowed to do either way — the gateway decides and audits every",
+    "request from its own, independent record of who is asking.",
+    "",
+    "Every fact you state must be grounded in a passage search_documentation returned, and you",
+    "must cite that passage's source document and heading when you state it. If the search comes",
+    "back with no passages, or with passages that do not actually answer the question, say plainly",
+    "that you don't know rather than answering from anything you know from your own training.",
+    "Never claim to have performed an action, changed anything, or looked anything up in the",
+    "tenant: you have not, and cannot. \"I don't know\" is a complete, honest answer to a",
+    "documentation question the corpus does not cover — do not call hand_off just because you",
+    "don't know something. Call it only when the request itself is not really a how-to question",
+    "at all: it asks someone to look into or fix something specific to this requester's own",
+    "account or tenant, which no documentation search could ever answer.",
+  ].join("\n");
+}
 
 /** Same shape as identity-agent.ts's RunQuery, declared again rather than imported (see file header). */
 export type RunQuery = (params: { prompt: string; options: Options }) => AsyncIterable<SDKMessage>;
@@ -127,20 +146,25 @@ export async function runKnowledgeAgent(options: KnowledgeAgentOptions): Promise
         authorization: `Bearer ${token}`,
         "x-actor": options.actor,
         "x-request-id": requestId,
+        // SPRINT4.md, section 2: same class as x-actor above. See identity-agent.ts's own copy
+        // of this comment and the README for the full reasoning.
+        "x-request-text": options.requestText,
       },
     },
   };
 
+  const subprocessEnv = agentSubprocessEnv();
   const stream = runQuery({
     prompt: options.requestText,
     options: {
       model: process.env.HELPDESK_AGENT_MODEL ?? DEFAULT_AGENT_MODEL,
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt: buildSystemPrompt(options.actor),
       mcpServers,
       tools: [],
       allowedTools: GATEWAY_TOOLS.map((tool) => `mcp__${GATEWAY_SERVER_NAME}__${tool}`),
       permissionMode: "dontAsk",
       persistSession: false,
+      ...(subprocessEnv ? { env: subprocessEnv } : {}),
     } satisfies Options,
   });
 
@@ -148,6 +172,7 @@ export async function runKnowledgeAgent(options: KnowledgeAgentOptions): Promise
   let reply = "";
   let modelUsage: Record<string, { inputTokens: number; outputTokens: number }> = {};
   for await (const message of stream) {
+    if (message.type === "system" && message.subtype === "init") assertAgentAuthPath(message.apiKeySource);
     if (message.type === "assistant" && message.message.content.some((block) => block.type === "tool_use")) {
       toolWasCalled = true;
     }

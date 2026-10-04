@@ -12,7 +12,7 @@ describe("sessionFromExtra()", () => {
         requestInfo: { headers: { "x-actor": "alice@contoso.com", "x-request-id": "req-1" } },
       }),
     );
-    expect(session).toEqual({ actor: "alice@contoso.com", agent: "22222222-2222-4222-8222-222222222222", requestId: "req-1" });
+    expect(session).toEqual({ actor: "alice@contoso.com", agent: "22222222-2222-4222-8222-222222222222", requestId: "req-1", requestText: "" });
   });
 
   it("takes actor and requestId from headers, never from authInfo", () => {
@@ -27,11 +27,19 @@ describe("sessionFromExtra()", () => {
   });
 
   it("falls back to a placeholder when authInfo or requestInfo is absent, rather than throwing", () => {
-    expect(sessionFromExtra(extra({}))).toEqual({ actor: "unknown", agent: "unknown", requestId: "unknown" });
+    expect(sessionFromExtra(extra({}))).toEqual({ actor: "unknown", agent: "unknown", requestId: "unknown", requestText: "" });
   });
 
   it("takes the first value when a header repeats", () => {
     const session = sessionFromExtra(extra({ requestInfo: { headers: { "x-actor": ["first@contoso.com", "second@contoso.com"] } } }));
     expect(session.actor).toBe("first@contoso.com");
+  });
+
+  it("takes requestText from its own header, empty string when absent — never enforced the way x-actor is", () => {
+    const withText = sessionFromExtra(extra({ requestInfo: { headers: { "x-request-text": "which groups is bob in" } } }));
+    expect(withText.requestText).toBe("which groups is bob in");
+
+    const withoutText = sessionFromExtra(extra({ requestInfo: { headers: {} } }));
+    expect(withoutText.requestText).toBe("");
   });
 });

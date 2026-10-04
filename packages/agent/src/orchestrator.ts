@@ -9,6 +9,26 @@
  * the matching agent with the raw request text, unchanged. Nothing triage produced is ever passed
  * to that agent as a parameter: the category picks which agent runs, and that is all it does.
  *
+ * SPRINT4.md, section 1: triage now makes two decisions, not one. `classified.scope` is checked
+ * first — `not_it`, `needs_human`, `network` and `security` all mean no agent runs, the same way
+ * the old, single "unsupported" category did, but recorded as distinct, honestly-named outcomes
+ * rather than one catch-all a reader could not tell apart. Only `routable` reaches decision two
+ * (`classified.category`), which is exactly the four-category routing this file already did.
+ *
+ * `needs_human`, `network` and `security` are peers, and all three are handoffs, not refusals. The
+ * difference is the reason recorded and, for `security`, the urgency: a security handoff is created
+ * urgent and sorts above everything else in the operator queue whatever its age. A phishing report
+ * where someone has already entered their password does not wait behind a broken dock.
+ *
+ * SPRINT4.md, section 2: `needs_human` now creates a real handoff — @helpdesk/handoff-core's
+ * HandoffStore, sharing this file's own OrchestratorAudit connection (its own `log` is exposed
+ * for exactly this). Built directly, with no gateway and no policy decision in between: this
+ * module holds no credential and calls nothing external, so there is nothing for a policy engine
+ * to decide here the way a gateway's own `hand_off` tool call still goes through one. The triage
+ * decision itself is already audited on this chain (the `model_usage` record above, and now the
+ * `handoff` record HandoffStore.create() appends); the handoff record is that decision
+ * materialized into something an operator's queue can act on, not a second, separate judgment.
+ *
  * This module itself holds nothing worth stealing: no gateway, no Entra registration, no tools,
  * no credential beyond the ANTHROPIC_API_KEY the classifier call needs. Per SPRINT3.md's threat
  * model, a mis-route (whether from an ordinary misclassification or a prompt injection in the
@@ -21,20 +41,62 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
+import { HandoffStore } from "@helpdesk/handoff-core";
+
 import { ensureEnvLoaded } from "./env.js";
 import { runEndpointAgent, type EndpointAgentResult } from "./endpoint-agent.js";
 import { runIdentityAgent, type IdentityAgentResult } from "./identity-agent.js";
 import { runKnowledgeAgent, type KnowledgeAgentResult } from "./knowledge-agent.js";
 import { runMdmAgent, type MdmAgentResult } from "./mdm-agent.js";
 import { OrchestratorAudit, type InvokedAgent } from "./orchestrator-audit.js";
-import { createTriageClassifier, TriageError, type TriageClassifier } from "./triage.js";
+import { createTriageClassifier, TriageError, type NotItTeam, type TriageClassifier } from "./triage.js";
 
 type AgentInvocation<TResult> = (input: { actor: string; requestText: string; requestId: string; dbPath?: string }) => Promise<TResult>;
 
 /** SPRINT3.md, follow-up to 3.1's mixed-domain finding: appended whenever triage flags part of
- * the request as outside whatever category it chose. The flag carries no data of its own — this
- * fixed sentence is the entirety of its effect, whether the request was routed or unsupported. */
+ * the request as outside whatever it decided. The flag carries no data of its own — this fixed
+ * sentence is the entirety of its effect, whichever of the four result statuses it is added to. */
 const PARTIAL_SCOPE_NOTE = "Part of this request was not addressed above — please send it as a separate request.";
+
+/** SPRINT4.md, section 1: "The reply names the team that would own it where that is obvious."
+ * Built here, from triage's closed-set `notItTeam`, never from anything triage wrote in prose —
+ * the same discipline as PARTIAL_SCOPE_NOTE above, a fixed sentence per closed-set value, not
+ * text the classifier composes. */
+const NOT_IT_MESSAGE = "This system doesn't have a way to help with that — it isn't an IT matter this team handles.";
+const NOT_IT_TEAM_MESSAGE: Record<NotItTeam, string> = {
+  facilities: "This sounds like a facilities matter, not an IT one — please contact facilities directly.",
+  hr: "This sounds like an HR matter, not an IT one — please contact HR directly.",
+};
+
+/** SPRINT4.md, section 1: genuinely IT, but needing hands, procurement, logistics, or an account
+ * this system does not administer. As of section 2, this is a real, queued handoff — the message
+ * still makes no promise about how soon, only that a person now has it. */
+const NEEDS_HUMAN_MESSAGE = "This needs a person to help with it — it has been handed off and is waiting for an operator.";
+
+/** The `reason` HandoffStore records for a handoff this file creates directly. Fixed, not
+ * triage-composed: decision one's own closed set (SPRINT4.md, section 1) carries no more detail
+ * than "needs_human" itself, so there is nothing more specific to say than this — the same
+ * discipline as NOT_IT_MESSAGE/NOT_IT_TEAM_MESSAGE above, a canned sentence per closed-set value,
+ * never text the classifier wrote. */
+const NEEDS_HUMAN_REASON =
+  "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirely.";
+
+/** `network`: connectivity and infrastructure — VPN tunnels, DNS, Wi-Fi, LAN, certificates, routing.
+ * A handoff like `needs_human`'s, for a different reason: it needs someone with access to network
+ * equipment, which is a different person from whoever fixes a laptop. Fixed text, the same
+ * discipline as every message and reason above. */
+const NETWORK_MESSAGE =
+  "This is a network or connectivity matter that needs a person with access to network equipment — it has been handed off and is waiting for an operator.";
+const NETWORK_REASON =
+  "Classified by triage as a network or connectivity matter (VPN, DNS, Wi-Fi, LAN, certificates, routing): someone with access to network equipment has to look at it.";
+
+/** `security`: a possible incident — suspected phishing, credentials entered on a fake page,
+ * unexpected MFA prompts, a sign-in from an unknown device, a malware or ransomware alert. A
+ * handoff, marked urgent. The message names no remedy and gives no advice: this module decides
+ * where a request goes, not what a person should do about an incident. */
+const SECURITY_MESSAGE = "This looks like a possible security matter. It has been handed to an operator and marked urgent.";
+const SECURITY_REASON =
+  "Classified by triage as a possible security incident (suspected phishing, credentials entered on a fake page, unexpected MFA prompts, a sign-in from an unknown device, a malware or ransomware alert). Marked urgent.";
 
 export interface RouteRequestOptions {
   actor: string;
@@ -74,8 +136,20 @@ export type RouteRequestResult =
       /** Present only when triage flagged part of the request as outside this category. */
       note?: string;
     }
-  | { status: "unsupported"; requestId: string; message: string; note?: string }
-  | { status: "triage_failed"; requestId: string; message: string };
+  /** Not a corporate IT matter at all (SPRINT4.md, section 1) — the direct successor of the old,
+   * single "unsupported" category, renamed because it is now one of two distinct non-routed
+   * outcomes rather than the only one. */
+  | { status: "not_it"; requestId: string; message: string; note?: string }
+  /** Genuinely IT, but needing hands, procurement, logistics, or an account this system does not
+   * administer (SPRINT4.md, section 1). handoffId names the real, queued record section 2 built
+   * (@helpdesk/handoff-core's HandoffStore) — give it to the requester the same way a pending
+   * approval's own id is given, so they have something to reference. */
+  | { status: "needs_human"; requestId: string; handoffId: string; message: string; note?: string }
+  /** Connectivity and infrastructure — a handoff for someone with access to network equipment. */
+  | { status: "network"; requestId: string; handoffId: string; message: string; note?: string }
+  /** A possible security incident — a handoff created urgent (`urgent` is always true here). */
+  | { status: "security"; requestId: string; handoffId: string; message: string; urgent: true; note?: string }
+  | { status: "triage_failed"; requestId: string; message: string; cause: string };
 
 async function defaultClassify(requestText: string): Promise<Awaited<ReturnType<TriageClassifier["classify"]>>> {
   const apiKey = process.env.ANTHROPIC_API_KEY ?? "";
@@ -105,7 +179,11 @@ export async function routeRequest(options: RouteRequestOptions): Promise<RouteR
     const detail = error instanceof Error ? error.message : String(error);
     audit.appendNotRouted({ requestId, actor: options.actor, requestText: options.requestText, rule, detail });
     audit.close();
-    return { status: "triage_failed", requestId, message: "Your request could not be classified right now. Please try again." };
+    // `cause` is for a batch caller's runStoppingReason() — never rendered to a requester (the
+    // web app's request-page reads `message` only): a billing refusal or a 401 here is a standing
+    // condition on the account, not a classification outcome, and swallowing it into this result
+    // is what let a runner record every remaining ticket as triage_failed.
+    return { status: "triage_failed", requestId, message: "Your request could not be classified right now. Please try again.", cause: detail };
   }
 
   audit.appendUsage({
@@ -118,17 +196,54 @@ export async function routeRequest(options: RouteRequestOptions): Promise<RouteR
 
   const note = classified.partiallyOutOfScope ? PARTIAL_SCOPE_NOTE : undefined;
 
-  if (classified.category === "unsupported") {
-    audit.appendNotRouted({ requestId, actor: options.actor, requestText: options.requestText, rule: "triage.unsupported" });
+  if (classified.scope === "not_it") {
+    audit.appendNotRouted({
+      requestId,
+      actor: options.actor,
+      requestText: options.requestText,
+      rule: "triage.not_it",
+      ...(classified.notItTeam ? { detail: classified.notItTeam } : {}),
+    });
     audit.close();
     return {
-      status: "unsupported",
+      status: "not_it",
       requestId,
-      message: "This system doesn't have a way to help with that yet.",
+      message: classified.notItTeam ? NOT_IT_TEAM_MESSAGE[classified.notItTeam] : NOT_IT_MESSAGE,
       ...(note ? { note } : {}),
     };
   }
 
+  if (classified.scope === "needs_human" || classified.scope === "network" || classified.scope === "security") {
+    // No gateway, no policy decision: this module holds no credential and calls nothing
+    // external, so there is nothing here for a policy engine to decide the way a gateway's own
+    // hand_off tool call still goes through one (see the file header). HandoffStore shares this
+    // request's own OrchestratorAudit connection, so the handoff record lands on the same chain,
+    // in the same requestId, as the model_usage record already written above.
+    const handoffs = new HandoffStore(audit.log.db, audit.log);
+    const handoff = handoffs.create({
+      requestId,
+      actor: options.actor,
+      requestText: options.requestText,
+      createdBy: "orchestrator",
+      reason: classified.scope === "security" ? SECURITY_REASON : classified.scope === "network" ? NETWORK_REASON : NEEDS_HUMAN_REASON,
+      // Urgency comes from the closed-set scope and nothing else — never from words in the request.
+      ...(classified.scope === "security" ? { urgent: true } : {}),
+    });
+    audit.close();
+    if (classified.scope === "security") {
+      return { status: "security", requestId, handoffId: handoff.id, message: SECURITY_MESSAGE, urgent: true, ...(note ? { note } : {}) };
+    }
+    return {
+      status: classified.scope,
+      requestId,
+      handoffId: handoff.id,
+      message: classified.scope === "network" ? NETWORK_MESSAGE : NEEDS_HUMAN_MESSAGE,
+      ...(note ? { note } : {}),
+    };
+  }
+
+  // TriageResult is a discriminated union on scope; both non-routable branches above already
+  // returned, so TypeScript itself — not an assertion — knows category is non-null here.
   const category = classified.category;
   const invokedAgent: InvokedAgent =
     category === "identity"

@@ -19,6 +19,23 @@ export function escapeHtml(value: unknown): string {
   return text.replace(/[&<>"']/g, (ch) => ESCAPES[ch]!);
 }
 
+/** Elapsed time, not a timestamp — "age is the thing that hurts" (SPRINT4.md, section 3), the
+ * same reasoning the dashboard's own "oldest pending" already used before the operator console
+ * existed to share it with (SPRINT3.md, 3.5). Shared here rather than duplicated per page, unlike
+ * db.ts's deliberate cross-package copy: this is a pure formatting function with no security
+ * boundary to keep separate, so there is no reason for two copies to risk drifting apart. */
+export function formatDuration(ms: number): string {
+  const totalMinutes = Math.round(ms / 60_000);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  if (parts.length === 0 || minutes > 0) parts.push(`${minutes}m`);
+  return parts.join(" ");
+}
+
 /** Escaped, then wrapped in <pre> so JSON facts render legibly without a JS syntax highlighter. */
 export function escapedPre(value: unknown): string {
   const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
@@ -43,9 +60,32 @@ const STYLE = `
   .note { font-style: italic; color: #666; font-size: 0.9rem; margin-top: 0.5rem; }
   .status { font-family: monospace; }
   table { border-collapse: collapse; width: 100%; }
-  th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #ddd; }
+  th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #ddd; overflow-wrap: break-word; }
+  summary { cursor: pointer; }
+  /* The trail table (console-page.ts, "what the system did and why"): auto layout sizes a column
+     by its content's preferred width before wrapping is ever considered, so an unbroken value in
+     one cell (a long JSON preview) can still push the whole table past the page's own max-width
+     even with overflow-wrap set. Fixed column shares sidestep that: every column gets a bounded
+     percentage of the table's own width regardless of content, and wrapping then applies within
+     that bound rather than fighting it. */
+  .trail { table-layout: fixed; font-size: 0.85rem; }
+  .trail th:nth-child(1), .trail td:nth-child(1) { width: 13%; }
+  .trail th:nth-child(2), .trail td:nth-child(2) { width: 17%; }
+  .trail th:nth-child(3), .trail td:nth-child(3) { width: 18%; }
+  .trail th:nth-child(4), .trail td:nth-child(4) { width: 22%; }
+  .trail th:nth-child(5), .trail td:nth-child(5) { width: 12%; }
+  .trail th:nth-child(6), .trail td:nth-child(6) { width: 18%; }
   nav { margin-bottom: 1.5rem; }
   nav a { margin-right: 1rem; }
+  /* Operator console (SPRINT4.md, section 3): age is the number an operator acts on, so it is
+     the one figure on this page set in monospace and given its own column — everything else
+     here is prose. The single oldest row in each queue reads as urgent by weight and a warm,
+     not alarming, tone — never the same red this page already reserves for an actual error. */
+  .age { font-family: monospace; white-space: nowrap; }
+  .age.oldest { font-weight: 700; color: #8a5a00; }
+  .age.urgent { font-weight: 700; color: #a00000; }
+  .urgent-badge { font-weight: 700; color: #fff; background: #a00000; padding: 0 0.35em; border-radius: 3px; font-size: 0.8em; }
+  .queue-empty { color: #175c17; }
 `;
 
 export function page(title: string, body: string): string {
@@ -58,7 +98,7 @@ export function page(title: string, body: string): string {
 <style>${STYLE}</style>
 </head>
 <body>
-<nav><a href="/">Request</a><a href="/approvals">Approvals</a><a href="/dashboard">Dashboard</a></nav>
+<nav><a href="/">Request</a><a href="/console">Console</a><a href="/dashboard">Dashboard</a></nav>
 ${body}
 </body>
 </html>`;

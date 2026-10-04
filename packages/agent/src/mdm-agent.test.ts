@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { openDatabase } from "./db.js";
 import { DEFAULT_AGENT_MODEL } from "./models.js";
 import { runMdmAgent, type RunQuery } from "./mdm-agent.js";
 
@@ -48,6 +49,8 @@ describe("runMdmAgent()", () => {
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "helpdesk-mdm-agent-"));
     dbPath = join(dir, "mdm-helpdesk.db");
+    // Standing in for the gateway, which in production always creates this chain first.
+    openDatabase(dbPath, { create: true }).close();
   });
 
   afterEach(async () => {
@@ -88,14 +91,23 @@ describe("runMdmAgent()", () => {
     expect(rows(dbPath)[0]?.requestId).toBe("req-fixed");
   });
 
-  it("disables every built-in tool and allows exactly the two mdm-gateway tools, unprompted", async () => {
+  it("sends the raw request text as its own header too, the same way as x-actor (SPRINT4.md, section 2 — hand_off's own use of it)", async () => {
+    const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
+
+    await runMdmAgent({ actor: "alice@contoso.com", requestText: "list the devices", dbPath, runQuery, getAccessToken });
+
+    const server = runQuery.mock.calls[0]![0].options.mcpServers!["mdm-gateway"] as { headers: Record<string, string> };
+    expect(server.headers["x-request-text"]).toBe("list the devices");
+  });
+
+  it("disables every built-in tool and allows exactly the three mdm-gateway tools, unprompted", async () => {
     const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 
     await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery, getAccessToken });
 
     const { options } = runQuery.mock.calls[0]![0];
     expect(options.tools).toEqual([]);
-    expect(options.allowedTools).toEqual(["mcp__mdm-gateway__list_devices", "mcp__mdm-gateway__get_device"]);
+    expect(options.allowedTools).toEqual(["mcp__mdm-gateway__list_devices", "mcp__mdm-gateway__get_device", "mcp__mdm-gateway__hand_off"]);
     expect(options.permissionMode).toBe("dontAsk");
   });
 
@@ -105,6 +117,16 @@ describe("runMdmAgent()", () => {
     await runMdmAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery, getAccessToken });
 
     expect(runQuery.mock.calls[0]![0].options.model).toBe(DEFAULT_AGENT_MODEL);
+  });
+
+  it("states the actor's own UPN as a fact in the system prompt", async () => {
+    const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
+
+    await runMdmAgent({ actor: "alice@contoso.com", requestText: "list my devices", dbPath, runQuery, getAccessToken });
+
+    const prompt = String(runQuery.mock.calls[0]![0].options.systemPrompt);
+    expect(prompt).toContain("alice@contoso.com");
+    expect(prompt).toMatch(/gateway decides and audits every request from its\s+own/);
   });
 
   it("gives the model no other way to act: the system prompt names the narrow role and forbids retry or an alternative route", async () => {

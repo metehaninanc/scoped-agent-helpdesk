@@ -49,7 +49,7 @@ describe("createGatewayServer()", () => {
 
     await client.callTool({ name: "echo", arguments: { value: "hi" } });
 
-    expect(onToolCall).toHaveBeenCalledWith("echo", { value: "hi" }, { actor: "unknown", agent: "unknown", requestId: "unknown" });
+    expect(onToolCall).toHaveBeenCalledWith("echo", { value: "hi" }, { actor: "unknown", agent: "unknown", requestId: "unknown", requestText: "" });
   });
 
   it("passes through onToolCall's content and isError unchanged", async () => {

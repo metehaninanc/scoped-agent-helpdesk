@@ -1,0 +1,13 @@
+{
+  "product": "intune",
+  "repo": "MicrosoftDocs/memdocs",
+  "commit": "4b5429df8b47046c6b251e572ee61199fb5d4a5d",
+  "files": {
+    "core-concepts.md": "intune/fundamentals/core-concepts.md",
+    "create-policy.md": "intune/device-security/compliance/create-policy.md",
+    "enroll-devices.md": "intune/device-enrollment/enroll-devices.md",
+    "get-started.md": "intune/fundamentals/get-started.md",
+    "overview.md": "intune/device-security/compliance/overview.md"
+  },
+  "license": "CC-BY-4.0 (content) / MIT (code samples) — see README.md, \"Knowledge gateway notes\""
+}

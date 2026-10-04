@@ -1,13 +1,14 @@
 /**
- * The knowledge gateway's policy engine. Same evaluation shape as the other two gateways'
- * decide.ts (SPRINT1.md, Component 1), the shortest ladder of the three: one tool, always
+ * The knowledge gateway's policy engine. Same evaluation shape as the other three gateways'
+ * decide.ts (SPRINT1.md, Component 1), the shortest ladder of the four: two tools, both always
  * autonomous, no deny rules and no approval rules yet — this gateway makes nothing worth
  * restricting beyond the structural checks every gateway makes.
  *
  *   1. structural checks  - unknown tool, malformed parameters
  *   2. deny rules         - none yet
  *   3. approval rules     - none yet; this gateway has no approval store to act on one
- *   4. autonomous rules   - search_documentation, unconditionally
+ *   4. autonomous rules   - search_documentation, unconditionally; hand_off, unconditionally
+ *      (SPRINT4.md, section 2 — identical on every gateway)
  *   5. default            - denied
  *
  * A pure function: no I/O, no network, no model call, no randomness. Never throws.
@@ -26,6 +27,9 @@ const approvalRules: readonly PolicyRule[] = [];
 
 const autonomousRules: readonly PolicyRule[] = [
   { id: Rule.AutonomousSearchDocumentation, matches: (request) => request.tool === "search_documentation" },
+  // SPRINT4.md, section 2: identical on every gateway. Creating a handoff touches nothing
+  // external and is reversible, so there is nothing here to gate behind approval.
+  { id: Rule.AutonomousHandOff, matches: (request) => request.tool === "hand_off" },
 ];
 
 const denied = (...rules: RuleId[]): Decision => ({ outcome: "denied", rules });

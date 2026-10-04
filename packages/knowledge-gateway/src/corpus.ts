@@ -5,6 +5,14 @@
  * repositories, and their licenses). This gateway has no backend client at all — loading the
  * corpus from disk once at startup, not fetching it, is what makes that true.
  *
+ * Sprint 4 prep: the corpus is a folder contract, not a hardcoded list. Adding a product means
+ * dropping its Markdown into its own subdirectory under corpus/raw/ with a manifest.json naming
+ * where it came from — nothing in this file names "entra" or "intune" specifically. Every
+ * subdirectory corpus/raw/ actually contains must have a valid manifest; one that does not is a
+ * malformed product folder, not an absent one, and fails loudly rather than being silently
+ * skipped (see loadCorpus() below) — the same "fail loudly on the unexpected" discipline this
+ * project already applies to the simulation ticket loader (simulation-tickets.ts).
+ *
  * Chunking is by heading, per SPRINT3.md's own instruction: every Markdown heading line (any
  * level, `#` through `######`) starts a new chunk, tagged with that heading's own text. A
  * document's `# Title` line is itself a heading, so the introductory paragraph under it becomes
@@ -17,6 +25,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { z } from "zod";
 
 export interface CorpusChunk {
   /** Stable within one process; not persisted anywhere, so it never needs to survive a restart. */
@@ -31,22 +41,60 @@ export interface CorpusChunk {
   sourceUrl: string;
 }
 
-interface CorpusSource {
-  /** Directory name under corpus/raw/, and the GitHub repo it was vendored from. */
-  dir: string;
+/** One product directory's own manifest.json — the whole folder contract. `product` is
+ * informational (it is the directory name too, kept explicit rather than implied so a manifest
+ * is self-describing if it is ever read on its own). */
+export interface CorpusManifest {
+  product: string;
   repo: string;
-  /** The commit these files were fetched at — see README for why this one, and its license. */
   commit: string;
-  /** The path prefix inside that repo corresponding to corpus/raw/<dir>/. */
-  repoPathPrefix: string;
+  /** Maps each local file name in this directory to its exact path within `repo` at `commit`.
+   * Sprint 4 prep: this used to be one shared `repoPathPrefix` string, on the assumption that
+   * every file vendored into one product directory lives under one common path in the source
+   * repo. Widening the corpus found that assumption already false for both `entra` and `intune`
+   * — Microsoft's own restructuring means files legitimately worth vendoring together do not
+   * always share a real parent folder — and that every citation built from the wrong prefix was
+   * a link that silently 404s. A per-file map has no "usually right" case to get wrong: either a
+   * file has a real, checked entry, or `loadCorpus()` refuses to index it at all (see below).
+   * `bin/verify-citations.ts` re-resolves every URL this produces against GitHub itself, so a
+   * bad entry is caught by running a command, not by trusting the mapping was typed correctly. */
+  files: Record<string, string>;
+  /** SPRINT3.md, 3.3: "record the commit and the license." Free text — the README's own
+   * "Knowledge gateway notes" is the canonical explanation when a license needs more than a
+   * one-line identifier (entra-docs' own discrepancy between its LICENSE file and its
+   * ThirdPartyNotices.md, for instance). */
+  license: string;
 }
 
-/** SPRINT3.md, 3.3: "record the commit and the license." The license itself is recorded once, in
- * the README, next to these same two commits — not repeated per file here. */
-const SOURCES: readonly CorpusSource[] = [
-  { dir: "entra", repo: "MicrosoftDocs/entra-docs", commit: "a37c43ae5c2494cfc4211bb6242eb3151de6e40e", repoPathPrefix: "docs" },
-  { dir: "intune", repo: "MicrosoftDocs/memdocs", commit: "4b5429df8b47046c6b251e572ee61199fb5d4a5d", repoPathPrefix: "intune" },
-];
+const ManifestSchema = z
+  .object({
+    product: z.string().min(1),
+    repo: z.string().min(1),
+    commit: z
+      .string()
+      .regex(/^[0-9a-f]{40}$/i, "must be a 40-character git commit SHA"),
+    files: z.record(z.string().min(1), z.string().min(1)),
+    license: z.string().min(1),
+  })
+  .strict();
+
+/** Reads and validates one product directory's manifest.json. Throws with the directory name and
+ * the exact validation failure — a maintainer dropping in a new product finds out immediately
+ * what is missing, not from a gateway that quietly indexed nothing for it. */
+export function readManifest(productDir: string): CorpusManifest {
+  const path = join(productDir, "manifest.json");
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    throw new Error(`${path}: could not read or parse as JSON — ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const parsed = ManifestSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(`${path}: does not match the expected manifest shape:\n${z.prettifyError(parsed.error)}`);
+  }
+  return parsed.data;
+}
 
 const HEADING_PATTERN = /^(#{1,6})\s+(.+?)\s*$/;
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
@@ -75,13 +123,22 @@ function cleanMarkdown(text: string): string {
     .trim();
 }
 
-function chunkDocument(source: CorpusSource, fileName: string, raw: string): CorpusChunk[] {
+/** `dirName` is a plain string, not `manifest.product` — the directory actually walked, kept
+ * separate from the manifest's own self-reported name in case the two are ever allowed to
+ * differ. Today loadCorpus() always passes them equal. */
+function chunkDocument(manifest: CorpusManifest, dirName: string, fileName: string, raw: string): CorpusChunk[] {
   const frontmatterMatch = FRONTMATTER_PATTERN.exec(raw);
   const frontmatter = frontmatterMatch?.[1] ?? "";
   const body = frontmatterMatch ? raw.slice(frontmatterMatch[0].length) : raw;
   const sourceTitle = extractTitle(frontmatter, fileName);
-  const repoPath = `${source.repoPathPrefix}/${relativeDocPath(source.dir, fileName)}`;
-  const sourceUrl = `https://github.com/${source.repo}/blob/${source.commit}/${repoPath}`;
+  const repoPath = manifest.files[fileName];
+  if (repoPath === undefined) {
+    // loadCorpus() validates every local file has a "files" entry before this is ever called —
+    // reached only if a future caller skips that validation, in which case a loud failure here
+    // beats silently building a citation URL for a file the manifest never named.
+    throw new Error(`${dirName}/${fileName}: no entry in manifest.json's "files" map`);
+  }
+  const sourceUrl = `https://github.com/${manifest.repo}/blob/${manifest.commit}/${repoPath}`;
 
   const lines = body.split(/\r?\n/);
   const chunks: CorpusChunk[] = [];
@@ -92,7 +149,7 @@ function chunkDocument(source: CorpusSource, fileName: string, raw: string): Cor
   const flush = (): void => {
     const text = cleanMarkdown(buffer.join("\n"));
     if (text.length > 0) {
-      chunks.push({ id: `${source.dir}/${fileName}#${index++}`, sourceTitle, heading, text, sourceUrl });
+      chunks.push({ id: `${dirName}/${fileName}#${index++}`, sourceTitle, heading, text, sourceUrl });
     }
     buffer = [];
   };
@@ -111,12 +168,6 @@ function chunkDocument(source: CorpusSource, fileName: string, raw: string): Cor
   return chunks;
 }
 
-/** corpus/raw/<dir>/<fileName> only ever holds files one level deep today; kept as a function
- * rather than a template string so a future subdirectory has one place to change. */
-function relativeDocPath(_dir: string, fileName: string): string {
-  return fileName;
-}
-
 let cached: CorpusChunk[] | null = null;
 
 /** The directory this package's own corpus/raw/ lives under, resolved relative to this module's
@@ -126,23 +177,58 @@ export function corpusRawDir(): string {
   return fileURLToPath(new URL("../corpus/raw", import.meta.url));
 }
 
+/** Every product subdirectory directly under `dir` — the folder contract's own discovery step,
+ * shared by loadCorpus() and bin/reindex.ts so both walk the corpus the same way. Sorted for a
+ * deterministic order; a directory with no manifest.json is a malformed product folder and
+ * readManifest() will say so, not something this function silently filters out. */
+export function listProductDirs(dir: string): string[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+  return entries.sort();
+}
+
 /** Loads and chunks the corpus once per process; the corpus is small and static, so there is
- * nothing to invalidate. Injectable `dir` for tests only. */
+ * nothing to invalidate. Injectable `dir` for tests only. Every product directory present under
+ * `dir` must have a valid manifest.json — see readManifest() — or this throws; a directory that
+ * is not present at all is simply not indexed, which is how dropping a new product in without
+ * restarting anything would be discovered on the next process start. */
 export function loadCorpus(dir: string = corpusRawDir()): CorpusChunk[] {
   if (cached && dir === corpusRawDir()) return cached;
 
   const chunks: CorpusChunk[] = [];
-  for (const source of SOURCES) {
-    const sourceDir = join(dir, source.dir);
-    let fileNames: string[];
-    try {
-      fileNames = readdirSync(sourceDir).filter((f) => extname(f) === ".md");
-    } catch {
-      continue;
+  for (const dirName of listProductDirs(dir)) {
+    const productDir = join(dir, dirName);
+    const manifest = readManifest(productDir);
+    const fileNames = readdirSync(productDir)
+      .filter((f) => extname(f) === ".md")
+      .sort();
+
+    // Bidirectional: a .md file with no "files" entry would silently be skipped by the old,
+    // prefix-based scheme's equivalent of "just works"; here it is refused outright, the same
+    // "fail loudly on the unexpected" discipline as a malformed manifest.json. A "files" entry
+    // with no matching file on disk is refused too — the other half of the same typo/rename this
+    // is meant to catch, since a stale entry naming a file that no longer exists locally means
+    // one less citation than the manifest claims to carry, unnoticed until now.
+    const declared = new Set(Object.keys(manifest.files));
+    const present = new Set(fileNames);
+    const undeclared = fileNames.filter((f) => !declared.has(f));
+    const stale = [...declared].filter((f) => !present.has(f));
+    if (undeclared.length > 0 || stale.length > 0) {
+      const problems: string[] = [];
+      if (undeclared.length > 0) problems.push(`file(s) on disk with no "files" entry: ${undeclared.join(", ")}`);
+      if (stale.length > 0) problems.push(`"files" entries with no matching file on disk: ${stale.join(", ")}`);
+      throw new Error(`${productDir}/manifest.json: ${problems.join("; ")}`);
     }
-    for (const fileName of fileNames.sort()) {
-      const raw = readFileSync(join(sourceDir, fileName), "utf8");
-      chunks.push(...chunkDocument(source, fileName, raw));
+
+    for (const fileName of fileNames) {
+      const raw = readFileSync(join(productDir, fileName), "utf8");
+      chunks.push(...chunkDocument(manifest, dirName, fileName, raw));
     }
   }
 

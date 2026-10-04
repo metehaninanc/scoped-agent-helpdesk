@@ -5,6 +5,7 @@
  */
 import { z } from "zod";
 
+import { HAND_OFF_PARAMS_SCHEMA, HAND_OFF_TOOL_NAME } from "@helpdesk/gateway-core";
 import { deviceId } from "@helpdesk/identity-gateway";
 
 import type { ToolRequest } from "./types.js";
@@ -12,6 +13,7 @@ import type { ToolRequest } from "./types.js";
 export const toolParamSchemas = {
   list_devices: z.strictObject({}),
   get_device: z.strictObject({ deviceId }),
+  [HAND_OFF_TOOL_NAME]: HAND_OFF_PARAMS_SCHEMA,
 } as const;
 
 export type ToolName = keyof typeof toolParamSchemas;

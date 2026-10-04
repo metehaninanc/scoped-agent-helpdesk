@@ -31,6 +31,7 @@ import {
   createTransportFactory,
   openDatabase,
 } from "@helpdesk/gateway-core";
+import { HandoffStore } from "@helpdesk/handoff-core";
 
 import { createApprovalExecute } from "../approvals/execute.js";
 import { loadEndpointGatewayEnv } from "../env.js";
@@ -58,11 +59,12 @@ async function main(): Promise<void> {
   const stub = createEndpointService();
 
   const dbPath = resolve(args.db ?? DEFAULT_DB_PATH);
-  const db = openDatabase(dbPath);
+  const db = openDatabase(dbPath, { create: true });
   const audit = new AuditLog(db);
   const approvals = new ApprovalStore(db);
+  const handoffs = new HandoffStore(db, audit);
 
-  const gatewayDeps = { audit, approvals, stub, config: policyConfig };
+  const gatewayDeps = { audit, approvals, handoffs, stub, config: policyConfig };
 
   // A fresh Server and transport pair per request: see @helpdesk/gateway-core's server.ts
   // header comment (createTransportFactory) for why a stateless transport cannot be reused.

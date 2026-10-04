@@ -12,10 +12,13 @@
     "verify-audit": "pnpm --filter @helpdesk/identity-gateway build && node --no-warnings=ExperimentalWarning packages/identity-gateway/dist/bin/verify-audit.js",
     "graph-smoke": "pnpm --filter @helpdesk/identity-gateway build && node --no-warnings=ExperimentalWarning packages/identity-gateway/dist/bin/graph-smoke.js",
     "mdm-graph-smoke": "pnpm --filter @helpdesk/identity-gateway build && node --no-warnings=ExperimentalWarning packages/identity-gateway/dist/bin/mdm-graph-smoke.js",
+    "prove-injection": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/prove-injection.js",
     "prove-isolation": "pnpm --filter @helpdesk/identity-gateway build && node --no-warnings=ExperimentalWarning packages/identity-gateway/dist/bin/prove-isolation.js",
     "identity-gateway": "pnpm --filter @helpdesk/identity-gateway build && node --no-warnings=ExperimentalWarning packages/identity-gateway/dist/bin/gateway.js",
     "mdm-gateway": "pnpm --filter @helpdesk/mdm-gateway build && node --no-warnings=ExperimentalWarning packages/mdm-gateway/dist/bin/gateway.js",
     "knowledge-gateway": "pnpm --filter @helpdesk/knowledge-gateway build && node --no-warnings=ExperimentalWarning packages/knowledge-gateway/dist/bin/gateway.js",
+    "knowledge-reindex": "pnpm --filter @helpdesk/knowledge-gateway build && node --no-warnings=ExperimentalWarning packages/knowledge-gateway/dist/bin/reindex.js",
+    "knowledge-verify-citations": "pnpm --filter @helpdesk/knowledge-gateway build && node --no-warnings=ExperimentalWarning packages/knowledge-gateway/dist/bin/verify-citations.js",
     "endpoint-gateway": "pnpm --filter @helpdesk/endpoint-gateway build && node --no-warnings=ExperimentalWarning packages/endpoint-gateway/dist/bin/gateway.js",
     "agent": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/identity-agent.js",
     "mdm-agent": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/mdm-agent.js",
@@ -24,7 +27,13 @@
     "route": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/orchestrator.js",
     "token-smoke": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/bin/token-smoke.js",
     "reset-password-smoke": "pnpm --filter @helpdesk/agent build && node --no-warnings=ExperimentalWarning packages/agent/dist/bin/reset-password-smoke.js",
-    "web": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/web.js"
+    "web": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/web.js",
+    "simulate": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/simulate.js",
+    "simulate-summary": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/simulate-summary.js",
+    "simulate-compare": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/simulate-compare.js",
+    "simulate-score": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/simulate-score.js",
+    "record-walkthrough": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/record-walkthrough.js",
+    "triage-harness": "pnpm --filter @helpdesk/web build && node --no-warnings=ExperimentalWarning packages/web/dist/bin/triage-harness.js"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

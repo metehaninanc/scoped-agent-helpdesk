@@ -1,0 +1,9 @@
+{
+  "product": "intune-deviceconfig",
+  "repo": "MicrosoftDocs/memdocs",
+  "commit": "4b5429df8b47046c6b251e572ee61199fb5d4a5d",
+  "files": {
+    "overview.md": "intune/device-configuration/overview.md"
+  },
+  "license": "CC-BY-4.0 (content) / MIT (code samples) — see README.md, \"Knowledge gateway notes\""
+}

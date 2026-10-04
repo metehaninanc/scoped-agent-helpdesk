@@ -6,6 +6,7 @@
  */
 import { AuditLog } from "@helpdesk/audit-core";
 import { ApprovalStore, TokenValidator, conformanceSuite, createRequestListener, openDatabase, type ConformanceHarness } from "@helpdesk/gateway-core";
+import { HandoffStore } from "@helpdesk/handoff-core";
 
 import { policyConfig } from "./policy/config.js";
 import { createEndpointService } from "./stub/endpoint-service.js";
@@ -20,12 +21,14 @@ conformanceSuite("endpoint-gateway", (keys) => {
   const db = openDatabase(":memory:");
   const audit = new AuditLog(db);
   const approvals = new ApprovalStore(db);
+  const handoffs = new HandoffStore(db, audit);
   const auditCountWhenBackendTouched = { value: -1 };
 
   const stub = createEndpointService({ seed: [{ id: ENDPOINT, hostname: "front-desk-01", status: "online", lastCheckInAt: "2026-09-19T00:00:00.000Z" }] });
   const server = createGatewayServer({
     audit,
     approvals,
+    handoffs,
     config: policyConfig,
     stub: {
       ...stub,

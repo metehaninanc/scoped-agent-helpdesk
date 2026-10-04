@@ -1,0 +1,902 @@
+[
+  {
+    "id": "T001",
+    "submittedBy": "a.miller@acme.local",
+    "text": "My Entra ID conditional access is suddenly blocking me from signing into AWS. It says 'Sign-in was blocked by your organization'. I am currently travelling in Germany, maybe that's why?",
+    "actualNeed": "Review sign-in logs and adjust conditional access policy for legitimate travel."
+  },
+  {
+    "id": "T002",
+    "submittedBy": "b.liu@acme.local",
+    "text": "I need to be added to the Marketing security group so I can access the 2027 brand assets folder on SharePoint.",
+    "actualNeed": "Provision membership to the specified group."
+  },
+  {
+    "id": "T003",
+    "submittedBy": "d.scott@acme.local",
+    "text": "Please elevate my account to have standing local administrator rights on my MacBook. I need to run sudo commands frequently for local docker builds and the constant self-service elevation is slowing me down.",
+    "actualNeed": "Deny request for standing local admin privileges based on zero-standing-privilege policy."
+  },
+  {
+    "id": "T004",
+    "submittedBy": "c.jones@acme.local",
+    "text": "I'm locked out of my account after accidentally entering the wrong password too many times during the VPN login. Can you clear the lockout?",
+    "actualNeed": "Reset the active directory account lockout status."
+  },
+  {
+    "id": "T005",
+    "submittedBy": "e.ruiz@acme.local",
+    "text": "Please add me to the Finance security group so I can view the Q3 payroll spreadsheets. I am doing some personal analysis on our burn rate.",
+    "actualNeed": "Deny group membership due to lack of valid business justification."
+  },
+  {
+    "id": "T006",
+    "submittedBy": "f.kim@acme.local",
+    "text": "I lost my YubiKey over the weekend and cannot authenticate via MFA to any Microsoft 365 services. I am completely blocked.",
+    "actualNeed": "Issue a temporary access pass and provision a replacement hardware token."
+  },
+  {
+    "id": "T007",
+    "submittedBy": "g.ahmed@acme.local",
+    "text": "Need access to the Engineering-Prod Entra group. My current access level only lets me view staging clusters.",
+    "actualNeed": "Add the user to the specified production engineering group."
+  },
+  {
+    "id": "T008",
+    "submittedBy": "h.chen@acme.local",
+    "text": "I need access to the Marketing group for the external SaaS app we just procured. It is configured to sync from that specific AD group.",
+    "actualNeed": "Add the user to the relevant group for SaaS application provisioning."
+  },
+  {
+    "id": "T009",
+    "submittedBy": "j.smith@acme.local",
+    "text": "My phone broke and I had to get a new one. I need my Microsoft Authenticator app reset so I can register the new device.",
+    "actualNeed": "Clear existing MFA sessions and require re-registration."
+  },
+  {
+    "id": "T010",
+    "submittedBy": "p.chen@acme.local",
+    "text": "I need access to the production database.",
+    "actualNeed": "Clarify exactly which database and role the user requires."
+  },
+  {
+    "id": "T011",
+    "submittedBy": "p.chen@acme.local",
+    "text": "Following up on my previous request, I still don't have access to the prod database. I specifically need the read-only Entra role assigned to my account for the East US cluster.",
+    "actualNeed": "Assign the specific read-only database role via identity management."
+  },
+  {
+    "id": "T012",
+    "submittedBy": "k.williams@acme.local",
+    "text": "Can you add me to the Finance distribution list? I work closely with them on the quarterly syncs.",
+    "actualNeed": "Grant membership to the requested mailing list."
+  },
+  {
+    "id": "T013",
+    "submittedBy": "l.davis@acme.local",
+    "text": "I need to be added to the Data-Analysts-Read security group. I am joining the data guild next week and need access to the reporting warehouse.",
+    "actualNeed": "Add the user to the data analyst read-only group."
+  },
+  {
+    "id": "T014",
+    "submittedBy": "m.garcia@acme.local",
+    "text": "The VPN is rejecting my credentials but I literally just changed my password 10 minutes ago. Does it take time to sync?",
+    "actualNeed": "Investigate potential password synchronization delay or force a sync to the VPN radius server."
+  },
+  {
+    "id": "T015",
+    "submittedBy": "n.brown@acme.local",
+    "text": "URGENT: The main API signing key is about to expire in an hour and I cannot access the Azure Key Vault due to a conditional access block saying my device is non-compliant. If I don't rotate this, production goes down.",
+    "actualNeed": "Temporarily bypass compliance check for this user or resolve the endpoint compliance failure immediately."
+  },
+  {
+    "id": "T016",
+    "submittedBy": "o.taylor@acme.local",
+    "text": "Need owner rights on the Marketing SharePoint site to restructure the document libraries for the Q4 rebrand.",
+    "actualNeed": "Elevate permissions on the specified SharePoint site."
+  },
+  {
+    "id": "T017",
+    "submittedBy": "q.martinez@acme.local",
+    "text": "I need access to the Design-Figma-Editors group in Entra. I only have view rights right now.",
+    "actualNeed": "Add user to the design editing group."
+  },
+  {
+    "id": "T018",
+    "submittedBy": "r.robinson@acme.local",
+    "text": "My global admin account is set to require FIDO2, but I need a secondary emergency administrator account without MFA just in case my primary gets locked out during the weekend deployment.",
+    "actualNeed": "Deny request for an insecure emergency admin account."
+  },
+  {
+    "id": "T019",
+    "submittedBy": "s.clark@acme.local",
+    "text": "Add me to the Finance Teams channel. I need to drop some contract files in there.",
+    "actualNeed": "Add user to the relevant Microsoft Teams channel."
+  },
+  {
+    "id": "T020",
+    "submittedBy": "t.lewis@acme.local",
+    "text": "I am getting an AADSTS50020 error when trying to log into the partner portal. It says my account does not exist in their tenant.",
+    "actualNeed": "Coordinate with the partner organization to invite the user as a B2B guest."
+  },
+  {
+    "id": "T021",
+    "submittedBy": "u.lee@acme.local",
+    "text": "Please add me to the HR-Confidential group. I am the new HRBP for engineering.",
+    "actualNeed": "Verify role and add user to the HR security group."
+  },
+  {
+    "id": "T022",
+    "submittedBy": "v.walker@acme.local",
+    "text": "I need access to the Marketing analytics dashboard via Entra SSO. It's currently throwing an access denied error.",
+    "actualNeed": "Assign the dashboard application to the user's identity."
+  },
+  {
+    "id": "T023",
+    "submittedBy": "w.hall@acme.local",
+    "text": "Can you put me in the Sales-EMEA security group? I am covering for someone on leave.",
+    "actualNeed": "Grant temporary membership to the regional sales group."
+  },
+  {
+    "id": "T024",
+    "submittedBy": "x.allen@acme.local",
+    "text": "Zero Trust network access is failing for me when I try to reach the internal wiki. It says my session is risky.",
+    "actualNeed": "Investigate and clear the risky user flag in Identity Protection."
+  },
+  {
+    "id": "T025",
+    "submittedBy": "y.young@acme.local",
+    "text": "I need read-only access to the Finance AWS billing role to review our cloud spend.",
+    "actualNeed": "Assign the appropriate AWS read-only IAM role."
+  },
+  {
+    "id": "T026",
+    "submittedBy": "z.hernandez@acme.local",
+    "text": "Sarah left the company last week. Please grant me ownership of her OneDrive so I can look through her old meeting notes.",
+    "actualNeed": "Deny request to take over a former employee's private drive and advise on proper data recovery procedures."
+  },
+  {
+    "id": "T027",
+    "submittedBy": "a.king@acme.local",
+    "text": "Add me to the Product-Beta testing group.",
+    "actualNeed": "Add user to the product testing security group."
+  },
+  {
+    "id": "T028",
+    "submittedBy": "b.wright@acme.local",
+    "text": "I cannot access the Marketing shared mailbox in Outlook. It just says 'Cannot expand the folder'.",
+    "actualNeed": "Fix mailbox delegation permissions."
+  },
+  {
+    "id": "T029",
+    "submittedBy": "c.lopez@acme.local",
+    "text": "My sign in was blocked due to 'unfamiliar properties'. I am working from a coffee shop today.",
+    "actualNeed": "Review the sign-in block and whitelist the IP if safe."
+  },
+  {
+    "id": "T030",
+    "submittedBy": "d.hill@acme.local",
+    "text": "Need to be in the DevOps-Staging group to deploy the new container.",
+    "actualNeed": "Grant deployment permissions to the staging group."
+  },
+  {
+    "id": "T031",
+    "submittedBy": "e.scott@acme.local",
+    "text": "Can you add me to the Finance read-only group for the reporting server?",
+    "actualNeed": "Add user to the reporting server security group."
+  },
+  {
+    "id": "T032",
+    "submittedBy": "f.green@acme.local",
+    "text": "I'm not getting the push notifications for MFA on my phone anymore, and the code generator tab is blank.",
+    "actualNeed": "Troubleshoot or reset the authenticator app configuration."
+  },
+  {
+    "id": "T033",
+    "submittedBy": "g.adams@acme.local",
+    "text": "Need access to the Legal-Contracts security group.",
+    "actualNeed": "Add user to the legal security group after approval."
+  },
+  {
+    "id": "T034",
+    "submittedBy": "h.baker@acme.local",
+    "text": "I need to be in the Marketing external collab group to invite agencies to our tenant.",
+    "actualNeed": "Grant permission to invite B2B guests."
+  },
+  {
+    "id": "T035",
+    "submittedBy": "j.gonzalez@acme.local",
+    "text": "Conditional access is requiring a compliant device, but my iPad isn't enrolled. Do I need to enroll personal devices?",
+    "actualNeed": "Advise the user on BYOD policy and enrollment."
+  },
+  {
+    "id": "T036",
+    "submittedBy": "k.nelson@acme.local",
+    "text": "Add me to the QA-Testers group in Entra.",
+    "actualNeed": "Add user to the quality assurance group."
+  },
+  {
+    "id": "T037",
+    "submittedBy": "l.carter@acme.local",
+    "text": "I need to regain access to the Finance budgeting tool. My access was revoked after my secondment ended but I have been asked to help them for one more week.",
+    "actualNeed": "Re-provision access to the financial application."
+  },
+  {
+    "id": "T038",
+    "submittedBy": "m.mitchell@acme.local",
+    "text": "Zero Trust client keeps saying 'tunnel degraded'. Reconnected three times.",
+    "actualNeed": "Investigate the local client configuration or network conditions causing tunnel degradation."
+  },
+  {
+    "id": "T039",
+    "submittedBy": "n.perez@acme.local",
+    "text": "I am receiving an error that my password has expired, but the self-service reset portal says I am not allowed to reset it.",
+    "actualNeed": "Manually reset the password and fix the self-service reset configuration for the user."
+  },
+  {
+    "id": "T040",
+    "submittedBy": "o.roberts@acme.local",
+    "text": "Please add me to the IT-Support-Tier1 group. I am shadowing the helpdesk this week.",
+    "actualNeed": "Grant temporary membership to the helpdesk group."
+  },
+  {
+    "id": "T041",
+    "submittedBy": "p.turner@acme.local",
+    "text": "I need access to the Marketing group.",
+    "actualNeed": "Clarify which specific Marketing resource is needed."
+  },
+  {
+    "id": "T042",
+    "submittedBy": "q.phillips@acme.local",
+    "text": "Can you put me in the Facilities-London group?",
+    "actualNeed": "Add user to the facilities group."
+  },
+  {
+    "id": "T043",
+    "submittedBy": "r.campbell@acme.local",
+    "text": "I need access to the Finance forecasting app.",
+    "actualNeed": "Assign the financial forecasting software to the user."
+  },
+  {
+    "id": "T044",
+    "submittedBy": "s.parker@acme.local",
+    "text": "My Entra ID account is locked and I am not receiving the text message to unlock it.",
+    "actualNeed": "Unlock the account and verify the registered phone number."
+  },
+  {
+    "id": "T045",
+    "submittedBy": "t.evans@acme.local",
+    "text": "I lost access to the core AWS engineering group after the re-org sync last night. Please restore it.",
+    "actualNeed": "Restore the user's membership to the engineering group that was lost during synchronization."
+  },
+  {
+    "id": "T046",
+    "submittedBy": "u.edwards@acme.local",
+    "text": "I need a standard license for Microsoft Project assigned to my account.",
+    "actualNeed": "Assign a Microsoft Project license."
+  },
+  {
+    "id": "T047",
+    "submittedBy": "m.jones@acme.local",
+    "text": "Visio isn't working.",
+    "actualNeed": "Determine why the application is failing."
+  },
+  {
+    "id": "T048",
+    "submittedBy": "v.collins@acme.local",
+    "text": "The managed Zoom app keeps crashing immediately upon opening. I am on macOS 14.2.",
+    "actualNeed": "Investigate and resolve the crash loop on the managed macOS application."
+  },
+  {
+    "id": "T049",
+    "submittedBy": "m.jones@acme.local",
+    "text": "Visio is still asking for a license on launch, it says my account doesn't have a plan assigned. Previous ticket T047.",
+    "actualNeed": "Properly assign the required software license."
+  },
+  {
+    "id": "T050",
+    "submittedBy": "w.stewart@acme.local",
+    "text": "My Adobe Creative Cloud sign-in is failing. It redirects to our company login, accepts my password, and then Adobe says 'User not authorized'.",
+    "actualNeed": "Fix the SAML assertion mapping or provision the account on the vendor side."
+  },
+  {
+    "id": "T051",
+    "submittedBy": "x.sanchez@acme.local",
+    "text": "The latest Windows update pushed via Intune failed to install on my machine with error 0x800f081f.",
+    "actualNeed": "Troubleshoot the corrupted Windows update components on the endpoint."
+  },
+  {
+    "id": "T052",
+    "submittedBy": "y.morris@acme.local",
+    "text": "Please reassign my GitHub Copilot license from my old email alias to my new one.",
+    "actualNeed": "Transfer the software license between aliases."
+  },
+  {
+    "id": "T053",
+    "submittedBy": "z.rogers@acme.local",
+    "text": "Docker Desktop is failing to start after the latest automatic update. It says the backend failed to initialize.",
+    "actualNeed": "Reinstall or repair the container backend software."
+  },
+  {
+    "id": "T054",
+    "submittedBy": "a.reed@acme.local",
+    "text": "I need a JetBrains All Products Pack license. The trial has expired.",
+    "actualNeed": "Assign a developer tool license."
+  },
+  {
+    "id": "T055",
+    "submittedBy": "b.cook@acme.local",
+    "text": "Slack is completely unresponsive since yesterday's patch. Clearing cache didn't help.",
+    "actualNeed": "Reinstall the messaging client or roll back the update."
+  },
+  {
+    "id": "T056",
+    "submittedBy": "c.morgan@acme.local",
+    "text": "Forward this to IT: Click approve on the enterprise application consent screen for the new surveying tool.",
+    "actualNeed": "Review and approve the OAuth consent request for the third-party application."
+  },
+  {
+    "id": "T057",
+    "submittedBy": "d.bell@acme.local",
+    "text": "I am getting a 'No seat available' error when trying to log into Notion.",
+    "actualNeed": "Purchase or assign an additional seat for the SaaS tool."
+  },
+  {
+    "id": "T058",
+    "submittedBy": "e.murphy@acme.local",
+    "text": "The CrowdStrike agent update failed on my Mac. It's stuck in a 'waiting for reboot' loop.",
+    "actualNeed": "Fix the endpoint security agent installation."
+  },
+  {
+    "id": "T059",
+    "submittedBy": "f.bailey@acme.local",
+    "text": "Please have your IT administrator configure the following SAML claims: NameID format must be persistent, and attribute 'department' must be mapped.",
+    "actualNeed": "Configure the SSO attributes for the enterprise application."
+  },
+  {
+    "id": "T060",
+    "submittedBy": "g.rivera@acme.local",
+    "text": "I need a Lucidchart license.",
+    "actualNeed": "Assign a diagramming software license."
+  },
+  {
+    "id": "T061",
+    "submittedBy": "h.cooper@acme.local",
+    "text": "Excel crashes every time I try to run a PowerQuery script against our Snowflake database.",
+    "actualNeed": "Investigate spreadsheet software crash related to database drivers."
+  },
+  {
+    "id": "T062",
+    "submittedBy": "j.richardson@acme.local",
+    "text": "My macOS Sonoma update failed halfway through and now the machine boots into recovery mode.",
+    "actualNeed": "Recover the operating system on the laptop."
+  },
+  {
+    "id": "T063",
+    "submittedBy": "k.cox@acme.local",
+    "text": "I need my Salesforce license reactivated. I am returning from sabbatical.",
+    "actualNeed": "Re-enable access and licensing for the CRM tool."
+  },
+  {
+    "id": "T064",
+    "submittedBy": "l.howard@acme.local",
+    "text": "The managed Chrome browser is throwing an administrator policy error when I try to install the 1Password extension.",
+    "actualNeed": "Update the browser management policy to allow the specified extension."
+  },
+  {
+    "id": "T065",
+    "submittedBy": "m.ward@acme.local",
+    "text": "Visual Studio is failing to authenticate my Microsoft account.",
+    "actualNeed": "Resolve the IDE sign-in issue."
+  },
+  {
+    "id": "T066",
+    "submittedBy": "n.torres@acme.local",
+    "text": "Please remove my Figma license and give it to the new contractor.",
+    "actualNeed": "Reassign the design software license."
+  },
+  {
+    "id": "T067",
+    "submittedBy": "o.peterson@acme.local",
+    "text": "The VPN client updated this morning and now the service refuses to start.",
+    "actualNeed": "Reinstall or fix the corrupted VPN client."
+  },
+  {
+    "id": "T068",
+    "submittedBy": "p.gray@acme.local",
+    "text": "I cannot access DataDog via SSO. It says my role is unassigned.",
+    "actualNeed": "Map the user's group to the correct role in the monitoring tool."
+  },
+  {
+    "id": "T069",
+    "submittedBy": "q.ramirez@acme.local",
+    "text": "A managed background service (Jamf) keeps eating 100% of my CPU.",
+    "actualNeed": "Fix the endpoint management agent causing high resource usage."
+  },
+  {
+    "id": "T070",
+    "submittedBy": "r.james@acme.local",
+    "text": "Need a Power BI Pro license for reporting.",
+    "actualNeed": "Assign a reporting software license."
+  },
+  {
+    "id": "T071",
+    "submittedBy": "s.watson@acme.local",
+    "text": "My IntelliJ IDE is crashing with an out-of-memory error since the last patch.",
+    "actualNeed": "Adjust the JVM heap settings or reinstall the IDE."
+  },
+  {
+    "id": "T072",
+    "submittedBy": "t.brooks@acme.local",
+    "text": "The OS update is failing due to insufficient disk space, but I have 100GB free.",
+    "actualNeed": "Resolve the filesystem error preventing the OS update."
+  },
+  {
+    "id": "T073",
+    "submittedBy": "u.kelly@acme.local",
+    "text": "Zendesk sign in is looping.",
+    "actualNeed": "Fix the SSO loop for the ticketing system."
+  },
+  {
+    "id": "T074",
+    "submittedBy": "v.sanders@acme.local",
+    "text": "The internal CLI tool installed via Company Portal is throwing a Python environment error.",
+    "actualNeed": "Fix the dependencies for the internal command line application."
+  },
+  {
+    "id": "T075",
+    "submittedBy": "w.price@acme.local",
+    "text": "I need a Windows 11 Enterprise E5 license assigned.",
+    "actualNeed": "Upgrade the operating system license."
+  },
+  {
+    "id": "T076",
+    "submittedBy": "x.bennett@acme.local",
+    "text": "Can you assign me a Miro license?",
+    "actualNeed": "Provision access to the whiteboarding tool."
+  },
+  {
+    "id": "T077",
+    "submittedBy": "y.wood@acme.local",
+    "text": "Postman is freezing every time I send a request.",
+    "actualNeed": "Troubleshoot the freezing API testing client."
+  },
+  {
+    "id": "T078",
+    "submittedBy": "z.barnes@acme.local",
+    "text": "Our CI/CD SaaS tool is refusing my Entra sign in.",
+    "actualNeed": "Fix access to the continuous integration platform."
+  },
+  {
+    "id": "T079",
+    "submittedBy": "a.ross@acme.local",
+    "text": "My laptop battery is swelling. The trackpad is bulging upward.",
+    "actualNeed": "Replace the dangerous hardware immediately."
+  },
+  {
+    "id": "T080",
+    "submittedBy": "s.williams@acme.local",
+    "text": "My dock is broken.",
+    "actualNeed": "Determine the exact issue with the docking station."
+  },
+  {
+    "id": "T081",
+    "submittedBy": "c.coleman@acme.local",
+    "text": "Intune says my device is non-compliant due to a missing encryption policy, but FileVault is definitely turned on.",
+    "actualNeed": "Sync the device state with the endpoint manager to clear the false compliance error."
+  },
+  {
+    "id": "T082",
+    "submittedBy": "d.jenkins@acme.local",
+    "text": "My external monitor keeps flickering when connected via USB-C.",
+    "actualNeed": "Replace the cable or the monitor."
+  },
+  {
+    "id": "T083",
+    "submittedBy": "s.williams@acme.local",
+    "text": "The replacement dock you sent (re: T080) doesn't power the laptop, only the displays work. Tried different USB-C cables.",
+    "actualNeed": "Provide a docking station with adequate power delivery."
+  },
+  {
+    "id": "T084",
+    "submittedBy": "f.perry@acme.local",
+    "text": "Device enrollment is failing during the Autopilot OOBE. It hangs on the 'Securing your hardware' step.",
+    "actualNeed": "Troubleshoot the Autopilot provisioning profile."
+  },
+  {
+    "id": "T085",
+    "submittedBy": "g.powell@acme.local",
+    "text": "Critical: I spilled coffee on my laptop and it is completely dead. I have a production release to manage in two hours. Do we have loaners in the London office?",
+    "actualNeed": "Provide an emergency loaner device."
+  },
+  {
+    "id": "T086",
+    "submittedBy": "h.long@acme.local",
+    "text": "My machine hasn't reported to Intune in 30 days and now I am blocked from all company resources.",
+    "actualNeed": "Re-enroll or manually sync the stale device."
+  },
+  {
+    "id": "T087",
+    "submittedBy": "j.patterson@acme.local",
+    "text": "The 'W' key on my built-in keyboard is entirely unresponsive.",
+    "actualNeed": "Repair or replace the laptop keyboard."
+  },
+  {
+    "id": "T088",
+    "submittedBy": "k.hughes@acme.local",
+    "text": "I need a replacement wireless mouse. The scroll wheel is broken.",
+    "actualNeed": "Ship a new peripheral."
+  },
+  {
+    "id": "T089",
+    "submittedBy": "l.flores@acme.local",
+    "text": "My Dell U2720Q monitor will not wake up from sleep without a hard power cycle.",
+    "actualNeed": "Update the monitor firmware or replace the unit."
+  },
+  {
+    "id": "T090",
+    "submittedBy": "m.washington@acme.local",
+    "text": "Intune compliance error: it claims my OS version is out of date, but I am on the latest macOS release.",
+    "actualNeed": "Update the compliance policy baselines."
+  },
+  {
+    "id": "T091",
+    "submittedBy": "n.butler@acme.local",
+    "text": "I am trying to enroll my new phone for work apps, but the Company Portal app says my account is not licensed for Intune.",
+    "actualNeed": "Assign an Intune license to the user."
+  },
+  {
+    "id": "T092",
+    "submittedBy": "o.simmons@acme.local",
+    "text": "The webcam on my laptop has completely stopped being recognized by the OS.",
+    "actualNeed": "Troubleshoot or replace the hardware camera."
+  },
+  {
+    "id": "T093",
+    "submittedBy": "p.foster@acme.local",
+    "text": "My headset microphone is generating severe static on every call.",
+    "actualNeed": "Replace the faulty headset."
+  },
+  {
+    "id": "T094",
+    "submittedBy": "q.gonzales@acme.local",
+    "text": "I am unable to enroll this test device into Intune. It says the maximum number of devices has been reached.",
+    "actualNeed": "Increase the user's device limit or remove stale devices."
+  },
+  {
+    "id": "T095",
+    "submittedBy": "r.bryant@acme.local",
+    "text": "My laptop fan is making a loud grinding noise.",
+    "actualNeed": "Repair the laptop cooling system."
+  },
+  {
+    "id": "T096",
+    "submittedBy": "s.alexander@acme.local",
+    "text": "The USB ports on my docking station have stopped passing data, though they still provide power.",
+    "actualNeed": "Replace the defective docking station."
+  },
+  {
+    "id": "T097",
+    "submittedBy": "t.russell@acme.local",
+    "text": "My screen is cracked.",
+    "actualNeed": "Replace the damaged laptop screen."
+  },
+  {
+    "id": "T098",
+    "submittedBy": "u.griffin@acme.local",
+    "text": "Autopilot deployment failed with error 80180014.",
+    "actualNeed": "Resolve the specific Autopilot enrollment error."
+  },
+  {
+    "id": "T099",
+    "submittedBy": "v.diaz@acme.local",
+    "text": "The battery life on my laptop has degraded to less than an hour on a full charge.",
+    "actualNeed": "Replace the degraded battery."
+  },
+  {
+    "id": "T100",
+    "submittedBy": "w.hayes@acme.local",
+    "text": "My external keyboard is missing the escape key cap.",
+    "actualNeed": "Provide a replacement keyboard."
+  },
+  {
+    "id": "T101",
+    "submittedBy": "x.myers@acme.local",
+    "text": "I am blocked by a compliance policy saying I don't have an active firewall, but Windows Defender Firewall is definitely on.",
+    "actualNeed": "Fix the compliance sync issue on the endpoint."
+  },
+  {
+    "id": "T102",
+    "submittedBy": "y.ford@acme.local",
+    "text": "My test iPad is not reporting into the MDM anymore.",
+    "actualNeed": "Investigate the broken MDM communication on the tablet."
+  },
+  {
+    "id": "T103",
+    "submittedBy": "z.hamilton@acme.local",
+    "text": "Need a longer DisplayPort cable.",
+    "actualNeed": "Ship a longer display cable."
+  },
+  {
+    "id": "T104",
+    "submittedBy": "a.graham@acme.local",
+    "text": "My laptop randomly shuts down when disconnected from power, even if the battery says 80%.",
+    "actualNeed": "Replace the faulty hardware battery."
+  },
+  {
+    "id": "T105",
+    "submittedBy": "b.sullivan@acme.local",
+    "text": "The company portal app says my device is non-compliant because of an outdated OS, but there are no updates available.",
+    "actualNeed": "Update the compliance baseline to match the latest OS patch level."
+  },
+  {
+    "id": "T106",
+    "submittedBy": "c.wallace@acme.local",
+    "text": "Office Wi-Fi in Berlin is dropping connections every few minutes.",
+    "actualNeed": "Investigate wireless instability at the specified location."
+  },
+  {
+    "id": "T107",
+    "submittedBy": "d.woods@acme.local",
+    "text": "I am getting an IP conflict error on the LAN in the New York office.",
+    "actualNeed": "Resolve the DHCP or static IP allocation conflict."
+  },
+  {
+    "id": "T108",
+    "submittedBy": "c.wallace@acme.local",
+    "text": "Berlin office Wi-Fi is still dropping packets. It's specifically the 'Acme-Corp' SSID on the 3rd floor. Previous ticket T106.",
+    "actualNeed": "Fix the specific access point or controller issue on the 3rd floor."
+  },
+  {
+    "id": "T109",
+    "submittedBy": "e.cole@acme.local",
+    "text": "The VPN connects but I have no internet access while connected. It seems to be routing all traffic through the tunnel but DNS is failing.",
+    "actualNeed": "Fix the split tunneling or DNS configuration on the VPN profile."
+  },
+  {
+    "id": "T110",
+    "submittedBy": "f.west@acme.local",
+    "text": "I cannot resolve internal hostnames while on the corporate Wi-Fi.",
+    "actualNeed": "Fix the DNS server assignment for the wireless network."
+  },
+  {
+    "id": "T111",
+    "submittedBy": "g.jordan@acme.local",
+    "text": "LAN performance on the 2nd floor switch is crawling. Transfers are running at barely 10Mbps.",
+    "actualNeed": "Investigate the network switch performance."
+  },
+  {
+    "id": "T112",
+    "submittedBy": "h.owens@acme.local",
+    "text": "VPN keeps disconnecting exactly every 60 minutes.",
+    "actualNeed": "Adjust the VPN session timeout or rekey interval settings."
+  },
+  {
+    "id": "T113",
+    "submittedBy": "j.reynolds@acme.local",
+    "text": "The guest Wi-Fi portal is not loading, so visitors cannot accept the terms to get online.",
+    "actualNeed": "Restart or fix the captive portal service."
+  },
+  {
+    "id": "T114",
+    "submittedBy": "k.fisher@acme.local",
+    "text": "I cannot reach the internal Git server via SSH. Ping works but port 22 is timing out.",
+    "actualNeed": "Check the internal firewall rules for SSH traffic."
+  },
+  {
+    "id": "T115",
+    "submittedBy": "l.ellis@acme.local",
+    "text": "My local DNS keeps defaulting to my ISP instead of the VPN DNS, so internal apps fail to load.",
+    "actualNeed": "Force DNS resolution through the tunnel."
+  },
+  {
+    "id": "T116",
+    "submittedBy": "m.harrison@acme.local",
+    "text": "We are getting massive packet loss on the primary fiber line in the London office.",
+    "actualNeed": "Contact the ISP to resolve the WAN circuit issue."
+  },
+  {
+    "id": "T117",
+    "submittedBy": "n.gibson@acme.local",
+    "text": "The Ethernet port at desk 44 isn't patching through to the switch.",
+    "actualNeed": "Patch the physical network port."
+  },
+  {
+    "id": "T118",
+    "submittedBy": "o.mcdonald@acme.local",
+    "text": "Our build server is completely isolated from the network. The link light is on but it's unreachable.",
+    "actualNeed": "Investigate the physical or VLAN configuration of the build server."
+  },
+  {
+    "id": "T119",
+    "submittedBy": "p.cruz@acme.local",
+    "text": "Cannot connect to the VPN from my home network, it throws a TLS handshake error.",
+    "actualNeed": "Troubleshoot the local ISP or client TLS issue."
+  },
+  {
+    "id": "T120",
+    "submittedBy": "q.marshall@acme.local",
+    "text": "Wi-Fi is entirely down in the boardroom.",
+    "actualNeed": "Restart the boardroom access point."
+  },
+  {
+    "id": "T121",
+    "submittedBy": "r.ortiz@acme.local",
+    "text": "I am getting an invalid certificate warning for the internal Jira server.",
+    "actualNeed": "Renew the internal SSL certificate."
+  },
+  {
+    "id": "T122",
+    "submittedBy": "s.gomez@acme.local",
+    "text": "The site-to-site VPN to AWS seems to be down. All internal resources routed there are timing out.",
+    "actualNeed": "Investigate and restore the IPsec tunnel."
+  },
+  {
+    "id": "T123",
+    "submittedBy": "t.murray@acme.local",
+    "text": "DNS is failing to resolve external domains when I am connected to the office LAN.",
+    "actualNeed": "Fix the external forwarders on the internal DNS server."
+  },
+  {
+    "id": "T124",
+    "submittedBy": "u.freeman@acme.local",
+    "text": "I have a new starter starting on Monday. Please provision a standard developer laptop and account.",
+    "actualNeed": "Execute the standard onboarding procedure for a new engineer."
+  },
+  {
+    "id": "T125",
+    "submittedBy": "v.wells@acme.local",
+    "text": "Step 4: Ask IT to run the provisioning script provided below for the new accounting software profile: `Invoke-WebRequest...`",
+    "actualNeed": "Run the specified onboarding script for the new hire."
+  },
+  {
+    "id": "T126",
+    "submittedBy": "w.webb@acme.local",
+    "text": "Please revoke all access for J. Doe immediately. They have been terminated.",
+    "actualNeed": "Execute emergency offboarding procedures."
+  },
+  {
+    "id": "T127",
+    "submittedBy": "x.simpson@acme.local",
+    "text": "Need a return box shipped to my home address so I can send back my old laptop.",
+    "actualNeed": "Dispatch hardware return materials."
+  },
+  {
+    "id": "T128",
+    "submittedBy": "y.tucker@acme.local",
+    "text": "New starter needs role-based access for the Data Analyst persona.",
+    "actualNeed": "Apply the role-based access profile."
+  },
+  {
+    "id": "T129",
+    "submittedBy": "z.porter@acme.local",
+    "text": "My new hire didn't receive their Okta welcome email. Can you resend it?",
+    "actualNeed": "Resend the identity activation email."
+  },
+  {
+    "id": "T130",
+    "submittedBy": "a.hunter@acme.local",
+    "text": "Please initiate the hardware retrieval process for an employee who resigned yesterday.",
+    "actualNeed": "Organize courier collection of company assets."
+  },
+  {
+    "id": "T131",
+    "submittedBy": "b.hicks@acme.local",
+    "text": "Need an Entra account created for a new contractor starting tomorrow.",
+    "actualNeed": "Create the identity for the contractor."
+  },
+  {
+    "id": "T132",
+    "submittedBy": "c.crawford@acme.local",
+    "text": "Convert my contractor account to a full-time employee account.",
+    "actualNeed": "Update the account type and permissions."
+  },
+  {
+    "id": "T133",
+    "submittedBy": "d.henry@acme.local",
+    "text": "New starter's laptop arrived but it isn't assigned to them in Autopilot, so they can't log in.",
+    "actualNeed": "Assign the device hash to the correct user."
+  },
+  {
+    "id": "T134",
+    "submittedBy": "e.boyd@acme.local",
+    "text": "Please disable the AD account for M. Smith. Today is their last day.",
+    "actualNeed": "Disable the departing employee's account."
+  },
+  {
+    "id": "T135",
+    "submittedBy": "f.mason@acme.local",
+    "text": "I need full delegation access to the inbox of the employee who just left my team, permanently.",
+    "actualNeed": "Deny permanent access to an ex-colleague's email and set up an auto-responder or shared mailbox instead."
+  },
+  {
+    "id": "T136",
+    "submittedBy": "g.morales@acme.local",
+    "text": "Can we get the standard designer software suite provisioned for the new hire?",
+    "actualNeed": "Assign the appropriate software bundle."
+  },
+  {
+    "id": "T137",
+    "submittedBy": "h.kennedy@acme.local",
+    "text": "I need to return my secondary test device.",
+    "actualNeed": "Provide instructions for returning the hardware."
+  },
+  {
+    "id": "T138",
+    "submittedBy": "j.warren@acme.local",
+    "text": "New hire needs to be added to the GitHub organization.",
+    "actualNeed": "Invite the new employee to the code repository."
+  },
+  {
+    "id": "T139",
+    "submittedBy": "k.dixon@acme.local",
+    "text": "Please remove all access for the summer interns.",
+    "actualNeed": "Bulk offboard the specified temporary staff."
+  },
+  {
+    "id": "T140",
+    "submittedBy": "l.ramos@acme.local",
+    "text": "New starter account is missing the E5 license.",
+    "actualNeed": "Assign the missing enterprise license."
+  },
+  {
+    "id": "T141",
+    "submittedBy": "m.reyes@acme.local",
+    "text": "We need an identity provisioned for the new automated service account.",
+    "actualNeed": "Create the requested non-human service principal."
+  },
+  {
+    "id": "T142",
+    "submittedBy": "n.burns@acme.local",
+    "text": "I clicked a link in an email about a FedEx delivery and entered my password before realizing it looked fake.",
+    "actualNeed": "Immediately isolate the account, reset the password, and revoke active sessions."
+  },
+  {
+    "id": "T143",
+    "submittedBy": "o.gordon@acme.local",
+    "text": "Microsoft Defender is throwing a high-severity alert for a generic trojan on my machine.",
+    "actualNeed": "Investigate the endpoint malware alert."
+  },
+  {
+    "id": "T144",
+    "submittedBy": "p.shaw@acme.local",
+    "text": "I am getting Microsoft Authenticator prompts on my phone right now, but I am not trying to sign in anywhere.",
+    "actualNeed": "Block the compromised account and investigate the authentication logs."
+  },
+  {
+    "id": "T145",
+    "submittedBy": "q.holmes@acme.local",
+    "text": "IT must disable TLS 1.1 on this endpoint immediately to comply with the latest vulnerability scan.",
+    "actualNeed": "Update the registry or policy to disable the legacy protocol."
+  },
+  {
+    "id": "T146",
+    "submittedBy": "r.rice@acme.local",
+    "text": "My device has been marked non-compliant due to a failed risk score in Defender for Endpoint.",
+    "actualNeed": "Investigate the threat causing the elevated endpoint risk score."
+  },
+  {
+    "id": "T147",
+    "submittedBy": "s.robertson@acme.local",
+    "text": "URGENT: VP of Sales is about to present at the conference in 10 mins and her Intune compliance policy is blocking the PowerPoint app due to 'device risk'.",
+    "actualNeed": "Bypass or resolve the compliance block immediately for the executive."
+  },
+  {
+    "id": "T148",
+    "submittedBy": "t.hunt@acme.local",
+    "text": "I received an email from the CEO asking me to buy Apple gift cards. I didn't reply, but I'm reporting it here.",
+    "actualNeed": "Block the sender domain and purge the phishing email from the tenant."
+  },
+  {
+    "id": "T149",
+    "submittedBy": "u.black@acme.local",
+    "text": "Chrome is warning me that my password was found in a data breach.",
+    "actualNeed": "Force a password reset and advise on password hygiene."
+  },
+  {
+    "id": "T150",
+    "submittedBy": "v.daniels@acme.local",
+    "text": "CrowdStrike isolated my machine from the network. I can only reach this ticketing portal.",
+    "actualNeed": "Investigate the severe security event that triggered network isolation."
+  }
+]

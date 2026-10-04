@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuditLog } from "@helpdesk/audit-core";
 import { openDatabase } from "@helpdesk/gateway-core";
+import { HandoffStore } from "@helpdesk/handoff-core";
 
 import type { SearchResult } from "../search.js";
 import { Rule, type PolicyConfig } from "../policy/types.js";
@@ -34,7 +35,7 @@ describe("knowledge gateway MCP server", () => {
   beforeEach(async () => {
     const db = openDatabase(":memory:");
     audit = new AuditLog(db);
-    deps = { audit, search: vi.fn(() => [PASSAGE]), config };
+    deps = { audit, search: vi.fn(() => [PASSAGE]), handoffs: new HandoffStore(db, audit), config };
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await createGatewayServer(deps).connect(serverTransport);
@@ -47,12 +48,12 @@ describe("knowledge gateway MCP server", () => {
     audit.close();
   });
 
-  it("identifies itself and advertises exactly the one tool with a closed schema and no ids", async () => {
+  it("identifies itself and advertises search_documentation plus hand_off, each with a closed schema and no ids", async () => {
     expect(client.getServerVersion()?.name).toBe(GATEWAY_NAME);
 
     const { tools } = await client.listTools();
 
-    expect(tools.map((t) => t.name)).toEqual(["search_documentation"]);
+    expect(tools.map((t) => t.name)).toEqual(["search_documentation", "hand_off"]);
     for (const tool of tools) {
       expect(tool.description).toBeTruthy();
       expect(tool.inputSchema.additionalProperties).toBe(false);
@@ -68,6 +69,16 @@ describe("knowledge gateway MCP server", () => {
       ["autonomous", true],
       ["autonomous", false],
     ]);
+  });
+
+  it("runs hand_off end to end, autonomous, and audits both the tool call and the handoff's own creation (SPRINT4.md, section 2)", async () => {
+    const result = await client.callTool({ name: "hand_off", arguments: { reason: "needs a replacement device" } });
+
+    expect(result.isError).toBeFalsy();
+    expect(textOf(result)).toMatchObject({ status: "handed_off", handoffId: expect.any(String) });
+    // Three records, not two: runToolCall's own policy-decision record, then HandoffStore's own
+    // `handoff` record (evidence before the queue row exists), then runToolCall's result record.
+    expect(audit.list().map((r) => r.decision)).toEqual(["autonomous", "handoff", "autonomous"]);
   });
 
   it("audits a malformed call instead of letting the protocol layer reject it", async () => {

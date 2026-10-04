@@ -15,6 +15,9 @@ describe("SessionAudit", () => {
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "helpdesk-session-audit-"));
     dbPath = join(dir, "nested", "helpdesk.db");
+    // Standing in for the gateway that, in production, always opens this file first (SessionAudit
+    // itself no longer creates one — see db.ts's own openDatabase()).
+    openDatabase(dbPath, { create: true }).close();
   });
 
   afterEach(async () => {

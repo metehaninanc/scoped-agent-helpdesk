@@ -1,75 +1,35 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { describe, expect, it } from "vitest";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AGENT_AUTH_PATH_MISMATCH, agentSubprocessEnv, assertAgentAuthPath } from "./env.js";
 
-const VAR = "HELPDESK_TEST_ENV_VAR";
-
-/**
- * ensureEnvLoaded() loads at most once per process (module-level state), which is the whole
- * point of it, but means each test needs a genuinely fresh module to observe "not yet loaded"
- * behaviour rather than silently inheriting the previous test's load.
- */
-async function freshEnsureEnvLoaded(): Promise<typeof import("./env.js").ensureEnvLoaded> {
-  vi.resetModules();
-  const mod = await import("./env.js");
-  return mod.ensureEnvLoaded;
-}
-
-describe("ensureEnvLoaded()", () => {
-  let dir: string;
-  let deepDir: string;
-
-  beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "helpdesk-agent-env-"));
-    deepDir = join(dir, "a", "b", "c");
-    await mkdir(deepDir, { recursive: true });
-    delete process.env[VAR];
+describe("agentSubprocessEnv()", () => {
+  it("leaves options.env unset by default, so the subprocess inherits process.env and the API key as it always has", () => {
+    expect(agentSubprocessEnv({ ANTHROPIC_API_KEY: "sk-test", PATH: "/bin" })).toBeUndefined();
   });
 
-  afterEach(async () => {
-    delete process.env[VAR];
-    await rm(dir, { recursive: true, force: true });
+  it("in session mode returns a full copy of the environment minus the API key, never a partial object", () => {
+    const env = agentSubprocessEnv({ HELPDESK_AGENT_AUTH: "session", ANTHROPIC_API_KEY: "sk-test", PATH: "/bin", AZURE_TENANT_ID: "t" });
+    expect(env).toEqual({ HELPDESK_AGENT_AUTH: "session", PATH: "/bin", AZURE_TENANT_ID: "t" });
+    expect(env).not.toHaveProperty("ANTHROPIC_API_KEY");
   });
 
-  it("finds .env by walking up from a nested directory and loads it", async () => {
-    await writeFile(join(dir, ".env"), `${VAR}=from-dotenv\n`, "utf8");
-    const ensureEnvLoaded = await freshEnsureEnvLoaded();
+  it("treats any other value of the variable as the default, not as session", () => {
+    expect(agentSubprocessEnv({ HELPDESK_AGENT_AUTH: "api-key", ANTHROPIC_API_KEY: "sk-test" })).toBeUndefined();
+  });
+});
 
-    ensureEnvLoaded(deepDir);
+describe("assertAgentAuthPath()", () => {
+  const session = { HELPDESK_AGENT_AUTH: "session" };
 
-    expect(process.env[VAR]).toBe("from-dotenv");
+  it("accepts the login session in session mode — the SDK reports it as no API key", () => {
+    expect(() => assertAgentAuthPath("none", session)).not.toThrow();
   });
 
-  it("does not overwrite a variable already set in the real environment", async () => {
-    await writeFile(join(dir, ".env"), `${VAR}=from-dotenv\n`, "utf8");
-    process.env[VAR] = "from-shell";
-    const ensureEnvLoaded = await freshEnsureEnvLoaded();
-
-    ensureEnvLoaded(deepDir);
-
-    expect(process.env[VAR]).toBe("from-shell");
+  it.each(["ANTHROPIC_API_KEY", "apiKeyHelper"])("refuses an API key arriving by another route in session mode: %s", (source) => {
+    expect(() => assertAgentAuthPath(source, session)).toThrow(AGENT_AUTH_PATH_MISMATCH);
   });
 
-  it("does nothing, and does not throw, when no .env is found up the tree", async () => {
-    // deepDir's parent chain (a real OS temp directory) has no .env above it.
-    const ensureEnvLoaded = await freshEnsureEnvLoaded();
-
-    expect(() => ensureEnvLoaded(deepDir)).not.toThrow();
-    expect(process.env[VAR]).toBeUndefined();
-  });
-
-  it("loads only once: a second call does not re-read a since-changed file", async () => {
-    await writeFile(join(dir, ".env"), `${VAR}=first\n`, "utf8");
-    const ensureEnvLoaded = await freshEnsureEnvLoaded();
-
-    ensureEnvLoaded(deepDir);
-    expect(process.env[VAR]).toBe("first");
-
-    await writeFile(join(dir, ".env"), `${VAR}=second\n`, "utf8");
-    ensureEnvLoaded(deepDir);
-
-    expect(process.env[VAR]).toBe("first");
+  it("checks nothing outside session mode, where the API key is the intended credential", () => {
+    expect(() => assertAgentAuthPath("ANTHROPIC_API_KEY", {})).not.toThrow();
   });
 });

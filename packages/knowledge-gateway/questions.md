@@ -80,9 +80,19 @@ by hand against the downloaded files before this list was committed.
 ## Should be answered honestly with "I don't know" — not in this corpus
 
 14. **How do I configure a VPN profile for iOS devices in Intune?**
-    VPN device configuration profiles are not in the corpus this agent was given (`app-management`
-    and most of `device-configuration` were deliberately left out to keep the corpus narrow); the
-    honest answer is that this agent doesn't have that.
+    Written when `device-configuration` was deliberately left out of the corpus entirely, to keep
+    it narrow; the honest answer at the time was that this agent didn't have that.
+    **Sprint 4 prep finding, after the corpus was widened:** vendoring
+    `intune-deviceconfig/overview.md` (device-configuration/overview.md's own top-level article, not
+    a VPN-specific one) incidentally pulled in that article's own "VPN" section, which states plainly
+    that VPN profiles exist, what they're for, and that iOS/iPadOS is a supported platform — real,
+    accurate, citable content, not noise. It does not contain the step-by-step configuration
+    procedure; the article's own "VPN" section links out to `./templates/configure-vpn.md`, which is
+    not vendored. The honest answer this corpus now supports has changed from a flat "I don't know"
+    to "yes, Intune supports this for iOS/iPadOS via a VPN device configuration profile — but I don't
+    have the specific setup steps," which is more useful and still doesn't fabricate anything. See
+    `search.test.ts`'s corresponding case and README.md's "Knowledge gateway notes" for how this
+    changed the retrieval-quality bar.
 
 15. **What's Microsoft's return policy for a Surface device?**
     Unrelated to identity or device management documentation entirely — a check that the agent

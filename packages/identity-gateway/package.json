@@ -16,6 +16,7 @@
     "@anthropic-ai/sdk": "^0.125.0",
     "@helpdesk/audit-core": "workspace:*",
     "@helpdesk/gateway-core": "workspace:*",
+    "@helpdesk/handoff-core": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "zod": "^4.6.5"
   }

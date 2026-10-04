@@ -17,8 +17,21 @@ function baseData(overrides: Partial<DashboardData> = {}): DashboardData {
     },
     volume: {
       requestsByDay: [{ day: "2026-09-19", count: 3 }],
-      split: { autonomous: 2, approvalGated: 1, refused: 1, modelDeclined: 1 },
+    },
+    outcomes: {
+      rejectPath: { total: 2, redirected: 1, handedOffResolved: 1, handedOffInProgress: 0 },
+      acceptPath: {
+        total: 3,
+        resolved: 2,
+        handedOffResolved: 0,
+        handedOffInProgress: 0,
+        routedButUnresolved: 1,
+        approvalPending: 0,
+        approvalRejected: 0,
+      },
       classifierFailures: 0,
+      otherDenied: 0,
+      misroutedNote: "Not computable from the chains. Only a ground-truth-labelled evaluation can measure this.",
     },
     humans: {
       gateways: [
@@ -66,10 +79,49 @@ describe("renderDashboard()", () => {
     expect(html).toContain("2026-09-20T00:00:00.000Z");
   });
 
-  it("renders four outcome buckets, not three, and explains why model-declined is separate from refused", () => {
+  it("reports the reject path and accept path as separate figures, each with its own total", () => {
     const html = renderDashboard(baseData());
-    expect(html).toMatch(/model declined/i);
-    expect(html).toMatch(/no\s+policy decision was ever made/i);
+    expect(html).toContain("Reject path — triage said not IT or needs a human (2)");
+    expect(html).toContain("Accept path — triage routed it to an agent (3)");
+  });
+
+  it("shows a handoff still in progress separately from one that was resolved", () => {
+    const html = renderDashboard(baseData());
+    expect(html).toMatch(/handed off, resolved/i);
+    expect(html).toMatch(/handed off, still in progress/i);
+  });
+
+  it("shows approval pending and approval rejected on their own, not folded into resolved", () => {
+    const html = renderDashboard(baseData());
+    expect(html).toMatch(/approval pending/i);
+    expect(html).toMatch(/approval rejected/i);
+  });
+
+  it("names misrouted as a gap rather than showing a fabricated count", () => {
+    const html = renderDashboard(baseData());
+    expect(html).toContain("Misrouted");
+    expect(html).toMatch(/not computable from the chains/i);
+  });
+
+  it("reports a classifier failure separately from both paths, only when one occurred", () => {
+    const clean = renderDashboard(baseData());
+    expect(clean).not.toMatch(/could not be classified/i);
+
+    const data = baseData();
+    data.outcomes.classifierFailures = 2;
+    const html = renderDashboard(data);
+    expect(html).toMatch(/2 request\(s\) could not be classified/i);
+  });
+
+  it("reports an unrecognized denial rule separately, only when one occurred, rather than a silent gap", () => {
+    const clean = renderDashboard(baseData());
+    expect(clean).not.toMatch(/does not recognize/i);
+
+    const data = baseData();
+    data.outcomes.otherDenied = 6;
+    const html = renderDashboard(data);
+    expect(html).toMatch(/6 older denial\(s\)/i);
+    expect(html).toMatch(/does\s+not recognize/i);
   });
 
   it("calls out an unpriced model by name instead of silently showing $0", () => {

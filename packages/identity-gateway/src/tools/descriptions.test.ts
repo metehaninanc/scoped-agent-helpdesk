@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
+import { HAND_OFF_TOOL_DESCRIPTION } from "@helpdesk/gateway-core";
+
 import { TOOL_NAMES, toolDefinitions, toolDescription, toolInputSchema } from "./descriptions.js";
 
 describe("tool definitions", () => {
-  it("exposes exactly the four tools, reads before the writes", () => {
-    expect(TOOL_NAMES).toEqual(["list_user_groups", "list_managed_groups", "add_user_to_group", "remove_user_from_group"]);
+  it("exposes the four tools, reads before the writes, plus hand_off (SPRINT4.md, section 2 — on every gateway)", () => {
+    expect(TOOL_NAMES).toEqual(["list_user_groups", "list_managed_groups", "add_user_to_group", "remove_user_from_group", "hand_off"]);
     expect(toolDefinitions().map((t) => t.name)).toEqual(TOOL_NAMES);
   });
 
@@ -132,5 +134,11 @@ describe("list_user_groups description", () => {
   it("tells the agent not to route around a denial", () => {
     expect(text).toContain('{ status: "denied", rules, message }');
     expect(text).toContain("Do not look for another way to get the same information.");
+  });
+});
+
+describe("hand_off description", () => {
+  it("is the shared, cross-gateway text from @helpdesk/gateway-core, not a local copy (SPRINT4.md, section 2)", () => {
+    expect(toolDescription("hand_off")).toBe(HAND_OFF_TOOL_DESCRIPTION);
   });
 });

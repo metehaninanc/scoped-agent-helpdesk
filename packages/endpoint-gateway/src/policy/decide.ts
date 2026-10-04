@@ -49,6 +49,9 @@ const approvalRules: readonly PolicyRule[] = [
 const autonomousRules: readonly PolicyRule[] = [
   { id: Rule.AutonomousListEndpoints, matches: (request) => request.tool === "list_endpoints" },
   { id: Rule.AutonomousGetEndpoint, matches: (request) => request.tool === "get_endpoint" },
+  // SPRINT4.md, section 2: identical on every gateway. Creating a handoff touches nothing
+  // external and is reversible, so there is nothing here to gate behind approval.
+  { id: Rule.AutonomousHandOff, matches: (request) => request.tool === "hand_off" },
 ];
 
 const denied = (...rules: RuleId[]): Decision => ({ outcome: "denied", rules });

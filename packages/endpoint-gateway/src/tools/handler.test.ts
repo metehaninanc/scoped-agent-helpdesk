@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuditLog } from "@helpdesk/audit-core";
 import { ApprovalStore, openDatabase } from "@helpdesk/gateway-core";
+import { HandoffStore } from "@helpdesk/handoff-core";
 
 import { Rule, type PolicyConfig } from "../policy/types.js";
 import { createEndpointService, type EndpointService } from "../stub/endpoint-service.js";
@@ -14,6 +15,7 @@ const session: SessionContext = {
   actor: "helpdesk.operator@contoso.com",
   agent: "endpoint-agent",
   requestId: "req-1",
+  requestText: "test request",
 };
 
 const payload = (result: Awaited<ReturnType<typeof handleToolCall>>): Record<string, unknown> => {
@@ -39,7 +41,7 @@ describe("handleToolCall()", () => {
       now,
       seed: [{ id: ENDPOINT, hostname: "front-desk-01", status: "online", lastCheckInAt: now().toISOString() }],
     });
-    deps = { audit, approvals, stub, config, now };
+    deps = { audit, approvals, handoffs: new HandoffStore(db, audit, { now }), stub, config, now };
   });
 
   afterEach(() => {
@@ -153,7 +155,7 @@ describe("handleToolCall()", () => {
   });
 
   it("stamps every record with the session's requestId, actor and agent", async () => {
-    const other: SessionContext = { actor: "bob@contoso.com", agent: "other-agent", requestId: "req-9" };
+    const other: SessionContext = { actor: "bob@contoso.com", agent: "other-agent", requestId: "req-9", requestText: "test request" };
     await handleToolCall("list_endpoints", {}, other, deps);
 
     for (const record of audit.list()) {

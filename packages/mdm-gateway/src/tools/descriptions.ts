@@ -10,12 +10,15 @@
  */
 import { z } from "zod";
 
+import { HAND_OFF_TOOL_DESCRIPTION } from "@helpdesk/gateway-core";
+
 import { toolParamSchemas, type ToolName } from "../policy/schemas.js";
 
 export const TOOL_NAMES = Object.keys(toolParamSchemas) as ToolName[];
 
 const PARAMETER_DESCRIPTIONS: Record<string, string> = {
   deviceId: "The object id (GUID) of the device, taken from a list_devices result. Do not guess an id.",
+  reason: "A short account of what a person needs to do.",
 };
 
 export function toolDescription(tool: ToolName): string {
@@ -45,6 +48,11 @@ export function toolDescription(tool: ToolName): string {
         '- { status: "denied", rules, message }: policy refused this lookup. Report it as given. Do not retry.',
         '- { status: "error", code, message }: the device does not exist, or the directory could not answer. Report the message as given.',
       ].join("\n");
+
+    // SPRINT4.md, section 2: identical on every gateway — see @helpdesk/gateway-core's own
+    // hand-off-tool.ts for why this text lives there, not here, and is only referenced.
+    case "hand_off":
+      return HAND_OFF_TOOL_DESCRIPTION;
   }
 }
 

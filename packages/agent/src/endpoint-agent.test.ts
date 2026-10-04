@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { openDatabase } from "./db.js";
 import { runEndpointAgent, type RunQuery } from "./endpoint-agent.js";
 import { DEFAULT_AGENT_MODEL } from "./models.js";
 
@@ -48,6 +49,8 @@ describe("runEndpointAgent()", () => {
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "helpdesk-endpoint-agent-"));
     dbPath = join(dir, "endpoint-helpdesk.db");
+    // Standing in for the gateway, which in production always creates this chain first.
+    openDatabase(dbPath, { create: true }).close();
   });
 
   afterEach(async () => {
@@ -88,7 +91,16 @@ describe("runEndpointAgent()", () => {
     expect(rows(dbPath)[0]?.requestId).toBe("req-fixed");
   });
 
-  it("disables every built-in tool and allows exactly the four endpoint-gateway tools, unprompted, including reset_password", async () => {
+  it("sends the raw request text as its own header too, the same way as x-actor (SPRINT4.md, section 2 — hand_off's own use of it)", async () => {
+    const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
+
+    await runEndpointAgent({ actor: "alice@contoso.com", requestText: "my laptop won't turn on", dbPath, runQuery, getAccessToken });
+
+    const server = runQuery.mock.calls[0]![0].options.mcpServers!["endpoint-gateway"] as { headers: Record<string, string> };
+    expect(server.headers["x-request-text"]).toBe("my laptop won't turn on");
+  });
+
+  it("disables every built-in tool and allows exactly the five endpoint-gateway tools, unprompted, including reset_password and hand_off", async () => {
     const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 
     await runEndpointAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery, getAccessToken });
@@ -100,6 +112,7 @@ describe("runEndpointAgent()", () => {
       "mcp__endpoint-gateway__get_endpoint",
       "mcp__endpoint-gateway__reboot_endpoint",
       "mcp__endpoint-gateway__reset_password",
+      "mcp__endpoint-gateway__hand_off",
     ]);
     expect(options.permissionMode).toBe("dontAsk");
   });
@@ -110,6 +123,16 @@ describe("runEndpointAgent()", () => {
     await runEndpointAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery, getAccessToken });
 
     expect(runQuery.mock.calls[0]![0].options.model).toBe(DEFAULT_AGENT_MODEL);
+  });
+
+  it("states the actor's own UPN as a fact in the system prompt, so \"my laptop\" can resolve", async () => {
+    const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
+
+    await runEndpointAgent({ actor: "alice@contoso.com", requestText: "reboot my laptop", dbPath, runQuery, getAccessToken });
+
+    const prompt = String(runQuery.mock.calls[0]![0].options.systemPrompt);
+    expect(prompt).toContain("alice@contoso.com");
+    expect(prompt).toMatch(/gateway decides and audits every request from its\s+own/);
   });
 
   it("tells the model reset_password is never automated, points to SSPR then the manager, and forbids claiming an unperformed action", async () => {
@@ -123,6 +146,26 @@ describe("runEndpointAgent()", () => {
     expect(prompt).toContain("their manager if SSPR is not available");
     expect(prompt).toContain("Do not retry it");
     expect(prompt).toContain("Never claim to have performed an action");
+  });
+
+  it("tells the model to name a device only on a real match, and never to recite the fleet as a menu", async () => {
+    const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
+
+    await runEndpointAgent({ actor: "alice@contoso.com", requestText: "my laptop won't turn on", dbPath, runQuery, getAccessToken });
+
+    const prompt = String(runQuery.mock.calls[0]![0].options.systemPrompt).replace(/\s+/g, " ");
+    expect(prompt).toContain("only name a specific managed endpoint back to the requester, when what they described actually identifies one");
+    expect(prompt).toContain("Never read back the list of managed endpoints as a menu");
+  });
+
+  it("tells the model to call hand_off, not just decline, for a request naming no managed endpoint (SPRINT4.md, section 2)", async () => {
+    const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
+
+    await runEndpointAgent({ actor: "alice@contoso.com", requestText: "my personal phone screen is cracked", dbPath, runQuery, getAccessToken });
+
+    const prompt = String(runQuery.mock.calls[0]![0].options.systemPrompt).replace(/\s+/g, " ");
+    expect(prompt).toContain("call hand_off with a short reason instead of just telling them their device is not one this system manages");
+    expect(prompt).toContain("A handoff is the normal, useful outcome for most of what reaches this agent");
   });
 
   it("tells the model a pending approval on reboot_endpoint is the normal, successful outcome", async () => {

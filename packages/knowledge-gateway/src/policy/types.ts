@@ -45,6 +45,8 @@ export const Rule = {
 
   // Autonomous rules.
   AutonomousSearchDocumentation: "autonomous.search_documentation",
+  // SPRINT4.md, section 2: hand_off is identical, unconditionally autonomous, on every gateway.
+  AutonomousHandOff: "autonomous.hand_off",
 } as const;
 
 export type RuleId = (typeof Rule)[keyof typeof Rule];

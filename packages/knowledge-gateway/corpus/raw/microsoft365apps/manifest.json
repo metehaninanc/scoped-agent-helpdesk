@@ -1,0 +1,11 @@
+{
+  "product": "microsoft365apps",
+  "repo": "MicrosoftDocs/microsoft-365-docs",
+  "commit": "eab9d7696cdff87474698b08a1fb328091102a2f",
+  "files": {
+    "assign-licenses-to-users.md": "microsoft-365/admin/manage/assign-licenses-to-users.md",
+    "centralized-deployment-of-add-ins.md": "microsoft-365/admin/manage/centralized-deployment-of-add-ins.md",
+    "manage-group-licenses.md": "microsoft-365/admin/manage/manage-group-licenses.md"
+  },
+  "license": "CC-BY-4.0 (content) / MIT (code samples) — this repo's own LICENSE file is CC-BY-4.0 text directly, no ThirdPartyNotices.md discrepancy the way entra-docs has; see README.md, \"Knowledge gateway notes\""
+}

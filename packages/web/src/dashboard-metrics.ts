@@ -135,57 +135,267 @@ function trustSection(input: DashboardInput): TrustSection {
 // ---------------------------------------------------------------------------
 // How much the system handles
 
-export interface OutcomeSplit {
-  autonomous: number;
-  approvalGated: number;
-  refused: number;
-  /** The model declined without calling any tool — no policy decision was ever made. Not folded
-   * into "refused": that word is reserved for a named rule firing. See README.md. */
-  modelDeclined: number;
-}
-
 export interface VolumeSection {
   requestsByDay: { day: string; count: number }[];
-  split: OutcomeSplit;
-  /** Triage itself failed (a bad reply or a network/API error) — excluded from `split` entirely,
-   * since it is an operational fault, not a system outcome. */
-  classifierFailures: number;
 }
 
 function volumeSection(input: DashboardInput): VolumeSection {
   const byDay = new Map<string, number>();
-  let triageUnsupported = 0;
-  let classifierFailures = 0;
-
   for (const r of input.orchestrator.records) {
-    if (r.decision === "routed" || r.decision === "denied") {
+    // "handoff" is triage's own needs_human, network or security outcome (orchestrator.ts, section 2: no policy engine
+    // sits in front of it, so it never produces a "denied" record) — an incoming request the
+    // system handled by routing to a human, counted here the same as "routed"/"denied" are. Left
+    // out until this fix, the same gap that made rejectPathSection() miss every needs_human ticket.
+    if (r.decision === "routed" || r.decision === "denied" || r.decision === "handoff") {
       const day = dayOf(r.timestamp);
       byDay.set(day, (byDay.get(day) ?? 0) + 1);
     }
-    if (r.decision === "denied") {
-      if (r.rules.includes("triage.unsupported")) triageUnsupported++;
-      else if (r.rules.some((rule) => CLASSIFIER_FAILURE_RULES.has(rule))) classifierFailures++;
-    }
   }
   const requestsByDay = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, count]) => ({ day, count }));
+  return { requestsByDay };
+}
 
-  let autonomous = 0;
-  let approvalGated = 0;
-  let gatewayRefused = 0;
-  let modelDeclined = 0;
-  for (const chain of [input.identity, input.mdm, input.knowledge, input.endpoint]) {
-    for (const r of chain.records) {
-      if (r.decision === "autonomous" && r.result === null) autonomous++;
-      else if (r.decision === "approval") approvalGated++;
-      else if (r.decision === "denied") gatewayRefused++;
-      else if (r.decision === "no_tool_called") modelDeclined++;
+// ---------------------------------------------------------------------------
+// SPRINT4.md, section 5: five outcomes, not tool-call-equals-success.
+//
+// Triage's own two-decision split (SPRINT4.md, section 1) is the seam this whole section is built
+// on: "not_it"/"needs_human" is the reject path — the system declining to fully own the request
+// itself — and "routable" is the accept path — the system attempting it, via an agent. The two are
+// reported as separate figures throughout, never blended into one percentage: a single number
+// hides which half is actually broken, exactly what SPRINT4.md's own two simulation passes showed.
+//
+// Three successes, computed straight from the chains:
+//   - Redirected: a `triage.not_it` denial. Always fully achieved the instant it fires — the
+//     orchestrator's own fixed-sentence reply is unconditional, so there is no separate "did the
+//     redirect actually happen" question the way there is for a handoff.
+//   - Resolved: an autonomous tool call that returned a non-error result, or an approval-gated one
+//     that was approved AND executed without error. A pending or rejected approval has not
+//     produced a real change yet and is not counted here — see "approvalPending"/"approvalRejected"
+//     below, shown separately rather than folded into either a success or a failure.
+//   - Handed off: correctly identified as needing a human, and RESOLVED by one. SPRINT4.md, the
+//     console fix this same phase made explicit for the operator console itself: an open or taken
+//     handoff is work in progress, not an outcome, so it is its own figure
+//     ("handedOffInProgress"), not folded into either success or failure. A handoff can originate
+//     two ways — triage's own `needs_human` decision (reject path, before any agent is reached) or
+//     an agent calling `hand_off` mid-conversation (accept path, after being routed) — and both are
+//     counted on whichever path they actually happened on, not merged into one total.
+//
+// One computable failure:
+//   - Routed but unresolved: reached the right agent, which had nothing that bore on it — the
+//     model declined without calling any tool, a gateway-level policy denial, an autonomous call
+//     whose backend execution itself failed, or an approved-but-execution-failed change. All four
+//     share the same practical shape from the requester's side (reached the right place, nothing
+//     useful came of it) even though the first is a model choice and the rest are backend or
+//     policy failures; SPRINT4.md's own two-bucket design has no slot finer than this one for that
+//     distinction, so it is not invented here.
+//
+// One NOT computed, named as a gap rather than approximated (SPRINT4.md's own rule, applied to
+// this section the same as every other number on the page):
+//   - Misrouted: "reached an agent that could not help with it" requires knowing which agent
+//     *should* have handled it — a ground truth this system has no way to derive from its own
+//     decisions after the fact. Only a labelled evaluation set (the pass-three simulation,
+//     SPRINT4.md section 6) can measure this; a live audit trail records what happened, never what
+//     should have. No heuristic is attempted here.
+
+export interface RejectPathOutcomes {
+  /** `triage.not_it` denials plus `triage.needs_human` handoffs on the orchestrator chain. */
+  total: number;
+  redirected: number;
+  handedOffResolved: number;
+  handedOffInProgress: number;
+}
+
+export interface AcceptPathOutcomes {
+  /** `routed` records on the orchestrator chain. */
+  total: number;
+  resolved: number;
+  handedOffResolved: number;
+  handedOffInProgress: number;
+  routedButUnresolved: number;
+  /** An approval-gated change created, not yet decided. Not counted as resolved (nothing has
+   * changed yet) and not counted as a failure (nothing has gone wrong) — work in progress, the
+   * same treatment an open handoff gets. */
+  approvalPending: number;
+  /** An approval-gated change a human explicitly declined. The system reached the right agent and
+   * correctly identified the exact gated action — this is not a routing or coverage failure, a
+   * human simply chose not to proceed — so it is named for what it is rather than forced into
+   * "resolved" (nothing changed) or "routed but unresolved" (the agent did have something that
+   * bore on it; that is precisely why it was gated). */
+  approvalRejected: number;
+}
+
+export interface OutcomesSection {
+  rejectPath: RejectPathOutcomes;
+  acceptPath: AcceptPathOutcomes;
+  /** Triage itself failed (a bad reply or a network/API error) — excluded from both paths above,
+   * since it is an operational fault, not a routing or coverage outcome. */
+  classifierFailures: number;
+  /** An orchestrator `denied` record whose rules match neither the reject path (`triage.not_it` /
+   * `triage.needs_human`) nor a known classifier failure — found, not invented: this database
+   * carries real history from before SPRINT4.md, section 1 split `triage.unsupported` into those
+   * two rules, and an old record naming a rule the current model no longer recognizes must be
+   * counted honestly rather than silently vanishing from every total on this page. Zero on a
+   * database with no such history. */
+  otherDenied: number;
+  /** Why "misrouted" carries no count — see this section's own header comment above. */
+  misroutedNote: string;
+}
+
+export const MISROUTED_NOTE =
+  "Not computable from the chains. Knowing a request was misrouted requires knowing which agent " +
+  "should have handled it, and nothing in a live audit trail records that — it records what the " +
+  "system decided and did, never what would have been correct. Only a ground-truth-labelled " +
+  "evaluation (the pass-three simulation, SPRINT4.md section 6) can measure this.";
+
+/** Maps a chain's own `requestId` to whether the handoff it produced (if any) has been resolved.
+ * A requestId absent from the result created no handoff on this chain at all. Shared by the reject
+ * path (triage's own `needs_human`, always on the orchestrator chain) and the accept path (an
+ * agent's own `hand_off` tool call, on whichever gateway chain the agent runs on). */
+function handoffResolutionByRequestId(chain: ChainSnapshot): ReadonlyMap<string, boolean> {
+  const handoffIdByRequestId = new Map<string, string>();
+  const resolvedHandoffIds = new Set<string>();
+  for (const r of chain.records) {
+    if (r.decision === "handoff") {
+      const id = resultString(r.result, "handoffId");
+      if (id !== undefined) handoffIdByRequestId.set(r.requestId, id);
+    } else if (r.decision === "handoff_resolved") {
+      const id = resultString(r.result, "handoffId");
+      if (id !== undefined) resolvedHandoffIds.add(id);
     }
+  }
+  const resolution = new Map<string, boolean>();
+  for (const [requestId, handoffId] of handoffIdByRequestId) {
+    resolution.set(requestId, resolvedHandoffIds.has(handoffId));
+  }
+  return resolution;
+}
+
+function resultString(result: unknown, key: string): string | undefined {
+  if (typeof result !== "object" || result === null) return undefined;
+  const value = (result as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function rejectPathSection(input: DashboardInput): RejectPathOutcomes {
+  // needs_human never produces a "denied" record (orchestrator.ts, SPRINT4.md section 2: no
+  // gateway sits in front of it, so there is no policy decision to deny — it calls HandoffStore
+  // directly). Every "handoff" record on this chain is therefore a triage handoff outcome — needs_human,
+  // network or security, which differ in reason and urgency but not in how they are counted — counted
+  // the same way the accept path counts its own handoffs, and a "denied" + triage.needs_human
+  // record — this database's own pre-section-2 history — is stale by shape, not by rule name, and
+  // falls to otherDenied in outcomesSection() rather than being matched here.
+  const handoffResolution = handoffResolutionByRequestId(input.orchestrator);
+  let redirected = 0;
+  for (const r of input.orchestrator.records) {
+    if (r.decision === "denied" && r.rules.includes("triage.not_it")) redirected++;
+  }
+
+  let handedOffResolved = 0;
+  let handedOffInProgress = 0;
+  for (const resolved of handoffResolution.values()) {
+    if (resolved) handedOffResolved++;
+    else handedOffInProgress++;
+  }
+
+  return { total: redirected + handedOffResolved + handedOffInProgress, redirected, handedOffResolved, handedOffInProgress };
+}
+
+type AcceptOutcome = "resolved" | "handedOffResolved" | "handedOffInProgress" | "routedButUnresolved" | "approvalPending" | "approvalRejected";
+
+/**
+ * Priority among what a single routed request's own gateway chain may carry, all under the same
+ * requestId, since more than one can genuinely coexist (an informational autonomous lookup before
+ * an approval-gated write; an autonomous lookup right before the agent itself calls `hand_off`,
+ * both observed in this project's own live verification runs). Handoff outranks everything else —
+ * it is the agent's own final judgment that a human is needed, made *after* whatever else it tried.
+ * Approval outranks a plain autonomous success next: when both a lookup and a gated write happened
+ * in the same turn, the gated write is the consequential action the requester actually came for.
+ */
+function classifyAcceptPathRequest(
+  requestId: string,
+  chainRecords: readonly AuditRecord[],
+  handoffResolution: ReadonlyMap<string, boolean>,
+): AcceptOutcome {
+  if (handoffResolution.has(requestId)) {
+    return handoffResolution.get(requestId) === true ? "handedOffResolved" : "handedOffInProgress";
+  }
+
+  const approvalRecord = chainRecords.find((r) => r.requestId === requestId && r.decision === "approval");
+  if (approvalRecord) {
+    const verdict = chainRecords.find((r) => r.requestId === requestId && (r.decision === "approved" || r.decision === "rejected"));
+    if (verdict === undefined) return "approvalPending";
+    if (verdict.decision === "rejected") return "approvalRejected";
+    // Approved: the execution outcome is a second "approved" record, distinguished from the
+    // decision record itself by carrying a `status` field (ApprovalWorkflow.decide()'s own shape).
+    const executed = chainRecords.find(
+      (r) => r.requestId === requestId && r.decision === "approved" && resultString(r.result, "status") !== undefined,
+    );
+    return resultString(executed?.result, "status") === "executed" ? "resolved" : "routedButUnresolved";
+  }
+
+  const autonomousDone = chainRecords.find((r) => r.requestId === requestId && r.decision === "autonomous" && r.result !== null);
+  if (autonomousDone) {
+    return resultString(autonomousDone.result, "status") === "error" ? "routedButUnresolved" : "resolved";
+  }
+
+  // Nothing that bore on it: the model declined without calling any tool, or the gateway's own
+  // policy refused the one it tried (or, for an incomplete session, nothing was recorded at all).
+  return "routedButUnresolved";
+}
+
+function acceptPathSection(input: DashboardInput): AcceptPathOutcomes {
+  const chainsByCategory: Record<string, ChainSnapshot> = {
+    identity: input.identity,
+    mdm: input.mdm,
+    knowledge: input.knowledge,
+    endpoint: input.endpoint,
+  };
+  const handoffResolutionByCategory: Record<string, ReadonlyMap<string, boolean>> = {
+    identity: handoffResolutionByRequestId(input.identity),
+    mdm: handoffResolutionByRequestId(input.mdm),
+    knowledge: handoffResolutionByRequestId(input.knowledge),
+    endpoint: handoffResolutionByRequestId(input.endpoint),
+  };
+
+  const counts: Record<AcceptOutcome, number> = {
+    resolved: 0,
+    handedOffResolved: 0,
+    handedOffInProgress: 0,
+    routedButUnresolved: 0,
+    approvalPending: 0,
+    approvalRejected: 0,
+  };
+  let total = 0;
+
+  for (const r of input.orchestrator.records) {
+    if (r.decision !== "routed") continue;
+    const params = routedParams(r);
+    const chain = params ? chainsByCategory[params.category] : undefined;
+    if (!params || !chain) continue; // Every real category matches one of the four chains above.
+    total++;
+    const outcome = classifyAcceptPathRequest(r.requestId, chain.records, handoffResolutionByCategory[params.category]!);
+    counts[outcome]++;
+  }
+
+  return { total, ...counts };
+}
+
+function outcomesSection(input: DashboardInput): OutcomesSection {
+  let classifierFailures = 0;
+  let otherDenied = 0;
+  for (const r of input.orchestrator.records) {
+    if (r.decision !== "denied") continue;
+    if (r.rules.includes("triage.not_it")) continue; // counted in rejectPathSection
+    if (r.rules.some((rule) => CLASSIFIER_FAILURE_RULES.has(rule))) classifierFailures++;
+    else otherDenied++;
   }
 
   return {
-    requestsByDay,
-    split: { autonomous, approvalGated, refused: triageUnsupported + gatewayRefused, modelDeclined },
+    rejectPath: rejectPathSection(input),
+    acceptPath: acceptPathSection(input),
     classifierFailures,
+    otherDenied,
+    misroutedNote: MISROUTED_NOTE,
   };
 }
 
@@ -482,6 +692,7 @@ function costSection(input: DashboardInput): CostSection {
 export interface DashboardData {
   trust: TrustSection;
   volume: VolumeSection;
+  outcomes: OutcomesSection;
   humans: HumansSection;
   stopped: StoppedSection;
   cost: CostSection;
@@ -491,6 +702,7 @@ export function computeDashboardData(input: DashboardInput): DashboardData {
   return {
     trust: trustSection(input),
     volume: volumeSection(input),
+    outcomes: outcomesSection(input),
     humans: humansSection(input),
     stopped: stoppedSection(input),
     cost: costSection(input),

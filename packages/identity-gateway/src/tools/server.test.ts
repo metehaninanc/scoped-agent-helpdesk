@@ -3,6 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApprovalStore, openDatabase } from "@helpdesk/gateway-core";
+import { HandoffStore } from "@helpdesk/handoff-core";
 import { AuditLog } from "@helpdesk/audit-core";
 import { Rule, type PolicyConfig } from "../policy/types.js";
 import type { GatewayDeps } from "./handler.js";
@@ -38,6 +39,7 @@ describe("gateway MCP server", () => {
     deps = {
       audit,
       approvals,
+      handoffs: new HandoffStore(db, audit),
       graph: {
         listUserGroups: vi.fn(async () => [{ id: MARKETING, displayName: "Marketing" }]),
         addUserToGroup: vi.fn(async () => ({ alreadyMember: false })),
@@ -57,7 +59,7 @@ describe("gateway MCP server", () => {
     audit.close();
   });
 
-  it("identifies itself and advertises exactly the four tools with closed schemas and no ids", async () => {
+  it("identifies itself and advertises the four tools plus hand_off, each with a closed schema and no ids", async () => {
     expect(client.getServerVersion()?.name).toBe(GATEWAY_NAME);
 
     const { tools } = await client.listTools();
@@ -67,12 +69,21 @@ describe("gateway MCP server", () => {
       "list_managed_groups",
       "add_user_to_group",
       "remove_user_from_group",
+      "hand_off",
     ]);
     for (const tool of tools) {
       expect(tool.description).toBeTruthy();
       expect(tool.inputSchema.additionalProperties).toBe(false);
       expect(tool.description).not.toContain(MARKETING);
     }
+  });
+
+  it("runs hand_off end to end, autonomous, and audits both the tool call and the handoff's own creation (SPRINT4.md, section 2)", async () => {
+    const result = await client.callTool({ name: "hand_off", arguments: { reason: "needs a replacement device" } });
+
+    expect(result.isError).toBeFalsy();
+    expect(textOf(result)).toMatchObject({ status: "handed_off", handoffId: expect.any(String) });
+    expect(audit.list().map((r) => r.decision)).toEqual(["autonomous", "handoff", "autonomous"]);
   });
 
   it("serves the allowlist through list_managed_groups and audits the lookup", async () => {

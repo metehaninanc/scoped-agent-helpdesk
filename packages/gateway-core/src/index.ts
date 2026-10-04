@@ -63,3 +63,15 @@ export {
   type ExecutionOutcome,
 } from "./approvals/workflow.js";
 export { createDecisionListener, type DecisionListenerDeps } from "./approvals/decision-listener.js";
+
+// SPRINT4.md, section 2: one tool, identical on every gateway. The generic queue-item lifecycle
+// this builds on lives in @helpdesk/handoff-core, not here — see that package's own header
+// comment for why a gateway's own `hand_off` tool and the orchestrator's direct-creation path
+// share a standalone package rather than one importing the other's runtime.
+export {
+  createHandOffExecute,
+  HAND_OFF_PARAMS_SCHEMA,
+  HAND_OFF_TOOL_DESCRIPTION,
+  HAND_OFF_TOOL_NAME,
+  type HandOffOk,
+} from "./hand-off-tool.js";

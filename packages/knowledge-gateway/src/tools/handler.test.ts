@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuditLog } from "@helpdesk/audit-core";
 import { openDatabase } from "@helpdesk/gateway-core";
+import { HandoffStore } from "@helpdesk/handoff-core";
 
 import type { SearchResult } from "../search.js";
 import { Rule, type PolicyConfig } from "../policy/types.js";
@@ -20,6 +21,7 @@ const session: SessionContext = {
   actor: "helpdesk.operator@contoso.com",
   agent: "knowledge-agent",
   requestId: "req-1",
+  requestText: "test request",
 };
 
 const payload = (result: Awaited<ReturnType<typeof handleToolCall>>): Record<string, unknown> => {
@@ -40,7 +42,7 @@ describe("handleToolCall()", () => {
     const now = () => new Date((t += 1000));
     audit = new AuditLog(db, { now });
     search = vi.fn<(query: string) => SearchResult[]>(() => [PASSAGE]);
-    deps = { audit, search, config, now };
+    deps = { audit, search, handoffs: new HandoffStore(db, audit, { now }), config, now };
   });
 
   afterEach(() => {
@@ -160,7 +162,7 @@ describe("handleToolCall()", () => {
   });
 
   it("stamps every record with the session's requestId, actor and agent", async () => {
-    const other: SessionContext = { actor: "bob@contoso.com", agent: "other-agent", requestId: "req-9" };
+    const other: SessionContext = { actor: "bob@contoso.com", agent: "other-agent", requestId: "req-9", requestText: "test request" };
     await handleToolCall("search_documentation", { query: "groups" }, other, deps);
 
     for (const record of audit.list()) {

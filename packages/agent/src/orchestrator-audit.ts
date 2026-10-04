@@ -32,20 +32,25 @@ export interface RoutedInput {
 }
 
 /**
- * triage.unsupported    - triage classified the request into the closed set's explicit "none of
- *                         these" value.
- * triage.invalid_output - triage responded, but not with a value in the closed set.
- * triage.request_failed - the classification call itself did not complete (network, API error,
- *                         a bad stop reason, or misconfiguration).
+ * triage.not_it          - decision one classified the request as not a corporate IT matter at
+ *                          all (SPRINT4.md, section 1; the direct successor of the old, single
+ *                          triage.unsupported).
+ * triage.needs_human     - decision one classified the request as genuinely IT, but needing
+ *                          hands, procurement, logistics, or an account this system does not
+ *                          administer (SPRINT4.md, section 1).
+ * triage.invalid_output  - triage responded, but not with a value in the closed set.
+ * triage.request_failed  - the classification call itself did not complete (network, API error,
+ *                          a bad stop reason, or misconfiguration).
  */
-export type TriageFailureRule = "triage.unsupported" | "triage.invalid_output" | "triage.request_failed";
+export type NotRoutedRule = "triage.not_it" | "triage.needs_human" | "triage.invalid_output" | "triage.request_failed";
 
 export interface NotRoutedInput {
   requestId: string;
   actor: string;
   requestText: string;
-  rule: TriageFailureRule;
-  /** The error message, when there is one worth keeping. Never the request's own text twice over. */
+  rule: NotRoutedRule;
+  /** The error message when triage itself failed, or the notItTeam value when decision one was
+   * "not_it" and a team was named — never the request's own text twice over either way. */
   detail?: string;
 }
 
@@ -58,10 +63,17 @@ export interface UsageInput {
 }
 
 export class OrchestratorAudit {
-  private readonly log: AuditLog;
+  /** Public, the same reason @helpdesk/gateway-core's ApprovalStore exposes its own `db`: a
+   * caller building something else that shares this chain (SPRINT4.md, section 2's HandoffStore,
+   * for the orchestrator's own direct-creation path — see orchestrator.ts) needs the same
+   * `DatabaseSync` and the same append() surface, not a second connection to the same file. */
+  readonly log: AuditLog;
 
   constructor(dbPath: string) {
-    this.log = new AuditLog(openDatabase(dbPath));
+    // The orchestrator chain has no dedicated gateway process of its own to create it first (this
+    // module runs inside the web app or the simulation runner, on the first request either one
+    // makes) — this constructor is the one legitimate place that creates it.
+    this.log = new AuditLog(openDatabase(dbPath, { create: true }));
   }
 
   /** A category was classified and an agent invoked. */

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
+import { HAND_OFF_TOOL_DESCRIPTION } from "@helpdesk/gateway-core";
+
 import { TOOL_NAMES, toolDefinitions, toolDescription, toolInputSchema } from "./descriptions.js";
 
 describe("tool definitions", () => {
-  it("exposes exactly the one Sprint 3.3 tool", () => {
-    expect(TOOL_NAMES).toEqual(["search_documentation"]);
+  it("exposes the one Sprint 3.3 tool plus hand_off (SPRINT4.md, section 2 — on every gateway)", () => {
+    expect(TOOL_NAMES).toEqual(["search_documentation", "hand_off"]);
     expect(toolDefinitions().map((t) => t.name)).toEqual(TOOL_NAMES);
   });
 
@@ -50,5 +52,11 @@ describe("search_documentation description", () => {
   it("explains denied and error results", () => {
     expect(text).toContain('{ status: "denied", rules, message }');
     expect(text).toContain('{ status: "error", code, message }');
+  });
+});
+
+describe("hand_off description", () => {
+  it("is the shared, cross-gateway text from @helpdesk/gateway-core, not a local copy (SPRINT4.md, section 2)", () => {
+    expect(toolDescription("hand_off")).toBe(HAND_OFF_TOOL_DESCRIPTION);
   });
 });

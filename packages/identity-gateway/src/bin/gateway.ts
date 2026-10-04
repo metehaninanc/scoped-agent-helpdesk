@@ -18,6 +18,11 @@
  * executing an approved change has to happen somewhere that does, and this is the same
  * certificate above, not a second one.
  *
+ * SPRINT4.md, section 4: this process is also where RationaleWorkflow runs, at its own path,
+ * POST /approvals/rationale — generating a briefing is now something the console asks for, on an
+ * opened approval, not something onApproval does automatically at creation time (see
+ * ../approvals/rationale-workflow.ts).
+ *
  * stdout is free again now that the protocol runs over HTTP; log.ts still writes to stderr only,
  * out of habit and because nothing depends on stdout being clean anymore.
  */
@@ -36,8 +41,11 @@ import {
   createTransportFactory,
   openDatabase,
 } from "@helpdesk/gateway-core";
+import { HandoffStore } from "@helpdesk/handoff-core";
 
 import { createRationaleGenerator, type RationaleGenerator } from "../approvals/rationale.js";
+import { createRationaleListener } from "../approvals/rationale-listener.js";
+import { RationaleWorkflow } from "../approvals/rationale-workflow.js";
 import { createApprovalExecute } from "../approvals/execute.js";
 import { loadGatewayEnv } from "../env.js";
 import { CertificateCredential } from "../graph/certificate-credential.js";
@@ -49,6 +57,7 @@ import { describeError } from "../tools/handler.js";
 import { createGatewayServer } from "../tools/server.js";
 
 const DECISION_PATH = "/approvals/decide";
+const RATIONALE_PATH = "/approvals/rationale";
 
 const DEFAULT_DB_PATH = "data/identity-helpdesk.db";
 const DEFAULT_PORT = 3001;
@@ -72,9 +81,10 @@ async function main(): Promise<void> {
   const graph = new GraphClient({ credential });
 
   const dbPath = resolve(args.db ?? env.HELPDESK_DB_PATH ?? DEFAULT_DB_PATH);
-  const db = openDatabase(dbPath);
+  const db = openDatabase(dbPath, { create: true });
   const audit = new AuditLog(db);
   const approvals = new ApprovalStore(db);
+  const handoffs = new HandoffStore(db, audit);
 
   // Startup-only: does config.ts still describe the tenant? Warn, never mutate the allowlist.
   for (const finding of await verifyManagedGroups(graph, policyConfig.managedGroups)) {
@@ -83,7 +93,7 @@ async function main(): Promise<void> {
 
   let rationale: RationaleGenerator | undefined;
   if (env.ANTHROPIC_API_KEY === undefined) {
-    log.warn("ANTHROPIC_API_KEY is not set: approvals will be created without a rationale");
+    log.warn("ANTHROPIC_API_KEY is not set: no briefing can be generated for any approval on this gateway");
   } else {
     rationale = createRationaleGenerator({
       apiKey: env.ANTHROPIC_API_KEY,
@@ -91,7 +101,7 @@ async function main(): Promise<void> {
     });
   }
 
-  const gatewayDeps = { audit, approvals, graph, config: policyConfig, ...(rationale === undefined ? {} : { rationale }) };
+  const gatewayDeps = { audit, approvals, handoffs, graph, config: policyConfig };
 
   // A fresh Server and transport pair per request: see @helpdesk/gateway-core's server.ts
   // header comment (createTransportFactory) for why a stateless transport cannot be reused.
@@ -103,9 +113,20 @@ async function main(): Promise<void> {
   const approvalWorkflow = new ApprovalWorkflow({ approvals, audit, execute: createApprovalExecute(graph), describeError });
   const decisionListener = createDecisionListener({ workflow: approvalWorkflow, validator, audit, path: DECISION_PATH });
 
+  // Only wired when a generator is configured; a POST here otherwise gets a plain, honest 503
+  // rather than a listener that would just throw on the first request.
+  const rationaleWorkflow = rationale && new RationaleWorkflow({ approvals, audit, generator: rationale, config: policyConfig });
+  const rationaleListener = rationaleWorkflow
+    ? createRationaleListener({ workflow: rationaleWorkflow, validator, audit, path: RATIONALE_PATH })
+    : async (_req: IncomingMessage, res: ServerResponse): Promise<void> => {
+        res.writeHead(503, { "content-type": "application/json" }).end(
+          JSON.stringify({ code: "not_configured", message: "ANTHROPIC_API_KEY is not set on this gateway; no briefing can be generated." }),
+        );
+      };
+
   const port = args.port ?? Number.parseInt(process.env.IDENTITY_GATEWAY_PORT ?? String(DEFAULT_PORT), 10);
   const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
-    const handle = req.url === DECISION_PATH ? decisionListener : mcpListener;
+    const handle = req.url === DECISION_PATH ? decisionListener : req.url === RATIONALE_PATH ? rationaleListener : mcpListener;
     handle(req, res).catch((error: unknown) => {
       log.error(`request ${req.url} aborted: ${error instanceof Error ? error.message : String(error)}`);
       if (!res.headersSent) res.writeHead(500).end();
@@ -123,7 +144,7 @@ async function main(): Promise<void> {
 
   httpServer.listen(port, () => {
     log.info(
-      `ready: http://127.0.0.1:${port}/mcp and ${DECISION_PATH} audience=${env.IDENTITY_GATEWAY_AUDIENCE} db=${dbPath} managedGroups=${policyConfig.managedGroups.length} rationale=${rationale === undefined ? "off" : (env.HELPDESK_RATIONALE_MODEL ?? "claude-opus-5")}`,
+      `ready: http://127.0.0.1:${port}/mcp, ${DECISION_PATH} and ${RATIONALE_PATH} audience=${env.IDENTITY_GATEWAY_AUDIENCE} db=${dbPath} managedGroups=${policyConfig.managedGroups.length} rationale=${rationale === undefined ? "off" : (env.HELPDESK_RATIONALE_MODEL ?? "claude-opus-5")}`,
     );
   });
 }

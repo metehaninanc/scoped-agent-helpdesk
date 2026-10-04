@@ -23,5 +23,17 @@ export {
   type RunQuery as EndpointRunQuery,
 } from "./endpoint-agent.js";
 export { routeRequest, type RouteRequestOptions, type RouteRequestResult } from "./orchestrator.js";
-export { TRIAGE_CATEGORIES, type TriageCategory } from "./triage.js";
+export {
+  createTriageClassifier,
+  TriageError,
+  TRIAGE_CATEGORIES,
+  TRIAGE_SCOPES,
+  type TriageCategory,
+  type TriageClassifier,
+  type TriageClassifierOptions,
+  type TriageResult,
+  type TriageScope,
+} from "./triage.js";
 export { DEFAULT_AGENT_MODEL, DEFAULT_TRIAGE_MODEL } from "./models.js";
+export { runStoppingReason, AUTHENTICATION_ERROR_PATTERN, CREDIT_BALANCE_ERROR_PATTERN } from "./sdk-usage-errors.js";
+export { ensureEnvLoaded } from "./env.js";

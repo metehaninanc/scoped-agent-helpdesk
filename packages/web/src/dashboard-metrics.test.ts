@@ -73,12 +73,12 @@ describe("computeDashboardData() — trust", () => {
 });
 
 describe("computeDashboardData() — volume", () => {
-  it("buckets orchestrator-level requests by day from routed and denied records only", () => {
+  it("buckets orchestrator-level requests by day from routed, denied, and handoff records only", () => {
     const data = computeDashboardData(
       baseInput({
         orchestrator: chain([
           rec({ decision: "routed", agent: "orchestrator", timestamp: "2026-09-18T10:00:00.000Z" }),
-          rec({ decision: "denied", agent: "orchestrator", rules: ["triage.unsupported"], timestamp: "2026-09-18T11:00:00.000Z" }),
+          rec({ decision: "denied", agent: "orchestrator", rules: ["triage.not_it"], timestamp: "2026-09-18T11:00:00.000Z" }),
           rec({ decision: "routed", agent: "orchestrator", timestamp: "2026-09-19T09:00:00.000Z" }),
           rec({ decision: "model_usage", agent: "orchestrator", timestamp: "2026-09-19T09:00:01.000Z" }),
         ]),
@@ -91,9 +91,85 @@ describe("computeDashboardData() — volume", () => {
     ]);
   });
 
-  it("counts each autonomous tool call once despite the two audit records tool-call.ts writes for it", () => {
+  it("counts a needs_human handoff as a request handled that day — it produces no denied record to be counted by otherwise", () => {
     const data = computeDashboardData(
       baseInput({
+        orchestrator: chain([
+          rec({ decision: "routed", agent: "orchestrator", timestamp: "2026-09-18T10:00:00.000Z" }),
+          rec({ decision: "handoff", agent: "orchestrator", timestamp: "2026-09-18T11:00:00.000Z", result: { handoffId: "h1" } }),
+        ]),
+      }),
+    );
+
+    expect(data.volume.requestsByDay).toEqual([{ day: "2026-09-18", count: 2 }]);
+  });
+});
+
+describe("computeDashboardData() — outcomes, reject path", () => {
+  it("counts a triage.not_it denial as redirected, unconditionally", () => {
+    const data = computeDashboardData(
+      baseInput({
+        orchestrator: chain([rec({ decision: "denied", agent: "orchestrator", rules: ["triage.not_it"] })]),
+      }),
+    );
+
+    expect(data.outcomes.rejectPath).toEqual({ total: 1, redirected: 1, handedOffResolved: 0, handedOffInProgress: 0 });
+  });
+
+  it("counts a needs_human handoff as handed off, resolved, once it is resolved — needs_human never produces a denied record (orchestrator.ts calls HandoffStore directly, no policy engine sits in front of it)", () => {
+    const data = computeDashboardData(
+      baseInput({
+        orchestrator: chain([
+          rec({ decision: "handoff", requestId: "req-1", agent: "orchestrator", result: { handoffId: "h1" } }),
+          rec({ decision: "handoff_resolved", requestId: "req-1", agent: "handoff-queue", result: { handoffId: "h1" } }),
+        ]),
+      }),
+    );
+
+    expect(data.outcomes.rejectPath).toEqual({ total: 1, redirected: 0, handedOffResolved: 1, handedOffInProgress: 0 });
+  });
+
+  it("counts a needs_human handoff as handed off, still in progress, while it is open or taken", () => {
+    const data = computeDashboardData(
+      baseInput({
+        orchestrator: chain([
+          rec({ decision: "handoff", requestId: "req-1", agent: "orchestrator", result: { handoffId: "h1" } }),
+          rec({ decision: "handoff_taken", requestId: "req-1", agent: "handoff-queue", result: { handoffId: "h1" } }),
+        ]),
+      }),
+    );
+
+    expect(data.outcomes.rejectPath).toEqual({ total: 1, redirected: 0, handedOffResolved: 0, handedOffInProgress: 1 });
+  });
+
+  it("counts a stale pre-section-2 denied+triage.needs_human record as otherDenied, not as a handoff — the record shape predates HandoffStore and produced no handoff to resolve", () => {
+    const data = computeDashboardData(
+      baseInput({
+        orchestrator: chain([rec({ decision: "denied", requestId: "req-1", agent: "orchestrator", rules: ["triage.needs_human"] })]),
+      }),
+    );
+
+    expect(data.outcomes.rejectPath).toEqual({ total: 0, redirected: 0, handedOffResolved: 0, handedOffInProgress: 0 });
+    expect(data.outcomes.otherDenied).toBe(1);
+  });
+
+  it("excludes a triage operational failure from the reject path entirely, and reports it separately", () => {
+    const data = computeDashboardData(
+      baseInput({
+        orchestrator: chain([rec({ decision: "denied", agent: "orchestrator", rules: ["triage.request_failed"] })]),
+      }),
+    );
+
+    expect(data.outcomes.rejectPath).toEqual({ total: 0, redirected: 0, handedOffResolved: 0, handedOffInProgress: 0 });
+    expect(data.outcomes.classifierFailures).toBe(1);
+  });
+});
+
+describe("computeDashboardData() — outcomes, accept path", () => {
+  it("counts an autonomous tool call that returned a real result as resolved, once, despite the two records it writes", () => {
+    const data = computeDashboardData(
+      baseInput({
+        orchestrator: chain([rec({ decision: "routed", agent: "orchestrator", parameters: { requestText: "x", category: "identity" } })]),
         identity: chain([
           rec({ decision: "autonomous", tool: "list_user_groups", result: null }),
           rec({ decision: "autonomous", tool: "list_user_groups", result: { status: "ok" } }),
@@ -101,33 +177,162 @@ describe("computeDashboardData() — volume", () => {
       }),
     );
 
-    expect(data.volume.split.autonomous).toBe(1);
+    expect(data.outcomes.acceptPath).toMatchObject({ total: 1, resolved: 1, routedButUnresolved: 0 });
   });
 
-  it("splits refused into triage-level and gateway-level, and keeps the model's own decline as its own bucket", () => {
+  it("counts an autonomous call whose backend execution failed as routed but unresolved, not resolved", () => {
     const data = computeDashboardData(
       baseInput({
-        orchestrator: chain([rec({ decision: "denied", agent: "orchestrator", rules: ["triage.unsupported"] })]),
-        identity: chain([
-          rec({ decision: "denied", tool: "add_user_to_group", rules: ["deny.break_glass_user"] }),
-          rec({ decision: "approval", tool: "add_user_to_group", rules: ["approval.add_user_to_group"] }),
+        orchestrator: chain([rec({ decision: "routed", agent: "orchestrator", parameters: { requestText: "x", category: "endpoint" } })]),
+        endpoint: chain([
+          rec({ decision: "autonomous", tool: "get_endpoint", result: null }),
+          rec({ decision: "autonomous", tool: "get_endpoint", result: { status: "error", code: "unknown", message: "boom" } }),
         ]),
+      }),
+    );
+
+    expect(data.outcomes.acceptPath).toMatchObject({ total: 1, resolved: 0, routedButUnresolved: 1 });
+  });
+
+  it("counts the model declining to call any tool as routed but unresolved", () => {
+    const data = computeDashboardData(
+      baseInput({
+        orchestrator: chain([rec({ decision: "routed", agent: "orchestrator", parameters: { requestText: "x", category: "endpoint" } })]),
         endpoint: chain([rec({ decision: "no_tool_called", agent: "endpoint-agent", result: "SSPR guidance" })]),
       }),
     );
 
-    expect(data.volume.split).toEqual({ autonomous: 0, approvalGated: 1, refused: 2, modelDeclined: 1 });
+    expect(data.outcomes.acceptPath).toMatchObject({ total: 1, resolved: 0, routedButUnresolved: 1 });
   });
 
-  it("excludes a triage operational failure from the split and reports it separately", () => {
+  it("counts a gateway-level policy denial (the right agent, the wrong action) as routed but unresolved", () => {
     const data = computeDashboardData(
       baseInput({
-        orchestrator: chain([rec({ decision: "denied", agent: "orchestrator", rules: ["triage.request_failed"] })]),
+        orchestrator: chain([rec({ decision: "routed", agent: "orchestrator", parameters: { requestText: "x", category: "identity" } })]),
+        identity: chain([rec({ decision: "denied", tool: "add_user_to_group", rules: ["deny.break_glass_user"] })]),
       }),
     );
 
-    expect(data.volume.split.refused).toBe(0);
-    expect(data.volume.classifierFailures).toBe(1);
+    expect(data.outcomes.acceptPath).toMatchObject({ total: 1, resolved: 0, routedButUnresolved: 1 });
+  });
+
+  it("counts an approval not yet decided as pending, not as resolved or a failure", () => {
+    const data = computeDashboardData(
+      baseInput({
+        orchestrator: chain([rec({ decision: "routed", agent: "orchestrator", parameters: { requestText: "x", category: "identity" } })]),
+        identity: chain([rec({ decision: "approval", tool: "add_user_to_group", rules: ["approval.add_user_to_group"] })]),
+      }),
+    );
+
+    expect(data.outcomes.acceptPath).toMatchObject({ total: 1, resolved: 0, routedButUnresolved: 0, approvalPending: 1, approvalRejected: 0 });
+  });
+
+  it("counts an approved and executed change as resolved", () => {
+    const data = computeDashboardData(
+      baseInput({
+        orchestrator: chain([rec({ decision: "routed", agent: "orchestrator", parameters: { requestText: "x", category: "identity" } })]),
+        identity: chain([
+          rec({ decision: "approval", tool: "add_user_to_group", rules: ["approval.add_user_to_group"] }),
+          rec({ decision: "approved", agent: "approval-workflow", result: { approvalId: "a1", requestedBy: "alice", decisionNote: "ok" } }),
+          rec({ decision: "approved", agent: "approval-workflow", result: { approvalId: "a1", status: "executed" } }),
+        ]),
+      }),
+    );
+
+    expect(data.outcomes.acceptPath).toMatchObject({ total: 1, resolved: 1, routedButUnresolved: 0 });
+  });
+
+  it("counts an approved but execution-failed change as routed but unresolved, not resolved", () => {
+    const data = computeDashboardData(
+      baseInput({
+        orchestrator: chain([rec({ decision: "routed", agent: "orchestrator", parameters: { requestText: "x", category: "identity" } })]),
+        identity: chain([
+          rec({ decision: "approval", tool: "add_user_to_group", rules: ["approval.add_user_to_group"] }),
+          rec({ decision: "approved", agent: "approval-workflow", result: { approvalId: "a1", requestedBy: "alice", decisionNote: "ok" } }),
+          rec({ decision: "approved", agent: "approval-workflow", result: { approvalId: "a1", status: "error", code: "unknown", message: "boom" } }),
+        ]),
+      }),
+    );
+
+    expect(data.outcomes.acceptPath).toMatchObject({ total: 1, resolved: 0, routedButUnresolved: 1 });
+  });
+
+  it("counts a rejected approval on its own, not as resolved and not as routed-but-unresolved", () => {
+    const data = computeDashboardData(
+      baseInput({
+        orchestrator: chain([rec({ decision: "routed", agent: "orchestrator", parameters: { requestText: "x", category: "identity" } })]),
+        identity: chain([
+          rec({ decision: "approval", tool: "add_user_to_group", rules: ["approval.add_user_to_group"] }),
+          rec({ decision: "rejected", agent: "approval-workflow", result: { approvalId: "a1", requestedBy: "alice", decisionNote: "no" } }),
+        ]),
+      }),
+    );
+
+    expect(data.outcomes.acceptPath).toMatchObject({ total: 1, resolved: 0, routedButUnresolved: 0, approvalPending: 0, approvalRejected: 1 });
+  });
+
+  it("counts an agent's own mid-conversation hand_off as handed off, on the accept path, separate from the reject path", () => {
+    const data = computeDashboardData(
+      baseInput({
+        orchestrator: chain([rec({ decision: "routed", agent: "orchestrator", parameters: { requestText: "x", category: "endpoint" } })]),
+        endpoint: chain([
+          rec({ decision: "autonomous", tool: "get_endpoint", result: { status: "ok", endpoint: null } }),
+          rec({ decision: "handoff", agent: "endpoint-agent", result: { handoffId: "h1" } }),
+        ]),
+      }),
+    );
+
+    expect(data.outcomes.acceptPath).toMatchObject({ total: 1, resolved: 0, handedOffResolved: 0, handedOffInProgress: 1 });
+    expect(data.outcomes.rejectPath).toEqual({ total: 0, redirected: 0, handedOffResolved: 0, handedOffInProgress: 0 });
+  });
+
+  it("gives an agent-initiated handoff priority over an autonomous success that happened first in the same turn", () => {
+    const data = computeDashboardData(
+      baseInput({
+        orchestrator: chain([rec({ decision: "routed", agent: "orchestrator", parameters: { requestText: "x", category: "endpoint" } })]),
+        endpoint: chain([
+          rec({ decision: "autonomous", tool: "get_endpoint", result: { status: "ok", endpoint: null } }),
+          rec({ decision: "handoff", agent: "endpoint-agent", result: { handoffId: "h1" } }),
+          rec({ decision: "handoff_resolved", agent: "handoff-queue", result: { handoffId: "h1" } }),
+        ]),
+      }),
+    );
+
+    expect(data.outcomes.acceptPath).toMatchObject({ total: 1, resolved: 0, handedOffResolved: 1 });
+  });
+
+  it("gives an approval-gated write priority over an unrelated autonomous lookup in the same turn", () => {
+    const data = computeDashboardData(
+      baseInput({
+        orchestrator: chain([rec({ decision: "routed", agent: "orchestrator", parameters: { requestText: "x", category: "identity" } })]),
+        identity: chain([
+          rec({ decision: "autonomous", tool: "list_managed_groups", result: { status: "ok", groups: [] } }),
+          rec({ decision: "approval", tool: "add_user_to_group", rules: ["approval.add_user_to_group"] }),
+        ]),
+      }),
+    );
+
+    expect(data.outcomes.acceptPath).toMatchObject({ total: 1, resolved: 0, approvalPending: 1 });
+  });
+
+  it("names misrouted as not computable from the chains, rather than approximating it", () => {
+    const data = computeDashboardData(baseInput());
+    expect(data.outcomes.misroutedNote).toMatch(/not computable/i);
+  });
+
+  it("counts a denial naming a rule this model does not recognize on its own, rather than silently dropping it", () => {
+    // A real case, not a hypothetical: triage.unsupported was retired in favour of triage.not_it
+    // and triage.needs_human when SPRINT4.md, section 1 shipped, but an existing chain can still
+    // carry older records naming it.
+    const data = computeDashboardData(
+      baseInput({
+        orchestrator: chain([rec({ decision: "denied", agent: "orchestrator", rules: ["triage.unsupported"] })]),
+      }),
+    );
+
+    expect(data.outcomes.otherDenied).toBe(1);
+    expect(data.outcomes.rejectPath).toEqual({ total: 0, redirected: 0, handedOffResolved: 0, handedOffInProgress: 0 });
+    expect(data.outcomes.classifierFailures).toBe(0);
   });
 });
 
@@ -169,7 +374,7 @@ describe("computeDashboardData() — humans", () => {
 });
 
 describe("computeDashboardData() — stopped", () => {
-  it("tallies deny rules and triage.unsupported as refusal reasons, most frequent first", () => {
+  it("tallies deny rules and triage.not_it as refusal reasons, most frequent first", () => {
     const data = computeDashboardData(
       baseInput({
         identity: chain([
@@ -177,7 +382,7 @@ describe("computeDashboardData() — stopped", () => {
           rec({ decision: "denied", rules: ["deny.break_glass_user"] }),
           rec({ decision: "denied", rules: ["deny.group_not_managed"] }),
         ]),
-        orchestrator: chain([rec({ decision: "denied", agent: "orchestrator", rules: ["triage.unsupported"] })]),
+        orchestrator: chain([rec({ decision: "denied", agent: "orchestrator", rules: ["triage.not_it"] })]),
       }),
     );
 
@@ -185,7 +390,7 @@ describe("computeDashboardData() — stopped", () => {
     // a deterministic, if arbitrary, tiebreak, not a claim that one matters more than the other.
     expect(data.stopped.refusalReasons).toEqual([
       { rule: "deny.break_glass_user", count: 2 },
-      { rule: "triage.unsupported", count: 1 },
+      { rule: "triage.not_it", count: 1 },
       { rule: "deny.group_not_managed", count: 1 },
     ]);
   });
@@ -323,7 +528,7 @@ describe("computeDashboardData() — cost", () => {
   it("computes average cost per request from total priced cost and the total number of orchestrator requests", () => {
     const data = computeDashboardData(
       baseInput({
-        orchestrator: chain([rec({ decision: "routed", agent: "orchestrator" }), rec({ decision: "denied", agent: "orchestrator", rules: ["triage.unsupported"] })]),
+        orchestrator: chain([rec({ decision: "routed", agent: "orchestrator" }), rec({ decision: "denied", agent: "orchestrator", rules: ["triage.not_it"] })]),
         identity: chain([
           rec({ decision: "model_usage", agent: "identity-agent", result: { model: "claude-sonnet-5", inputTokens: 1_000_000, outputTokens: 0 } }),
         ]),

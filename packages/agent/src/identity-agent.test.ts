@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { openDatabase } from "./db.js";
 import { runIdentityAgent, type RunQuery } from "./identity-agent.js";
 import { DEFAULT_AGENT_MODEL } from "./models.js";
 
@@ -51,6 +52,8 @@ describe("runIdentityAgent()", () => {
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "helpdesk-agent-"));
     dbPath = join(dir, "identity-helpdesk.db");
+    // Standing in for the gateway, which in production always creates this chain first.
+    openDatabase(dbPath, { create: true }).close();
   });
 
   afterEach(async () => {
@@ -91,7 +94,16 @@ describe("runIdentityAgent()", () => {
     expect(rows(dbPath)[0]?.requestId).toBe("req-fixed");
   });
 
-  it("disables every built-in tool and allows exactly the four gateway tools, unprompted", async () => {
+  it("sends the raw request text as its own header too, the same way as x-actor (SPRINT4.md, section 2 — hand_off's own use of it)", async () => {
+    const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
+
+    await runIdentityAgent({ actor: "alice@contoso.com", requestText: "which groups is bob in", dbPath, runQuery, getAccessToken });
+
+    const server = runQuery.mock.calls[0]![0].options.mcpServers!["identity-gateway"] as { headers: Record<string, string> };
+    expect(server.headers["x-request-text"]).toBe("which groups is bob in");
+  });
+
+  it("disables every built-in tool and allows exactly the five gateway tools, unprompted", async () => {
     const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
 
     await runIdentityAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery, getAccessToken });
@@ -103,6 +115,7 @@ describe("runIdentityAgent()", () => {
       "mcp__identity-gateway__list_managed_groups",
       "mcp__identity-gateway__add_user_to_group",
       "mcp__identity-gateway__remove_user_from_group",
+      "mcp__identity-gateway__hand_off",
     ]);
     expect(options.permissionMode).toBe("dontAsk");
   });
@@ -113,6 +126,16 @@ describe("runIdentityAgent()", () => {
     await runIdentityAgent({ actor: "alice@contoso.com", requestText: "hello", dbPath, runQuery, getAccessToken });
 
     expect(runQuery.mock.calls[0]![0].options.model).toBe(DEFAULT_AGENT_MODEL);
+  });
+
+  it("states the actor's own UPN as a fact in the system prompt, so \"add me\" can resolve", async () => {
+    const runQuery = vi.fn<RunQuery>().mockImplementation(() => stream([resultSuccess("ok")]));
+
+    await runIdentityAgent({ actor: "alice@contoso.com", requestText: "add me to marketing", dbPath, runQuery, getAccessToken });
+
+    const prompt = String(runQuery.mock.calls[0]![0].options.systemPrompt);
+    expect(prompt).toContain("alice@contoso.com");
+    expect(prompt).toMatch(/gateway decides and audits every request from its\s+own/);
   });
 
   it("gives the model no other way to act: the system prompt names the narrow role and forbids retry or an alternative route", async () => {

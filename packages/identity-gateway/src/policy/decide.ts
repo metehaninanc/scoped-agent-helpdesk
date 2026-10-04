@@ -98,6 +98,9 @@ const autonomousRules: readonly PolicyRule[] = [
     id: Rule.AutonomousListManagedGroups,
     matches: (request) => request.tool === "list_managed_groups",
   },
+  // SPRINT4.md, section 2: identical on every gateway. Creating a handoff touches nothing
+  // external and is reversible, so there is nothing here to gate behind approval.
+  { id: Rule.AutonomousHandOff, matches: (request) => request.tool === "hand_off" },
 ];
 
 // ---------------------------------------------------------------------------

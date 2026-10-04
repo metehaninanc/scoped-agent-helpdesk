@@ -16,6 +16,7 @@ import { join } from "node:path";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { openDatabase } from "./db.js";
 import { runEndpointAgent, type RunQuery as EndpointRunQuery } from "./endpoint-agent.js";
 import { runIdentityAgent, type RunQuery as IdentityRunQuery } from "./identity-agent.js";
 import { runKnowledgeAgent, type RunQuery as KnowledgeRunQuery } from "./knowledge-agent.js";
@@ -41,6 +42,8 @@ describe("the four agents' allowlists and prompts are disjoint", () => {
     mdmDbPath = join(dir, "mdm-helpdesk.db");
     knowledgeDbPath = join(dir, "knowledge-helpdesk.db");
     endpointDbPath = join(dir, "endpoint-helpdesk.db");
+    // Standing in for each gateway, which in production always creates its own chain first.
+    for (const path of [identityDbPath, mdmDbPath, knowledgeDbPath, endpointDbPath]) openDatabase(path, { create: true }).close();
   });
 
   afterEach(async () => {
@@ -120,5 +123,60 @@ describe("the four agents' allowlists and prompts are disjoint", () => {
     const endpointServer = endpointRunQuery.mock.calls[0]![0].options.mcpServers!["endpoint-gateway"] as { url: string };
 
     expect(new Set([identityServer.url, mdmServer.url, knowledgeServer.url, endpointServer.url]).size).toBe(4);
+  });
+
+  describe("HELPDESK_AGENT_AUTH, the same way in all four", () => {
+    afterEach(() => vi.unstubAllEnvs());
+
+    const initReporting = (apiKeySource: string): SDKMessage => ({ type: "system", subtype: "init", apiKeySource }) as unknown as SDKMessage;
+
+    it("leaves every agent's subprocess environment unset by default, so the API key reaches it as before", async () => {
+      vi.stubEnv("HELPDESK_AGENT_AUTH", "");
+      vi.stubEnv("ANTHROPIC_API_KEY", "sk-test");
+      const { identityRunQuery, mdmRunQuery, knowledgeRunQuery, endpointRunQuery } = await runAllFour();
+
+      for (const run of [identityRunQuery, mdmRunQuery, knowledgeRunQuery, endpointRunQuery]) {
+        expect(run.mock.calls[0]![0].options.env).toBeUndefined();
+      }
+    });
+
+    it("withholds the API key from every agent's subprocess in session mode, and only from theirs", async () => {
+      vi.stubEnv("HELPDESK_AGENT_AUTH", "session");
+      vi.stubEnv("ANTHROPIC_API_KEY", "sk-test");
+      const { identityRunQuery, mdmRunQuery, knowledgeRunQuery, endpointRunQuery } = await runAllFour();
+
+      for (const run of [identityRunQuery, mdmRunQuery, knowledgeRunQuery, endpointRunQuery]) {
+        const env = run.mock.calls[0]![0].options.env!;
+        expect(env).toBeDefined();
+        expect(env).not.toHaveProperty("ANTHROPIC_API_KEY");
+        expect(env.HELPDESK_AGENT_AUTH).toBe("session");
+      }
+      // The in-process callers (triage, the rationale generator) read the key from process.env.
+      expect(process.env.ANTHROPIC_API_KEY).toBe("sk-test");
+    });
+
+    it("fails an agent call that reports it authenticated with an API key while session mode is on, naming the mismatch", async () => {
+      vi.stubEnv("HELPDESK_AGENT_AUTH", "session");
+      const bad = () => stream([initReporting("ANTHROPIC_API_KEY"), resultSuccess("ok")]);
+      const common = { actor: "alice@contoso.com", requestText: "hello", getAccessToken };
+
+      await expect(runIdentityAgent({ ...common, dbPath: identityDbPath, runQuery: vi.fn<IdentityRunQuery>().mockImplementation(bad) })).rejects.toThrow("Agent auth path mismatch");
+      await expect(runMdmAgent({ ...common, dbPath: mdmDbPath, runQuery: vi.fn<MdmRunQuery>().mockImplementation(bad) })).rejects.toThrow("Agent auth path mismatch");
+      await expect(runKnowledgeAgent({ ...common, dbPath: knowledgeDbPath, runQuery: vi.fn<KnowledgeRunQuery>().mockImplementation(bad) })).rejects.toThrow("Agent auth path mismatch");
+      await expect(runEndpointAgent({ ...common, dbPath: endpointDbPath, runQuery: vi.fn<EndpointRunQuery>().mockImplementation(bad) })).rejects.toThrow("Agent auth path mismatch");
+    });
+
+    it("lets an agent call through that reports the login session, in session mode", async () => {
+      vi.stubEnv("HELPDESK_AGENT_AUTH", "session");
+      const ok = () => stream([initReporting("none"), resultSuccess("ok")]);
+      const result = await runIdentityAgent({
+        actor: "alice@contoso.com",
+        requestText: "hello",
+        getAccessToken,
+        dbPath: identityDbPath,
+        runQuery: vi.fn<IdentityRunQuery>().mockImplementation(ok),
+      });
+      expect(result.reply).toBe("ok");
+    });
   });
 });

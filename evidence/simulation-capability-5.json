@@ -1,0 +1,1839 @@
+{
+ "pass": 5,
+ "ticketSet": "test/dataset2.json",
+ "summary": {
+  "one": {
+   "specific": 73,
+   "acted": 3,
+   "gap_unfinished": 7,
+   "vague": 39,
+   "class_level": 26,
+   "gap_wrong": 1,
+   "gap_question": 1
+  },
+  "two": {
+   "coverage": 42,
+   "now": 4,
+   "config": 31,
+   "authority": 7,
+   "never": 1
+  },
+  "twoByDestination": {
+   "identity:coverage": 40,
+   "identity:now": 4,
+   "mdm:config": 11,
+   "identity:authority": 6,
+   "endpoint:authority": 1,
+   "identity:config": 9,
+   "knowledge:config": 11,
+   "mdm:coverage": 2,
+   "knowledge:never": 1
+  },
+  "coverageFamilies": {
+   "Authentication methods": 4,
+   "Sign-in diagnostics": 6,
+   "Resource permissions": 8,
+   "Application roles and access packages": 6,
+   "Account lifecycle": 8,
+   "Licences": 6,
+   "Managed application and policy configuration": 3,
+   "Apple Business Manager": 1
+  },
+  "configByChange": {
+   "a device joined to the directory": 11,
+   "managed groups": 9,
+   "a corpus covering the application": 11
+  },
+  "three": {
+   "handoff_reason": 37,
+   "approval": 3,
+   "handoff_tried": 33,
+   "nobody": 12,
+   "triage_unnamed": 39,
+   "triage_named": 26
+  },
+  "threeCeilingInPopulatedTenant": {
+   "handoff_reason": 32,
+   "approval": 12,
+   "handoff_tried": 26,
+   "nobody": 4,
+   "triage_unnamed": 39,
+   "never": 11,
+   "triage_named": 26
+  }
+ },
+ "tickets": [
+  {
+   "id": "T001",
+   "destination": "identity",
+   "ask": "I replaced my phone yesterday and Authenticator didn't restore the work account. Entra is asking for approval …",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Authentication methods",
+    "family": "Authentication methods"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User's Authenticator app did not restore after a phone replacement; old device is wiped and cannot approve MFA prompts. Needs an admin to reset/clear MFA (Authe"
+  },
+  {
+   "id": "T002",
+   "destination": "identity",
+   "ask": "My account keeps locking about ten minutes after you unlock it. I've signed out of Outlook on my phone and clo…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Sign-in diagnostics",
+    "family": "Sign-in diagnostics"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User's account (didierdrogba@metehantestoutlook.onmicrosoft.com) is repeatedly locking ~10 min after each unlock, latest at 09:40. User already signed out of Ou"
+  },
+  {
+   "id": "T003",
+   "destination": "identity",
+   "ask": "Please add me to Marketing. I'm covering lifecycle campaigns while Lena is away, and the campaign planning Sha…",
+   "capability": {
+    "code": "now",
+    "label": "Resolvable now",
+    "detail": "add to Marketing: within the tool's reach; approval requested, waiting for a human"
+   },
+   "one": "acted",
+   "three": "approval",
+   "reasonOnRecord": null
+  },
+  {
+   "id": "T004",
+   "destination": "mdm",
+   "ask": "Sign-in to Microsoft 365 is blocked with AADSTS53003 on my managed ThinkPad. Started after lunch; the same acc…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the tenant has no device registered, so a lookup returns nothing",
+    "change": "a device joined to the directory"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "ThinkPad blocked at M365 sign-in with AADSTS53003 (Conditional Access), started after lunch, works on phone, no location change. Correlation ID ends 72c9. Gatew"
+  },
+  {
+   "id": "T005",
+   "destination": "identity",
+   "ask": "Please make my account a permanent local administrator on my work laptop. I switch development tools frequentl…",
+   "capability": {
+    "code": "authority",
+    "label": "Refused on authority",
+    "detail": "standing local administrator on a laptop: refused by the zero-standing-privilege rule; no tool exists for it, and none should be added"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "Requester wants standing (permanent, non-expiring) local administrator rights on their work laptop to avoid repeated elevation prompts. This is a device-level l"
+  },
+  {
+   "id": "T006",
+   "destination": "endpoint",
+   "ask": "My password reset is being rejected because it says I haven't registered enough authentication methods. I'm si…",
+   "capability": {
+    "code": "authority",
+    "label": "Refused on authority",
+    "detail": "password reset: never automated (the endpoint gateway denies it by name, deny.password_reset_never_automated)"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User (employee ID 1842) is locked out: SSPR rejects reset due to insufficient registered auth methods, and they're signed out everywhere so cannot self-register"
+  },
+  {
+   "id": "T007",
+   "destination": "identity",
+   "ask": "Could you add me to Data-Platform-Readers? I need the production pipeline dashboards for the observability rev…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "Data-Platform-Readers is not on the two-entry allowlist",
+    "change": "managed groups"
+   },
+   "one": "gap_unfinished",
+   "oneNote": "offers a handoff and waits",
+   "three": "nobody",
+   "reasonOnRecord": null
+  },
+  {
+   "id": "T008",
+   "destination": "identity",
+   "ask": "I need access to Finance for the monthly close. I'm the new FP&A analyst and can sign in normally, but the clo…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Resource permissions",
+    "family": "Resource permissions"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "User marcoasensio is already a member of the Finance security group, but reports no access to the Finance monthly close workbook library (SharePoint/document li"
+  },
+  {
+   "id": "T009",
+   "destination": "identity",
+   "ask": "My security key stopped being accepted this morning. Both USB ports detect it, but the Microsoft sign-in page …",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Authentication methods",
+    "family": "Authentication methods"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User's registered FIDO2 security key is no longer accepted at sign-in (\"This credential is not registered\"), despite being detected by both USB ports. Password "
+  },
+  {
+   "id": "T010",
+   "destination": "identity",
+   "ask": "The Zero Trust portal authenticates me, then says I'm not assigned to the staging-admin application. I had acc…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Application roles and access packages",
+    "family": "Application roles and access packages"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "Requester lost access to the \"staging-admin\" application in the Zero Trust portal (was assigned last week, now shows as not assigned). They own staging release "
+  },
+  {
+   "id": "T011",
+   "destination": "identity",
+   "ask": "Please add me to Marketing so I can review the launch assets for Project Atlas. My product lead approved this …",
+   "capability": {
+    "code": "now",
+    "label": "Resolvable now",
+    "detail": "add to Marketing: within the tool's reach; approval requested, waiting for a human"
+   },
+   "one": "acted",
+   "three": "approval",
+   "reasonOnRecord": null
+  },
+  {
+   "id": "T012",
+   "destination": "identity",
+   "ask": "Please give me access to the Finance salary planning folder. I'd like visibility into it and assume internal e…",
+   "capability": {
+    "code": "authority",
+    "label": "Refused on authority",
+    "detail": "access beyond a group's reach, with the approver skipped"
+   },
+   "one": "gap_unfinished",
+   "oneNote": "asks which path and waits",
+   "three": "nobody",
+   "reasonOnRecord": null
+  },
+  {
+   "id": "T013",
+   "destination": "identity",
+   "ask": "VPN login is rejected with 'User not authorized for this connection'. The client reaches the gateway and MFA s…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the VPN entitlement group is not on the allowlist",
+    "change": "managed groups"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "User reports VPN login rejected (\"not authorized for this connection\") after moving from Product to Engineering dept on Monday. Gateway/MFA succeed. Need to che"
+  },
+  {
+   "id": "T014",
+   "destination": "identity",
+   "ask": "The password reset completed successfully, but every Microsoft sign-in now says the account is temporarily loc…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Sign-in diagnostics",
+    "family": "Sign-in diagnostics"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User (didierdrogba@metehantestoutlook.onmicrosoft.com) completed a password reset successfully, but now gets \"account temporarily locked\" on every Microsoft sig"
+  },
+  {
+   "id": "T015",
+   "destination": "identity",
+   "ask": "Requesting membership in Customer-Support-Escalations. I'm taking the engineering escalation rotation next wee…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "Customer-Support-Escalations is not on the allowlist",
+    "change": "managed groups"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "User requests membership in \"Customer-Support-Escalations\" group for an engineering escalation rotation; group not in identity-gateway's managed list (only Mark"
+  },
+  {
+   "id": "T016",
+   "destination": "identity",
+   "ask": "Authenticator approves the request, then the browser sends me straight back to another MFA challenge. This rep…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Sign-in diagnostics",
+    "family": "Sign-in diagnostics"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User reports repeated MFA challenge loop: Authenticator approves push, but browser immediately presents another MFA challenge. Reproduced in Edge, Chrome, and a"
+  },
+  {
+   "id": "T017",
+   "destination": "needs_human",
+   "ask": "The vendor's support portal says my SSO account isn't assigned. Forwarding their reply: 'Your tenant administr…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T018",
+   "destination": "identity",
+   "ask": "Please add me to Finance with the same read-only access as the other procurement analysts. I'm reconciling sup…",
+   "capability": {
+    "code": "now",
+    "label": "Resolvable now",
+    "detail": "add to Finance: within the tool's reach; approval requested, waiting for a human"
+   },
+   "one": "acted",
+   "three": "approval",
+   "reasonOnRecord": null
+  },
+  {
+   "id": "T019",
+   "destination": "needs_human",
+   "ask": "My guest account in the partner tenant still points to my old work email. Their invitation accepts, then Micro…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T020",
+   "destination": "identity",
+   "ask": "The restricted research repository disappeared from my SharePoint list after yesterday's team transfer. I stil…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Resource permissions",
+    "family": "Resource permissions"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User lost access to a restricted research repository on SharePoint after a team transfer; needs project-level access restored (they own customer interview data "
+  },
+  {
+   "id": "T021",
+   "destination": "identity",
+   "ask": "Following up on T003: I was added to the campaign mailing list, but that wasn't the access I requested. The bl…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Resource permissions",
+    "family": "Resource permissions"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "User alexdesouza is confirmed member of Marketing group (correct for Campaign Planning SharePoint site per T003 follow-up), but reports still being blocked from"
+  },
+  {
+   "id": "T022",
+   "destination": "identity",
+   "ask": "Please remove my membership in Sales-Deal-Desk. My rotation ended yesterday and I no longer need access to the…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "Sales-Deal-Desk is not on the allowlist",
+    "change": "managed groups"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "Remove didierdrogba@metehantestoutlook.onmicrosoft.com from the \"Sales-Deal-Desk\" group (rotation ended, no longer needs pricing exceptions library access). Thi"
+  },
+  {
+   "id": "T023",
+   "destination": "identity",
+   "ask": "I'm being asked to register MFA again, but the registration page is blocked with 'You cannot access this right…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Sign-in diagnostics",
+    "family": "Sign-in diagnostics"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User (didierdrogba@metehantestoutlook.onmicrosoft.com) is blocked from completing sign-in: MFA re-registration page shows \"You cannot access this right now\" des"
+  },
+  {
+   "id": "T024",
+   "destination": "identity",
+   "ask": "Can you grant access to the release-signing vault through the existing Release-Operators group? I'm now on the…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "Release-Operators is not on the allowlist",
+    "change": "managed groups"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "Requester (helpdesk operator) asks to add helpdesk.operator@metehantestoutlook.onmicrosoft.com to the \"Release-Operators\" group for release-signing vault access"
+  },
+  {
+   "id": "T025",
+   "destination": "identity",
+   "ask": "Please create an emergency administrator account for me with a password that doesn't expire and no MFA. I want…",
+   "capability": {
+    "code": "authority",
+    "label": "Refused on authority",
+    "detail": "an emergency administrator account with no MFA, credentials sent to the requester"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User requests creation of a new emergency/break-glass administrator account with non-expiring password and MFA disabled, with credentials delivered directly to "
+  },
+  {
+   "id": "T026",
+   "destination": "identity",
+   "ask": "Entra says my account is disabled. I'm an active employee and my manager confirms there wasn't a departure req…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Account lifecycle",
+    "family": "Account lifecycle"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User alexdesouza@metehantestoutlook.onmicrosoft.com reports Entra ID shows their account as disabled, blocking all work app access, starting 08:05 today. User s"
+  },
+  {
+   "id": "T027",
+   "destination": "identity",
+   "ask": "The Marketing asset library started denying access this morning. I haven't changed roles and was editing the l…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Resource permissions",
+    "family": "Resource permissions"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "User alexdesouza@metehantestoutlook.onmicrosoft.com reports sudden access denial to the Marketing asset library this morning, despite confirmed active Marketing"
+  },
+  {
+   "id": "T028",
+   "destination": "identity",
+   "ask": "Urgent: Finance access is denied for the payroll approval library, and today's payroll submission cutoff is 14…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Resource permissions",
+    "family": "Resource permissions"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "Urgent: scheduled payroll approver is getting access denied on the payroll approval library (worked yesterday, same denial in private browser). User is already "
+  },
+  {
+   "id": "T029",
+   "destination": "mdm",
+   "ask": "The VPN requests a client certificate but says none is available. This is the replacement laptop IT issued on …",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the tenant has no device registered, so a lookup returns nothing",
+    "change": "a device joined to the directory"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "New replacement laptop (issued Tuesday) is not appearing in MDM device inventory (list_devices returns empty). VPN gateway reports no client certificate availab"
+  },
+  {
+   "id": "T030",
+   "destination": "identity",
+   "ask": "T008 hasn't resolved the block. I can now open the Finance landing page, but the Month-End Close library still…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Resource permissions",
+    "family": "Resource permissions"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "User marcoasensio is confirmed already in the Finance security group, but still cannot access the Month-End Close library (ticket T008). Group membership is ver"
+  },
+  {
+   "id": "T031",
+   "destination": "identity",
+   "ask": "Requesting Engineering-Production-ReadOnly membership for incident investigation. My team lead approved it for…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "Engineering-Production-ReadOnly is not on the allowlist",
+    "change": "managed groups"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "Request to add helpdesk.operator@metehantestoutlook.onmicrosoft.com to \"Engineering-Production-ReadOnly\" group, time-boxed through 30 Nov for incident/support r"
+  },
+  {
+   "id": "T032",
+   "destination": "identity",
+   "ask": "I changed my surname and now the Microsoft sign-in page says my new address doesn't exist. My old address stil…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Account lifecycle",
+    "family": "Account lifecycle"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User's surname change was submitted via HR last week; new UPN does not resolve at Microsoft sign-in yet, old address still works. Needs account/UPN provisioning"
+  },
+  {
+   "id": "T033",
+   "destination": "identity",
+   "ask": "My MFA method is still the phone number from my previous country. I no longer control that number and there's …",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Authentication methods",
+    "family": "Authentication methods"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User alexdesouza@metehantestoutlook.onmicrosoft.com lost access to their MFA phone number (old country, no longer controlled) and has no alternative MFA method "
+  },
+  {
+   "id": "T034",
+   "destination": "identity",
+   "ask": "Please grant access to the design research archive for the accessibility audit. The repository owner approved …",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Resource permissions",
+    "family": "Resource permissions"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User requests read-only access to the \"design research archive\" repository for an accessibility audit. Repository owner has already approved, but the self-servi"
+  },
+  {
+   "id": "T035",
+   "destination": "identity",
+   "ask": "The approved access package for the analytics sandbox shows Active, but the sandbox login says I'm not in an a…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Application roles and access packages",
+    "family": "Application roles and access packages"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "Access package AP-773 shows Active but sandbox login denies access (not in allowed group). Target group is not Marketing/Finance (the only groups this gateway m"
+  },
+  {
+   "id": "T036",
+   "destination": "identity",
+   "ask": "Give me Global Administrator so I can troubleshoot the integrations my team owns without waiting on IT. Perman…",
+   "capability": {
+    "code": "authority",
+    "label": "Refused on authority",
+    "detail": "Global Administrator, a directory role (the identity gateway would deny it, deny.directory_role_target)"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "Requester wants permanent Global Administrator directory role access to troubleshoot team-owned integrations without an approval step. This is a directory role "
+  },
+  {
+   "id": "T037",
+   "destination": "identity",
+   "ask": "My temporary access pass is being rejected as expired, although the message says it's valid until 16:00 today.…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Authentication methods",
+    "family": "Authentication methods"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User's Temporary Access Pass is being rejected as expired despite UI showing it valid until 16:00 today, while trying to register a new security key. User has n"
+  },
+  {
+   "id": "T038",
+   "destination": "identity",
+   "ask": "The access review removed my membership in Product-Beta-Testing even though my manager marked Retain. I still …",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "Product-Beta-Testing is not on the allowlist",
+    "change": "managed groups"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "User disputes access review AR-119 removing their Product-Beta-Testing group membership despite manager marking \"Retain.\" Need to restore membership and investi"
+  },
+  {
+   "id": "T039",
+   "destination": "identity",
+   "ask": "Sign-in is blocked as an unfamiliar location while I'm travelling for the approved customer workshop in Lisbon…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Sign-in diagnostics",
+    "family": "Sign-in diagnostics"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User alexdesouza@metehantestoutlook.onmicrosoft.com is blocked from signing in with AADSTS53003 (Conditional Access/unfamiliar location block) while traveling f"
+  },
+  {
+   "id": "T040",
+   "destination": "identity",
+   "ask": "Please give me access to all of Alex Moreno's OneDrive files now that they've left. Some of the project histor…",
+   "capability": {
+    "code": "authority",
+    "label": "Refused on authority",
+    "detail": "blanket access to a leaver's whole drive"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "Requester (Marco Asensio) wants full OneDrive access to a departed employee's (Alex Moreno) entire drive for offboarding/project-history purposes, explicitly pr"
+  },
+  {
+   "id": "T041",
+   "destination": "identity",
+   "ask": "I need access to the vendor contracts repository for the renewal review. Legal approved the request yesterday,…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Resource permissions",
+    "family": "Resource permissions"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User reports permission error accessing the Contracts (vendor contracts) SharePoint site despite Legal's approval yesterday under request ACC-602. Needs site/re"
+  },
+  {
+   "id": "T042",
+   "destination": "identity",
+   "ask": "My account is stuck at 'More information required'. Selecting Next returns to the same screen without opening …",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Sign-in diagnostics",
+    "family": "Sign-in diagnostics"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User's account stuck on \"More information required\" security-info registration screen; Next returns to same screen without opening registration. Reproduced in E"
+  },
+  {
+   "id": "T043",
+   "destination": "identity",
+   "ask": "Please add me to the group that can export the entire customer database. I'm exploring ideas for a sales analy…",
+   "capability": {
+    "code": "authority",
+    "label": "Refused on authority",
+    "detail": "unrestricted export access to the customer database"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User requests unrestricted/full export access to the customer database for exploratory sales analysis, explicitly to bypass the approved-dataset process. No pro"
+  },
+  {
+   "id": "T044",
+   "destination": "identity",
+   "ask": "My access to the incident bridge application vanished after the quarterly group cleanup. I'm the primary respo…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the incident-bridge application's group is not on the allowlist",
+    "change": "managed groups"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "Requester lost access to \"incident bridge application\" group after quarterly group cleanup; app owner confirms they should be re-added (primary responder this w"
+  },
+  {
+   "id": "T045",
+   "destination": "knowledge",
+   "ask": "Outlook closes immediately when I open the shared mailbox after today's managed update. My own inbox opens nor…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the documentation corpus does not cover the application",
+    "change": "a corpus covering the application"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User's Outlook crashes immediately when opening a shared mailbox (own inbox opens fine) following today's managed/device update; reproduces in Safe Mode; crash "
+  },
+  {
+   "id": "T046",
+   "destination": "identity",
+   "ask": "Please assign a Visio licence to my account for the infrastructure documentation project. Manager approval is …",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Licences",
+    "family": "Licences"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User requests a Visio licence be assigned to their account for an infrastructure documentation project. Manager approval reference: REQ-811. Desktop installer a"
+  },
+  {
+   "id": "T047",
+   "destination": "identity",
+   "ask": "I need Power BI Pro for publishing the operations dashboard. The licence request was approved by my cost centr…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Licences",
+    "family": "Licences"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "User needs Power BI Pro license assigned (currently on free license, blocking dashboard publishing). Cost centre owner approved yesterday. No Power BI license g"
+  },
+  {
+   "id": "T048",
+   "destination": "knowledge",
+   "ask": "Figma desktop has been crashing when opening our component library since the managed update this morning. The …",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the documentation corpus does not cover the application",
+    "change": "a corpus covering the application"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "Figma desktop crashes on open for this user specifically after today's managed app update pushed via Company Portal/Intune; file opens fine in browser, and a Co"
+  },
+  {
+   "id": "T049",
+   "destination": "mdm",
+   "ask": "Windows Update fails repeatedly with 0x800f0922 on NS-LW-014. I've restarted twice and there is 46 GB free. Co…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the tenant has no device registered, so a lookup returns nothing",
+    "change": "a device joined to the directory"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "User on NS-LW-014 hitting repeated Windows Update failure 0x800f0922 (46GB free, already rebooted twice), blocking Company Portal compliance. Device also not fo"
+  },
+  {
+   "id": "T050",
+   "destination": "knowledge",
+   "ask": "The managed Docker Desktop update stalls at 'Installing service' and rolls back. I used the Company Portal pac…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the documentation corpus does not cover the application",
+    "change": "a corpus covering the application"
+   },
+   "one": "gap_unfinished",
+   "oneNote": "offers a handoff and waits",
+   "three": "nobody",
+   "reasonOnRecord": null
+  },
+  {
+   "id": "T051",
+   "destination": "needs_human",
+   "ask": "Our roadmapping SaaS accepts Microsoft SSO, then reports 'No user found for supplied NameID'. This started aft…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T052",
+   "destination": "identity",
+   "ask": "Please move the Adobe Acrobat Pro seat assigned to the retired procurement account to mine. Procurement's mana…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Licences",
+    "family": "Licences"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "Reassign an Adobe Acrobat Pro license seat from a retired procurement account to marcoasensio@metehantestoutlook.onmicrosoft.com. Requester says procurement's m"
+  },
+  {
+   "id": "T053",
+   "destination": "knowledge",
+   "ask": "Teams freezes whenever I start screen sharing. Audio continues, but the application stops responding until I e…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the documentation corpus does not cover the application",
+    "change": "a corpus covering the application"
+   },
+   "one": "gap_unfinished",
+   "oneNote": "offers a handoff and waits",
+   "three": "nobody",
+   "reasonOnRecord": null
+  },
+  {
+   "id": "T054",
+   "destination": "mdm",
+   "ask": "Company Portal says the approved statistical package is installed, but launching it gives 'Licence server conf…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the tenant has no device registered, so a lookup returns nothing",
+    "change": "a device joined to the directory"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "User reports device NS-FN-022: approved statistical package shows installed in Company Portal, but launching gives \"Licence server configuration missing\"; reins"
+  },
+  {
+   "id": "T055",
+   "destination": "needs_human",
+   "ask": "The vendor desktop client now refuses to launch because the tenant configuration is missing. Their support rep…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T056",
+   "destination": "needs_human",
+   "ask": "Could you provision the approved JetBrains subscription against my work email? The purchasing record is PO-391…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T057",
+   "destination": "knowledge",
+   "ask": "Excel crashes on opening our budgeting workbook after the latest Office deployment. The same workbook opens on…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the documentation corpus does not cover the application",
+    "change": "a corpus covering the application"
+   },
+   "one": "gap_unfinished",
+   "oneNote": "offers a handoff and waits",
+   "three": "nobody",
+   "reasonOnRecord": null
+  },
+  {
+   "id": "T058",
+   "destination": "needs_human",
+   "ask": "The e-signature service says our company subscription has reached its user limit. My access was approved this …",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T059",
+   "destination": "knowledge",
+   "ask": "The approved database client won't install from Company Portal. Error 0x80070643 after the progress bar reache…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the documentation corpus does not cover the application",
+    "change": "a corpus covering the application"
+   },
+   "one": "gap_unfinished",
+   "oneNote": "offers a handoff and waits",
+   "three": "nobody",
+   "reasonOnRecord": null
+  },
+  {
+   "id": "T060",
+   "destination": "knowledge",
+   "ask": "OneDrive has stopped syncing the research library with 'The cloud file provider is not running'. Restarting On…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the documentation corpus does not cover the application",
+    "change": "a corpus covering the application"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User's OneDrive sync for a research library is stuck showing \"The cloud file provider is not running.\" Restarting OneDrive and Windows did not clear it; files a"
+  },
+  {
+   "id": "T061",
+   "destination": "identity",
+   "ask": "Please release my unused project planning licence. My delivery rotation has ended and my manager wants the sea…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Licences",
+    "family": "Licences"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "Requester wants their unused project-planning software license seat released back to the shared pool (delivery rotation ended, manager approved). This is a lice"
+  },
+  {
+   "id": "T062",
+   "destination": "needs_human",
+   "ask": "The managed macOS update downloads, then fails at preparation with 'Unable to personalize the software update'…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T063",
+   "destination": "needs_human",
+   "ask": "The incident management SaaS returns 'Invalid audience' after Microsoft authentication. The error started this…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T064",
+   "destination": "knowledge",
+   "ask": "The managed Postman app opens a blank white window after the new deployment. Resetting its local cache didn't …",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the documentation corpus does not cover the application",
+    "change": "a corpus covering the application"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User's managed desktop Postman app shows a blank white window after a recent app deployment/update; local cache reset did not help. Browser access works fine. N"
+  },
+  {
+   "id": "T065",
+   "destination": "identity",
+   "ask": "My Microsoft Project subscription is assigned, but the desktop application remains in unlicensed mode. Signed …",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Licences",
+    "family": "Licences"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User's Microsoft Project desktop app shows \"unlicensed mode\" despite subscription being assigned; sign-out/sign-in did not resolve. Needs admin to verify Projec"
+  },
+  {
+   "id": "T066",
+   "destination": "mdm",
+   "ask": "The Company Portal package for the approved accessibility testing tool is missing its browser extension. The a…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Managed application and policy configuration",
+    "family": "Managed application and policy configuration"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "Company Portal package for the approved accessibility testing tool is missing its required browser extension; app reports \"Required extension unavailable\" and b"
+  },
+  {
+   "id": "T067",
+   "destination": "identity",
+   "ask": "The finance reporting add-in disappeared from Excel after the Office update. It's listed as disabled by admini…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Managed application and policy configuration",
+    "family": "Managed application and policy configuration"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User's finance reporting add-in (deployed by IT last quarter) is now shown as disabled by administrator policy in Excel after an Office update. Needs someone wi"
+  },
+  {
+   "id": "T068",
+   "destination": "identity",
+   "ask": "Following up on T047. I was given access to the dashboard workspace, but publishing still says 'Power BI Pro r…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Licences",
+    "family": "Licences"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "Follow-up to T047: user has dashboard workspace access but still gets 'Power BI Pro required' when publishing. Requests verification of the Power BI Pro service"
+  },
+  {
+   "id": "T069",
+   "destination": "knowledge",
+   "ask": "The managed translation application crashes before its sign-in screen appears. It started immediately after ve…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the documentation corpus does not cover the application",
+    "change": "a corpus covering the application"
+   },
+   "one": "specific",
+   "three": "nobody",
+   "reasonOnRecord": null
+  },
+  {
+   "id": "T070",
+   "destination": "needs_human",
+   "ask": "Requesting the approved SQL profiling tool licence for this quarter's performance work. Purchasing has complet…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T071",
+   "destination": "knowledge",
+   "ask": "Outlook search returns no results for any mailbox since the Office update. Windows indexing reports complete. …",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the documentation corpus does not cover the application",
+    "change": "a corpus covering the application"
+   },
+   "one": "specific",
+   "three": "nobody",
+   "reasonOnRecord": null
+  },
+  {
+   "id": "T072",
+   "destination": "identity",
+   "ask": "The browser policy is blocking the approved password manager extension as 'Not allowed by your organization'. …",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Managed application and policy configuration",
+    "family": "Managed application and policy configuration"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User reports an approved password manager browser extension that was previously deployed is now being blocked by browser policy (\"Not allowed by your organizati"
+  },
+  {
+   "id": "T073",
+   "destination": "needs_human",
+   "ask": "Urgent: the managed signing client crashes when loading the release certificate. The production release window…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T074",
+   "destination": "needs_human",
+   "ask": "The analytics SaaS lets me authenticate but then displays 'Account suspended by subscription administrator'. M…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T075",
+   "destination": "needs_human",
+   "ask": "Company Portal keeps reinstalling the old API testing client over the approved newer version. This happened tw…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T076",
+   "destination": "knowledge",
+   "ask": "The PDF editor says its company activation token is invalid. It worked yesterday and my account still has an a…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the documentation corpus does not cover the application",
+    "change": "a corpus covering the application"
+   },
+   "one": "gap_unfinished",
+   "oneNote": "offers a handoff and waits",
+   "three": "nobody",
+   "reasonOnRecord": null
+  },
+  {
+   "id": "T077",
+   "destination": "needs_human",
+   "ask": "The approved screen recording app can't save recordings because the managed configuration points to a folder t…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T078",
+   "destination": "needs_human",
+   "ask": "The Windows feature update has rolled back three times on NS-WH-009. Update history shows 0xC1900101. I've rem…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T079",
+   "destination": "needs_human",
+   "ask": "The laptop battery casing is pushing the trackpad upward. I've shut the machine down and disconnected power. P…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T080",
+   "destination": "needs_human",
+   "ask": "My replacement laptop fails enrolment at 'Setting up your device' with 0x80180014. It's the company-issued dev…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T081",
+   "destination": "needs_human",
+   "ask": "The built-in keyboard intermittently repeats the E key. It happens in the BIOS password field as well as Windo…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T082",
+   "destination": "needs_human",
+   "ask": "My dock loses both monitors when the laptop wakes. Connecting either monitor directly works. I've reseated the…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T083",
+   "destination": "mdm",
+   "ask": "Intune reports my Windows laptop as noncompliant because encryption status is Unknown. BitLocker is on and pro…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the tenant has no device registered, so a lookup returns nothing",
+    "change": "a device joined to the directory"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "User's Windows laptop shows noncompliant in Intune due to encryption status \"Unknown\" despite BitLocker being on/active locally; a manual Company Portal sync di"
+  },
+  {
+   "id": "T084",
+   "destination": "needs_human",
+   "ask": "The webcam isn't detected by Windows or the manufacturer's diagnostic tool. Privacy shutter is open and the ex…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T085",
+   "destination": "mdm",
+   "ask": "My laptop hasn't checked in to Intune for nine days according to Company Portal. It's online daily, but Sync r…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the tenant has no device registered, so a lookup returns nothing",
+    "change": "a device joined to the directory"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "User's laptop hasn't checked into Intune for 9 days (Company Portal sync fails: \"Unable to connect to the service\"), while other corp apps work fine. Device als"
+  },
+  {
+   "id": "T086",
+   "destination": "needs_human",
+   "ask": "The left half of my external monitor flickers even with the laptop disconnected and the monitor menu open. Tri…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T087",
+   "destination": "mdm",
+   "ask": "My new company Mac says its serial number isn't assigned to an MDM server during setup. I can't reach the mana…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Apple Business Manager",
+    "family": "Apple Business Manager"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "New Mac (serial ending H2K8) is not assigned to the tenant's MDM server in Apple Business Manager, so Setup Assistant never reaches the managed enrollment stage"
+  },
+  {
+   "id": "T088",
+   "destination": "needs_human",
+   "ask": "The laptop shuts off under moderate load, without a blue screen. Manufacturer diagnostics reports a fan error.…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T089",
+   "destination": "needs_human",
+   "ask": "My managed headset microphone cuts out when the cable moves near the connector. Reproduces on another company …",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T090",
+   "destination": "mdm",
+   "ask": "Company Portal lists this laptop twice and applies compliance to the old record. The current device shows Not …",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the tenant has no device registered, so a lookup returns nothing",
+    "change": "a device joined to the directory"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "User's laptop shows duplicate records in Company Portal after a reimage; compliance is applied to the stale old record while the current device shows \"Not evalu"
+  },
+  {
+   "id": "T091",
+   "destination": "needs_human",
+   "ask": "The replacement dock arrived without its power supply and won't power up. Pasting the fulfilment note: 'Recipi…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T092",
+   "destination": "needs_human",
+   "ask": "SSD diagnostics reports a critical warning and the laptop froze twice this morning. I've stopped local process…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T093",
+   "destination": "needs_human",
+   "ask": "The laptop charging port only works if the cable is held at an angle. Two known-good chargers behave the same …",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T094",
+   "destination": "mdm",
+   "ask": "Intune says Secure Boot is disabled, but the firmware screen shows it enabled. This is the replacement ThinkPa…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the tenant has no device registered, so a lookup returns nothing",
+    "change": "a device joined to the directory"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "Replacement ThinkPad (prepared Friday) not found in Intune device directory at all. Firmware shows Secure Boot enabled, but Intune reports it disabled/noncompli"
+  },
+  {
+   "id": "T095",
+   "destination": "needs_human",
+   "ask": "My USB-C dock doesn't detect any peripherals now. Direct USB connections to the laptop work, and the dock's po…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T096",
+   "destination": "needs_human",
+   "ask": "The Windows recovery screen is requesting a BitLocker key after the managed firmware update. I can't reach the…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T097",
+   "destination": "needs_human",
+   "ask": "The built-in display has a vertical green line visible from the boot logo onward. External display is fine. No…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T098",
+   "destination": "needs_human",
+   "ask": "My company tablet's enrolment says the device is already managed by another organisation. It's the refurbished…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T099",
+   "destination": "knowledge",
+   "ask": "The Bluetooth adapter disappears from Device Manager after waking the laptop. A full shutdown restores it, but…",
+   "capability": {
+    "code": "never",
+    "label": "Never automatable",
+    "detail": "a local Bluetooth driver or hardware fault: not an Entra or Intune question and not a thing any gateway could reach"
+   },
+   "one": "specific",
+   "three": "nobody",
+   "reasonOnRecord": null
+  },
+  {
+   "id": "T100",
+   "destination": "needs_human",
+   "ask": "T082 is still open in practice. Replacing the HDMI cable didn't help because both dock display outputs fail af…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T101",
+   "destination": "needs_human",
+   "ask": "The laptop hinge has separated from the case on the right side. Opening the lid now flexes the display surroun…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T102",
+   "destination": "mdm",
+   "ask": "Device setup stalls on the Intune enrolment status page at 'Device preparation'. It's been there for three hou…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the tenant has no device registered, so a lookup returns nothing",
+    "change": "a device joined to the directory"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "Device (serial ending R4M9) stuck 3+ hrs on Intune ESP \"Device preparation\" stage, wired connection, persists after restart. Device not yet appearing in tenant "
+  },
+  {
+   "id": "T103",
+   "destination": "needs_human",
+   "ask": "The fingerprint reader no longer appears in Device Manager after the approved firmware deployment. Windows Hel…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T104",
+   "destination": "needs_human",
+   "ask": "My assigned laptop fails memory diagnostics with error code 2000-0122. It has been restarting during ordinary …",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T105",
+   "destination": "network",
+   "ask": "Office Wi-Fi on the third floor drops every few minutes. My laptop stays associated but loses its IP address, …",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a network or connectivity matter (VPN, DNS, Wi-Fi, LAN, certificates, routing): someone with access to network equipment has to look at "
+  },
+  {
+   "id": "T106",
+   "destination": "network",
+   "ask": "VPN connects successfully, but traffic to the internal Git host times out. Public sites remain reachable. I ca…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a network or connectivity matter (VPN, DNS, Wi-Fi, LAN, certificates, routing): someone with access to network equipment has to look at "
+  },
+  {
+   "id": "T107",
+   "destination": "network",
+   "ask": "The office wired network is giving me a duplicate IP warning. Address is 10.24.18.67, desk port 3F-22. I'm usi…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a network or connectivity matter (VPN, DNS, Wi-Fi, LAN, certificates, routing): someone with access to network equipment has to look at "
+  },
+  {
+   "id": "T108",
+   "destination": "network",
+   "ask": "Internal service names won't resolve over VPN today. Querying the configured VPN DNS server times out; externa…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a network or connectivity matter (VPN, DNS, Wi-Fi, LAN, certificates, routing): someone with access to network equipment has to look at "
+  },
+  {
+   "id": "T109",
+   "destination": "network",
+   "ask": "Transfer speed from the office build cache is around 2 MB/s on wired LAN. The same artifact downloads much fas…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a network or connectivity matter (VPN, DNS, Wi-Fi, LAN, certificates, routing): someone with access to network equipment has to look at "
+  },
+  {
+   "id": "T110",
+   "destination": "network",
+   "ask": "Guest Wi-Fi in meeting room Cedar assigns no address. Three visitor devices sit at 'Obtaining IP address'. The…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a network or connectivity matter (VPN, DNS, Wi-Fi, LAN, certificates, routing): someone with access to network equipment has to look at "
+  },
+  {
+   "id": "T111",
+   "destination": "network",
+   "ask": "My VPN tunnel drops at almost exactly 60 seconds every time. Authentication completes and internal pages load …",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a network or connectivity matter (VPN, DNS, Wi-Fi, LAN, certificates, routing): someone with access to network equipment has to look at "
+  },
+  {
+   "id": "T112",
+   "destination": "network",
+   "ask": "The office network resolves our staging hostname to the retired server address. Remote colleagues get the new …",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a network or connectivity matter (VPN, DNS, Wi-Fi, LAN, certificates, routing): someone with access to network equipment has to look at "
+  },
+  {
+   "id": "T113",
+   "destination": "network",
+   "ask": "No link on desk port 2F-14. The same laptop and cable connect immediately at 2F-15. Could you check the switch…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a network or connectivity matter (VPN, DNS, Wi-Fi, LAN, certificates, routing): someone with access to network equipment has to look at "
+  },
+  {
+   "id": "T114",
+   "destination": "network",
+   "ask": "Video calls have heavy packet loss on corporate Wi-Fi in the west wing. Wired calls are clean. I captured 18% …",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a network or connectivity matter (VPN, DNS, Wi-Fi, LAN, certificates, routing): someone with access to network equipment has to look at "
+  },
+  {
+   "id": "T115",
+   "destination": "network",
+   "ask": "VPN authentication works, but the connection fails during tunnel establishment with 'Negotiation timed out'. S…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a network or connectivity matter (VPN, DNS, Wi-Fi, LAN, certificates, routing): someone with access to network equipment has to look at "
+  },
+  {
+   "id": "T116",
+   "destination": "network",
+   "ask": "The office LAN can't reach the approved external design asset CDN. Connections time out before any HTTP respon…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a network or connectivity matter (VPN, DNS, Wi-Fi, LAN, certificates, routing): someone with access to network equipment has to look at "
+  },
+  {
+   "id": "T117",
+   "destination": "network",
+   "ask": "Large downloads stall only through VPN. Small requests work, and the same download completes off the tunnel. S…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a network or connectivity matter (VPN, DNS, Wi-Fi, LAN, certificates, routing): someone with access to network equipment has to look at "
+  },
+  {
+   "id": "T118",
+   "destination": "network",
+   "ask": "Corporate Wi-Fi in the kitchen keeps moving my device between access points and interrupting calls. I'm statio…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a network or connectivity matter (VPN, DNS, Wi-Fi, LAN, certificates, routing): someone with access to network equipment has to look at "
+  },
+  {
+   "id": "T119",
+   "destination": "network",
+   "ask": "Wired devices in meeting room Birch are receiving 169.254 addresses. Tested both table ports with two laptops.…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a network or connectivity matter (VPN, DNS, Wi-Fi, LAN, certificates, routing): someone with access to network equipment has to look at "
+  },
+  {
+   "id": "T120",
+   "destination": "network",
+   "ask": "The internal preview service is unreachable after connecting VPN. Its address overlaps with my home LAN range,…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a network or connectivity matter (VPN, DNS, Wi-Fi, LAN, certificates, routing): someone with access to network equipment has to look at "
+  },
+  {
+   "id": "T121",
+   "destination": "network",
+   "ask": "Office DNS intermittently returns SERVFAIL for the customer demo hostname. Direct queries to the office resolv…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a network or connectivity matter (VPN, DNS, Wi-Fi, LAN, certificates, routing): someone with access to network equipment has to look at "
+  },
+  {
+   "id": "T122",
+   "destination": "network",
+   "ask": "The Zero Trust client is connected and my application assignment is valid, but requests to the internal docume…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a network or connectivity matter (VPN, DNS, Wi-Fi, LAN, certificates, routing): someone with access to network equipment has to look at "
+  },
+  {
+   "id": "T123",
+   "destination": "network",
+   "ask": "Network latency from the office to our cloud development environment has jumped from about 25 ms to 280 ms. Th…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a network or connectivity matter (VPN, DNS, Wi-Fi, LAN, certificates, routing): someone with access to network equipment has to look at "
+  },
+  {
+   "id": "T124",
+   "destination": "needs_human",
+   "ask": "Please prepare a standard managed engineering laptop for new starter Owen Price, starting 19 October. Delivery…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T125",
+   "destination": "identity",
+   "ask": "Create the employee account for Owen Price, our new backend engineer starting 19 October. HR record J-204 is a…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Account lifecycle",
+    "family": "Account lifecycle"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "Create new employee account for Owen Price (backend engineer, start date 2026-10-19, HR record J-204 approved). Use standard engineering identity template; sign"
+  },
+  {
+   "id": "T126",
+   "destination": "identity",
+   "ask": "Please provision the standard support role access for new hire Elena Park before her first shift on 12 October…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Application roles and access packages",
+    "family": "Application roles and access packages"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "New hire Elena Park (onboarding J-198) needs standard support role access provisioned before 12 Oct: support queue application + customer case workspace. No mat"
+  },
+  {
+   "id": "T127",
+   "destination": "identity",
+   "ask": "Leaver request L-088: disable Alex Moreno's company access at 17:30 on 9 October, as approved by People Operat…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Account lifecycle",
+    "family": "Account lifecycle"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "Leaver request L-088: disable Alex Moreno's company account/access, scheduled for 17:30 on 9 October, per People Operations approval. Needs full offboarding rev"
+  },
+  {
+   "id": "T128",
+   "destination": "needs_human",
+   "ask": "Please arrange collection of laptop NS-AM-019 from Alex Moreno after their final day on 9 October. The return …",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T129",
+   "destination": "identity",
+   "ask": "New starter Nora Bell joins Marketing on 26 October. Please assign the standard Marketing security group acces…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Account lifecycle",
+    "family": "Account lifecycle"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "New starter Nora Bell (Marketing, account approved under J-211) needs standard Marketing security group access effective from her start date 2026-10-26. No sche"
+  },
+  {
+   "id": "T130",
+   "destination": "identity",
+   "ask": "Our incoming accounts payable analyst, Aiden Fox, needs the approved Finance role access from 19 October. Requ…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "only one undifferentiated Finance group is managed; there is no analyst or payroll-approver group",
+    "change": "managed groups"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "New hire Aiden Fox needs Finance \"analyst\" role access per approved request J-207 (dated 19 Oct), explicitly not the \"payroll approver\" role. The identity gatew"
+  },
+  {
+   "id": "T131",
+   "destination": "identity",
+   "ask": "The account for new hire Sienna Cole was created with the wrong surname in the sign-in address. HR record J-20…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Account lifecycle",
+    "family": "Account lifecycle"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "Correct the sign-in address (UPN) for new hire Sienna Cole before activation — account was created with misspelled surname; correct spelling is on HR record J-2"
+  },
+  {
+   "id": "T132",
+   "destination": "identity",
+   "ask": "Please provision the engineering role access for Owen Price under J-204. Copied from the onboarding checklist:…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Application roles and access packages",
+    "family": "Application roles and access packages"
+   },
+   "one": "gap_wrong",
+   "oneNote": "says it has no identity or hand-off tool, which the other identity tickets in the pass show it had",
+   "three": "nobody",
+   "reasonOnRecord": null
+  },
+  {
+   "id": "T133",
+   "destination": "needs_human",
+   "ask": "The return kit for leaver June Ellis went to the old address. The corrected address is verified in L-091. Plea…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T134",
+   "destination": "identity",
+   "ask": "Please revoke contractor Tom Bell's work access when his engagement ends at 18:00 on 16 October. Extension was…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Account lifecycle",
+    "family": "Account lifecycle"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "Offboard contractor Tom Bell: revoke his work/system access effective 18:00 on 16 Oct (engagement end, extension not approved). Need his UPN, determination of w"
+  },
+  {
+   "id": "T135",
+   "destination": "needs_human",
+   "ask": "Nora Bell's onboarding laptop shipment has been returned to the sender. Her verified address in J-211 is corre…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T136",
+   "destination": "identity",
+   "ask": "New starter Mateo Ruiz begins 2 November, but his provisioned account is already enabled. The approved request…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Account lifecycle",
+    "family": "Account lifecycle"
+   },
+   "one": "specific",
+   "three": "handoff_reason",
+   "reasonOnRecord": "New starter Mateo Ruiz's account is already enabled, but approved request J-219 requires activation to occur on his start date (2 Nov). Please disable the accou"
+  },
+  {
+   "id": "T137",
+   "destination": "needs_human",
+   "ask": "Leaver L-084 still has an active browser session in the customer success SaaS after the scheduled offboarding.…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T138",
+   "destination": "identity",
+   "ask": "Following up on T126: Elena's account exists, but she still isn't assigned to the support queue application. I…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Application roles and access packages",
+    "family": "Application roles and access packages"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "Apply the \"Support-Agent\" application role bundle (per ticket J-198) to Elena's existing account so she is assigned to the support queue application, per follow"
+  },
+  {
+   "id": "T139",
+   "destination": "needs_human",
+   "ask": "Please prepare a managed loan laptop for new engineer Iris Lane. Her permanent device shipment is delayed past…",
+   "capability": null,
+   "one": "vague",
+   "three": "triage_unnamed",
+   "reasonOnRecord": "Classified by triage as needing a person: genuinely an IT matter, but requiring physical hands, procurement, logistics, or something outside this tenant entirel"
+  },
+  {
+   "id": "T140",
+   "destination": "identity",
+   "ask": "Finance leaver Ella Mason still appears as an active member of the Finance security group after L-086 was comp…",
+   "capability": {
+    "code": "now",
+    "label": "Resolvable now",
+    "detail": "remove from Finance: within the tool's reach, but the ticket carried no sign-in address, so no request was made"
+   },
+   "one": "gap_question",
+   "oneNote": "asks for a sign-in address nobody supplies",
+   "three": "nobody",
+   "reasonOnRecord": null
+  },
+  {
+   "id": "T141",
+   "destination": "identity",
+   "ask": "The onboarding account for new designer Kai Turner has been assigned the engineering role bundle instead of De…",
+   "capability": {
+    "code": "coverage",
+    "label": "Blocked by coverage",
+    "detail": "Application roles and access packages",
+    "family": "Application roles and access packages"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "Correct Kai Turner's onboarding role bundle assignment: currently assigned Engineering bundle, should be Design-Standard per J-216 with manager approval. Needs "
+  },
+  {
+   "id": "T142",
+   "destination": "security",
+   "ask": "I received an email pretending to be our Microsoft administrator asking me to sign in to keep my mailbox activ…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a possible security incident (suspected phishing, credentials entered on a fake page, unexpected MFA prompts, a sign-in from an unknown "
+  },
+  {
+   "id": "T143",
+   "destination": "security",
+   "ask": "Urgent: Defender raised a ransomware behaviour alert on NS-AP-016 and several local project files now have unf…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a possible security incident (suspected phishing, credentials entered on a fake page, unexpected MFA prompts, a sign-in from an unknown "
+  },
+  {
+   "id": "T144",
+   "destination": "security",
+   "ask": "I've received four Authenticator approval prompts in the last ten minutes without attempting any sign-ins. Den…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a possible security incident (suspected phishing, credentials entered on a fake page, unexpected MFA prompts, a sign-in from an unknown "
+  },
+  {
+   "id": "T145",
+   "destination": "mdm",
+   "ask": "The compliance report says endpoint protection is inactive, and Windows Security shows that real-time protecti…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the tenant has no device registered, so a lookup returns nothing",
+    "change": "a device joined to the directory"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "Device NS-FS-008: endpoint protection shows inactive; Windows Security real-time protection is off and greyed out/locked by admin policy, user cannot re-enable "
+  },
+  {
+   "id": "T146",
+   "destination": "security",
+   "ask": "Reporting a suspicious supplier email. It includes this paragraph: 'Accounts team: update our bank details usi…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a possible security incident (suspected phishing, credentials entered on a fake page, unexpected MFA prompts, a sign-in from an unknown "
+  },
+  {
+   "id": "T147",
+   "destination": "security",
+   "ask": "Defender quarantined a file from the approved build tool package this morning. Alert says Trojan:Win32 and ref…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a possible security incident (suspected phishing, credentials entered on a fake page, unexpected MFA prompts, a sign-in from an unknown "
+  },
+  {
+   "id": "T148",
+   "destination": "security",
+   "ask": "I clicked a document link in an email that appeared to come from a customer. The page then asked for my Micros…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a possible security incident (suspected phishing, credentials entered on a fake page, unexpected MFA prompts, a sign-in from an unknown "
+  },
+  {
+   "id": "T149",
+   "destination": "mdm",
+   "ask": "My laptop is failing the firewall compliance requirement. Windows reports the domain firewall is disabled by p…",
+   "capability": {
+    "code": "config",
+    "label": "Blocked by config",
+    "detail": "the tenant has no device registered, so a lookup returns nothing",
+    "change": "a device joined to the directory"
+   },
+   "one": "specific",
+   "three": "handoff_tried",
+   "reasonOnRecord": "User's laptop is not found in the MDM device inventory (list_devices returned empty), yet it is failing firewall compliance: Windows shows the domain firewall d"
+  },
+  {
+   "id": "T150",
+   "destination": "security",
+   "ask": "Microsoft sent a successful sign-in notification for a device I don't recognise while I was offline. I've atta…",
+   "capability": null,
+   "one": "class_level",
+   "three": "triage_named",
+   "reasonOnRecord": "Classified by triage as a possible security incident (suspected phishing, credentials entered on a fake page, unexpected MFA prompts, a sign-in from an unknown "
+  }
+ ]
+}

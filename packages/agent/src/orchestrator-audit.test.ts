@@ -63,13 +63,13 @@ describe("OrchestratorAudit", () => {
     log.close();
   });
 
-  it("writes a denied record for an explicit unsupported classification, with no detail", () => {
+  it("writes a denied record for an explicit not_it classification, with no detail", () => {
     const audit = new OrchestratorAudit(dbPath);
     audit.appendNotRouted({
       requestId: "req-1",
       actor: "alice@contoso.com",
       requestText: "reset my printer",
-      rule: "triage.unsupported",
+      rule: "triage.not_it",
     });
     audit.close();
 
@@ -78,11 +78,50 @@ describe("OrchestratorAudit", () => {
     expect(record).toMatchObject({
       agent: "orchestrator",
       decision: "denied",
-      rules: ["triage.unsupported"],
+      rules: ["triage.not_it"],
       parameters: { requestText: "reset my printer" },
       result: null,
     });
     expect((record!.parameters as { detail?: string }).detail).toBeUndefined();
+    log.close();
+  });
+
+  it("writes a denied record for an explicit needs_human classification", () => {
+    const audit = new OrchestratorAudit(dbPath);
+    audit.appendNotRouted({
+      requestId: "req-1",
+      actor: "alice@contoso.com",
+      requestText: "my laptop screen is cracked",
+      rule: "triage.needs_human",
+    });
+    audit.close();
+
+    const log = new AuditLog(openDatabase(dbPath));
+    const [record] = log.list();
+    expect(record).toMatchObject({
+      agent: "orchestrator",
+      decision: "denied",
+      rules: ["triage.needs_human"],
+      parameters: { requestText: "my laptop screen is cracked" },
+      result: null,
+    });
+    log.close();
+  });
+
+  it("writes the notItTeam as the detail when decision one named a team", () => {
+    const audit = new OrchestratorAudit(dbPath);
+    audit.appendNotRouted({
+      requestId: "req-1",
+      actor: "alice@contoso.com",
+      requestText: "the heater in my office is broken",
+      rule: "triage.not_it",
+      detail: "facilities",
+    });
+    audit.close();
+
+    const log = new AuditLog(openDatabase(dbPath));
+    const [record] = log.list();
+    expect((record!.parameters as { detail?: string }).detail).toBe("facilities");
     log.close();
   });
 
