@@ -207,6 +207,10 @@ The status of each sprint's components as they were completed, and how the worki
   - [Sprint 4, Section 6 status](history.md#sprint-4-section-6-status)
 - [Repository history: how the working tree was committed](history.md#repository-history-how-the-working-tree-was-committed)
 
+## [sprints/](sprints/)
+
+The build contracts each sprint was written against, kept because they record why decisions were made rather than what was built: [SPRINT1.md](sprints/SPRINT1.md), [SPRINT2.md](sprints/SPRINT2.md), [SPRINT3.md](sprints/SPRINT3.md), [SPRINT4.md](sprints/SPRINT4.md). The text of this documentation refers to them by file name, for example "SPRINT3.md, 3.3".
+
 ## The root README
 
 - The first two screens of the old README, rewritten: what this is, the architecture diagram, the walkthrough, six headline numbers with their caveats, how to run it, and links here. Its original opening is in [architecture.md](architecture.md) ("What this is") and the detail behind the numbers is in [measurements.md](measurements.md).

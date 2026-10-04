@@ -162,7 +162,7 @@ nothing.
 
 ## Sprint 2: gateway isolation, at two layers
 
-[SPRINT2.md](../SPRINT2.md) opens a second app registration, `helpdesk-mdm-gateway`, with exactly
+[SPRINT2.md](sprints/SPRINT2.md) opens a second app registration, `helpdesk-mdm-gateway`, with exactly
 one Graph permission (`Device.Read.All`) and its own certificate, disjoint from the identity
 gateway's (`User.Read.All`, `GroupMember.ReadWrite.All`). The claim worth demonstrating is not
 "our code keeps these separate" but "Microsoft keeps these separate, and would refuse a mistake

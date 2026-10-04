@@ -11,7 +11,7 @@ Section titles quoted in the text, such as "Endpoint gateway notes", are the tit
 This is a small identity helpdesk: a web form where someone can ask a question about group
 membership or ask for a group membership change, an AI agent that answers the question or
 requests the change, and a human approver who reviews and decides on any change before it
-happens. The build contract is [SPRINT1.md](../SPRINT1.md); this file explains the design and
+happens. The build contract is [SPRINT1.md](sprints/SPRINT1.md); this file explains the design and
 records what has been verified against a real Microsoft Entra tenant.
 
 The problem it addresses is a specific one. Once an AI agent has a tool that can change a

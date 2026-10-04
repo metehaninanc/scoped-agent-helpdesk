@@ -68,4 +68,4 @@ pnpm prove-isolation                  # the boundary checks; pnpm prove-injectio
 - [docs/measurements.md](docs/measurements.md): the five passes and the held-out set. [docs/triage-accuracy.md](docs/triage-accuracy.md): how triage was tuned and scored.
 - [docs/limits.md](docs/limits.md): what this does not do, and where the ceiling is.
 - [docs/verification.md](docs/verification.md): the live runs against the tenant. [docs/running.md](docs/running.md): environment and every command. [docs/history.md](docs/history.md): build status by sprint.
-- [docs/README.md](docs/README.md): where each section of the old single-file README went. [`SPRINT1.md`](SPRINT1.md) to [`SPRINT4.md`](SPRINT4.md): the build contracts. [`evidence/`](evidence/): every result file.
+- [docs/README.md](docs/README.md): where each section of the old single-file README went. [`SPRINT1.md`](docs/sprints/SPRINT1.md) to [`SPRINT4.md`](docs/sprints/SPRINT4.md): the build contracts. [`evidence/`](evidence/): every result file.
