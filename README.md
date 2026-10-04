@@ -5333,13 +5333,17 @@ this document is traceable to evidence, and this section says plainly where the 
 | `bbba6a4`, `0eeb709` | The walkthrough recorder, and the recording with a fresh `prove-isolation` run. |
 | `d38068d` | Root scripts for the two. |
 | `eb05b25` | The README for the injection suite and the walkthrough. |
+| `5f7405b`, `89c7b33` | The `hand_off` description states its 500-character limit; the injection report's two layers. |
+| `54402a9`, `fbb1674` | The runner takes a ticket set and its own actor mapping, and the scorer scores one pass alone. |
+| `3e3a78d` | Pass five's evidence, and the resolved bucket scored by hand. |
+| `912235f` | The README's final pass and headline figures. |
 
-**What was and was not checked.** `c983a72` and, after the injection suite and the walkthrough, `eb05b25` were each
+**What was and was not checked.** `c983a72`, `eb05b25` and, after the final pass, `912235f` were each
 checked as a clean clone: installed from the committed lockfile with `--frozen-lockfile`, built, type-checked,
-and every test run: 1,024 passed at `c983a72`, 1,057 at `eb05b25`. The first check installed offline, with
+and every test run: 1,024 passed at `c983a72`, 1,057 at `eb05b25`, 1,058 at `912235f`. The first check installed offline, with
 nothing downloaded. By the second the local package store had lost some tarballs, so it installed with
 `--prefer-offline`: 61 packages from the store and 87 downloaded from the registry at the versions and hashes the
 lockfile pins. **No other commit was built on its own**, and the early ones cannot have been: they depend on
 `packages/handoff-core`, the gateways and the lockfile, which arrive in later commits, and each such commit says
-so in its message. The commit after `eb05b25` changes `README.md` only. Several files, `README.md` among them, were
+so in its message. The commit after `912235f` changes `README.md` only. Several files, `README.md` among them, were
 committed whole and so carry work from more than one period. Nothing was rewritten to hide any of this.
