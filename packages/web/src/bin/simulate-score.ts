@@ -5,7 +5,7 @@
  * comes straight from computeDashboardData(), pointed at each pass's own five sim chains; nothing
  * here recomputes an outcome by a different method than the dashboard itself would.
  *
- *   pnpm simulate-score [-- --tags 2,3] [-- --misrouted 3=12]
+ *   pnpm simulate-score [-- --tags 2,3] [-- --misrouted 3=12] [-- --exclude-first --out <file>]
  *
  * --tags is a comma-separated list of pass tags to include, in order; the untagged first pass is
  * always included first and does not need naming. --misrouted names a pass tag and the misrouted
@@ -78,10 +78,13 @@ function parseMisrouted(entries: readonly string[]): Map<string | undefined, num
 
 function main(): void {
   const { values } = parseArgs({
-    options: { tags: { type: "string" }, misrouted: { type: "string", multiple: true } },
+    options: { tags: { type: "string" }, misrouted: { type: "string", multiple: true }, "exclude-first": { type: "boolean" }, out: { type: "string" } },
     strict: true,
   });
-  const tags: (string | undefined)[] = [undefined, ...(values.tags ? values.tags.split(",") : [])];
+  // The untagged first pass is always first unless --exclude-first: pass five is a different ticket set (dataset2), so it is
+  // scored on its own, with --out, and never set beside passes one to four as if they were comparable.
+  const named = values.tags ? values.tags.split(",") : [];
+  const tags: (string | undefined)[] = values["exclude-first"] ? named : [undefined, ...named];
   const misroutedByTag = parseMisrouted(values.misrouted ?? []);
 
   const passes: PassOutcomes[] = tags.map((tag) => ({
@@ -91,7 +94,7 @@ function main(): void {
   }));
 
   const markdown = renderOutcomesComparisonMarkdown(passes);
-  const outPath = resolve("evidence/simulation-outcomes.md");
+  const outPath = resolve(values.out ?? "evidence/simulation-outcomes.md");
   writeFileSync(outPath, markdown, "utf8");
   console.error(`[simulate-score] wrote ${outPath} for: ${passes.map((p) => p.label).join(", ")}`);
 }
